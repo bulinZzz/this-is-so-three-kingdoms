@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-终端会输出访问地址，在浏览器中打开该地址即可（默认是 <http://localhost:5173/>）。
+终端会输出访问地址，在浏览器中打开该地址即可（默认是 <http://localhost:5173/this-is-so-three-kingdoms/>）。
 
 ## 其他命令
 
