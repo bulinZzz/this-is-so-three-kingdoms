@@ -1,0 +1,45 @@
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #14110d;
+  color: #e8d9b5;
+  font-family: "Noto Serif SC", "Songti SC", "SimSun", serif;
+}
+
+#app {
+  position: relative;
+  height: 100%;
+  width: 100%;
+}
+
+#world,
+#ui-root {
+  position: absolute;
+  inset: 0;
+}
+
+#world {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#ui-root {
+  pointer-events: none;
+}
+
+#ui-root > * {
+  pointer-events: auto;
+}

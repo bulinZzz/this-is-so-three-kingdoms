@@ -1,2 +1,9 @@
 # IntelliJ IDEA
 .idea/
+
+# Node
+node_modules/
+.npm-cache/
+
+# Build output
+dist/
