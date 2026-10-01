@@ -27,4 +27,21 @@ describe('createInitialState', () => {
     expect(fresh.factions[0].name).toBe('曹操')
     expect(fresh.currentDate.month).toBe(1)
   })
+
+  it('初始随机状态由种子决定', () => {
+    expect(createInitialState({ seed: 208 }).randomState).toBe(
+      createInitialState({ seed: 208 }).randomState,
+    )
+    expect(createInitialState({ seed: 208 }).randomState).not.toBe(
+      createInitialState({ seed: 209 }).randomState,
+    )
+  })
+
+  it('初始随机状态为无符号 32 位整数', () => {
+    const { randomState } = createInitialState()
+
+    expect(Number.isInteger(randomState)).toBe(true)
+    expect(randomState).toBeGreaterThanOrEqual(0)
+    expect(randomState).toBeLessThanOrEqual(0xffffffff)
+  })
 })

@@ -1,11 +1,20 @@
 import type { GameState, Scenario } from './model'
+import { createRandom, createSeed } from './random'
 import { SANGUO_208 } from './scenarios'
 
-export function createInitialState(scenario: Scenario = SANGUO_208): GameState {
+export interface NewGameOptions {
+  scenario?: Scenario
+  seed?: number
+}
+
+export function createInitialState(options: NewGameOptions = {}): GameState {
+  const { scenario = SANGUO_208, seed = createSeed() } = options
+
   return {
     currentDate: { ...scenario.startDate },
     currentTurn: 1,
     playerFaction: scenario.playerFaction,
     factions: scenario.factions.map((faction) => ({ ...faction })),
+    randomState: createRandom(seed).getState(),
   }
 }

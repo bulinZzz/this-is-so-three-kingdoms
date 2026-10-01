@@ -25,4 +25,6 @@ export interface GameState {
   currentTurn: number
   playerFaction: FactionId
   factions: Faction[]
+  /** 随机数发生器的内部状态，随存档一起落盘。 */
+  randomState: number
 }
