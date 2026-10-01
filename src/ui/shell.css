@@ -1,0 +1,149 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  padding: 16px 20px;
+  background: #1b1712;
+  border-right: 1px solid #3a3128;
+}
+
+.shell__date {
+  margin: 0;
+  font-size: 20px;
+  color: #e8d9b5;
+}
+
+.shell__turn {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #9a8b70;
+}
+
+.shell__title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 2px;
+  color: #9a8b70;
+}
+
+.shell__section--slots {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.shell__factions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shell__faction {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.shell__swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+.shell__badge {
+  padding: 1px 7px;
+  border: 1px solid #6b5c42;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #c8b48c;
+}
+
+.shell__slots {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #2a241c;
+}
+
+.slot__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.slot__name {
+  display: block;
+  font-size: 13px;
+  color: #d8c7a0;
+}
+
+.slot__meta {
+  display: block;
+  font-size: 11px;
+  white-space: nowrap;
+  color: #9a8b70;
+}
+
+.slot__button {
+  flex: none;
+  padding: 3px 8px;
+  border: 1px solid #574a36;
+  border-radius: 4px;
+  background: #241d16;
+  color: #c8b48c;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.slot__button:hover {
+  background: #322819;
+}
+
+.shell__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shell__button {
+  padding: 10px 12px;
+  border: 1px solid #6b5c42;
+  border-radius: 6px;
+  background: #2a2219;
+  color: #e8d9b5;
+  font-family: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.shell__button:hover {
+  background: #362c20;
+}
+
+.shell__status {
+  margin: 0;
+  min-height: 18px;
+  font-size: 12px;
+  color: #9a8b70;
+}

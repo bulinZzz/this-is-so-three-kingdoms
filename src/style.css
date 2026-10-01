@@ -19,27 +19,14 @@ body {
 }
 
 #app {
-  position: relative;
+  display: grid;
+  grid-template-columns: 280px 1fr;
   height: 100%;
-  width: 100%;
-}
-
-#world,
-#ui-root {
-  position: absolute;
-  inset: 0;
 }
 
 #world {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-#ui-root {
-  pointer-events: none;
-}
-
-#ui-root > * {
-  pointer-events: auto;
+  min-width: 0;
 }
