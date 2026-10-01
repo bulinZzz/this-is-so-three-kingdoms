@@ -40,6 +40,11 @@ export class GameSession {
     return this.applySave(slotKey(slot))
   }
 
+  /** 读取自动存档摘要供界面展示；没有自动存档时返回 null。 */
+  readAutoSave(): SaveSummary | null {
+    return this.saveStore.loadSummary(AUTO_SAVE_KEY)
+  }
+
   /** 读取槽位摘要供界面展示；空槽位返回 null。 */
   readSlot(slot: number): SaveSummary | null {
     return this.saveStore.loadSummary(slotKey(slot))

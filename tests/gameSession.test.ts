@@ -88,6 +88,19 @@ describe('GameSession', () => {
     expect(session.readSlot(2)?.turn).toBe(2)
   })
 
+  it('自动存档没有内容时没有摘要', () => {
+    const { session } = createSession()
+
+    expect(session.readAutoSave()).toBeNull()
+  })
+
+  it('自动存档的摘要在结束回合后更新', () => {
+    const { session } = createSession()
+    session.endTurn()
+
+    expect(session.readAutoSave()).toEqual({ date: { year: 208, month: 2 }, turn: 2 })
+  })
+
   it('空槽位没有摘要', () => {
     const { session } = createSession()
 

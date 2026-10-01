@@ -13,15 +13,18 @@ const SHELL_HTML = `
       <h2 class="shell__title">势力</h2>
       <ul class="shell__factions"></ul>
     </section>
-    <section class="shell__section shell__section--slots">
-      <h2 class="shell__title">存档</h2>
-      <ul class="shell__slots"></ul>
-    </section>
     <section class="shell__actions">
       <button type="button" class="shell__button" data-action="end-turn">结束回合</button>
-      <button type="button" class="shell__button" data-action="load-auto">读取自动存档</button>
+      <button type="button" class="shell__button" data-action="open-saves">存档</button>
     </section>
     <p class="shell__status" role="status"></p>
+    <dialog class="saves">
+      <div class="saves__head">
+        <h2 class="saves__title">存档与读档</h2>
+        <button type="button" class="saves__close" data-action="close-saves">关闭</button>
+      </div>
+      <ul class="saves__list"></ul>
+    </dialog>
   </div>
 `
 
@@ -70,43 +73,55 @@ function renderFactions(list: Element, state: GameState): void {
   )
 }
 
-function createSlotButton(label: string, action: string, slot: number): HTMLButtonElement {
+function createSlotItem(label: string, summary: SaveSummary | null): HTMLLIElement {
+  const item = document.createElement('li')
+  item.className = 'slot'
+
+  const info = document.createElement('div')
+  info.className = 'slot__info'
+
+  const name = document.createElement('span')
+  name.className = 'slot__name'
+  name.textContent = label
+
+  const meta = document.createElement('span')
+  meta.className = 'slot__meta'
+  meta.textContent = summary === null ? '空' : formatSlotSummary(summary)
+
+  info.append(name, meta)
+  item.append(info)
+
+  return item
+}
+
+function createSlotButton(label: string, action: string, slot?: number): HTMLButtonElement {
   const button = document.createElement('button')
   button.type = 'button'
   button.className = 'slot__button'
   button.dataset.action = action
-  button.dataset.slot = String(slot)
+
+  if (slot !== undefined) {
+    button.dataset.slot = String(slot)
+  }
+
   button.textContent = label
 
   return button
 }
 
 function renderSlots(list: Element, session: GameSession): void {
-  list.replaceChildren(
-    ...Array.from({ length: SLOT_COUNT }, (_, index) => {
-      const slot = index + 1
-      const summary = session.readSlot(slot)
+  const autoItem = createSlotItem('自动存档', session.readAutoSave())
+  autoItem.append(createSlotButton('读取', 'load-auto'))
 
-      const item = document.createElement('li')
-      item.className = 'slot'
+  const slotItems = Array.from({ length: SLOT_COUNT }, (_, index) => {
+    const slot = index + 1
+    const item = createSlotItem(`存档 ${slot}`, session.readSlot(slot))
+    item.append(createSlotButton('保存', 'save-slot', slot), createSlotButton('读取', 'load-slot', slot))
 
-      const info = document.createElement('div')
-      info.className = 'slot__info'
+    return item
+  })
 
-      const name = document.createElement('span')
-      name.className = 'slot__name'
-      name.textContent = `存档 ${slot}`
-
-      const meta = document.createElement('span')
-      meta.className = 'slot__meta'
-      meta.textContent = summary === null ? '空' : formatSlotSummary(summary)
-
-      info.append(name, meta)
-      item.append(info, createSlotButton('保存', 'save-slot', slot), createSlotButton('读取', 'load-slot', slot))
-
-      return item
-    }),
-  )
+  list.replaceChildren(autoItem, ...slotItems)
 }
 
 export function mountGameShell(session: GameSession): void {
@@ -116,10 +131,12 @@ export function mountGameShell(session: GameSession): void {
   const dateLabel = requireElement<HTMLElement>(root, '.shell__date')
   const turnLabel = requireElement<HTMLElement>(root, '.shell__turn')
   const factionList = requireElement<HTMLElement>(root, '.shell__factions')
-  const slotList = requireElement<HTMLElement>(root, '.shell__slots')
+  const slotList = requireElement<HTMLElement>(root, '.saves__list')
   const statusLabel = requireElement<HTMLElement>(root, '.shell__status')
   const endTurnButton = requireElement<HTMLButtonElement>(root, '[data-action="end-turn"]')
-  const loadAutoButton = requireElement<HTMLButtonElement>(root, '[data-action="load-auto"]')
+  const openSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="open-saves"]')
+  const closeSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="close-saves"]')
+  const savesDialog = requireElement<HTMLDialogElement>(root, '.saves')
 
   const paint = (state: GameState): void => {
     dateLabel.textContent = formatDate(state)
@@ -133,10 +150,12 @@ export function mountGameShell(session: GameSession): void {
     statusLabel.textContent = `已结束回合，进度保存至 ${formatDate(session.getState())}`
   })
 
-  loadAutoButton.addEventListener('click', () => {
-    statusLabel.textContent = session.loadAutoSave()
-      ? `已读取自动存档：${formatDate(session.getState())}`
-      : '没有找到自动存档'
+  openSavesButton.addEventListener('click', () => {
+    savesDialog.showModal()
+  })
+
+  closeSavesButton.addEventListener('click', () => {
+    savesDialog.close()
   })
 
   slotList.addEventListener('click', (event) => {
@@ -144,8 +163,19 @@ export function mountGameShell(session: GameSession): void {
       return
     }
 
-    const button = event.target.closest<HTMLButtonElement>('button[data-slot]')
+    const button = event.target.closest<HTMLButtonElement>('button[data-action]')
     if (button === null) {
+      return
+    }
+
+    if (button.dataset.action === 'load-auto') {
+      if (session.loadAutoSave()) {
+        statusLabel.textContent = `已读取自动存档：${formatDate(session.getState())}`
+        savesDialog.close()
+        return
+      }
+
+      statusLabel.textContent = '没有找到自动存档'
       return
     }
 
@@ -157,9 +187,13 @@ export function mountGameShell(session: GameSession): void {
       return
     }
 
-    statusLabel.textContent = session.loadSlot(slot)
-      ? `已读取存档 ${slot}：${formatDate(session.getState())}`
-      : `存档 ${slot} 还没有内容`
+    if (session.loadSlot(slot)) {
+      statusLabel.textContent = `已读取存档 ${slot}：${formatDate(session.getState())}`
+      savesDialog.close()
+      return
+    }
+
+    statusLabel.textContent = `存档 ${slot} 还没有内容`
   })
 
   session.subscribe(paint)
