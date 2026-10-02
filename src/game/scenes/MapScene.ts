@@ -5,8 +5,10 @@ import {
   provinceShapes,
   SITE_LABEL_OFFSET,
   siteRegion,
+  UNOWNED_SITE_COLOR,
   WORLD_HEIGHT,
   WORLD_WIDTH,
+  type SiteRegion,
 } from '../mapLayout'
 import {
   clampScroll,
@@ -35,8 +37,10 @@ const INITIAL_ZOOM_FACTOR = 1.65
 /** 滚轮每格的缩放倍率。 */
 const WHEEL_ZOOM_STEP = 1.15
 
-const UNOWNED_COLOR = 0x95886e
+const UNOWNED_COLOR = toColorNumber(UNOWNED_SITE_COLOR)
 const SITE_STROKE_COLOR = 0xf2e4c2
+/** 玩家所辖战略点在圆外多出一圈光晕，用以强调。 */
+const PLAYER_HALO_RADIUS = 6
 /** 州陆填充：暖色，与冷色海面在色相和明度上都拉开，海岸线才立得住。 */
 const PROVINCE_FILL_COLOR = 0x5a4930
 /**
@@ -48,19 +52,27 @@ const LAND_FILL_COLOR = 0x33322a
 const PROVINCE_STROKE_COLOR = 0x8f7550
 const SITE_LABEL_COLOR = '#f2e4c2'
 const PROVINCE_LABEL_COLOR = '#a8906a'
+/** 邻接连边平时轻描淡写，不压过战略点本身。 */
+const EDGE_COLOR = 0xd9c39a
+const EDGE_ALPHA = 0.3
+/** 悬停时，该战略点、其邻域与相连的边统一用这个强调色。 */
+const HIGHLIGHT_COLOR = 0xf6ecd4
 const LABEL_FONT = '"Noto Serif SC", "Songti SC", "SimSun", serif'
 
 function toColorNumber(hexColor: string): number {
   return Number.parseInt(hexColor.replace('#', ''), 16)
 }
 
-/** 天下地图：先铺州轮廓，再按归属为战略点着色并标注名称。 */
+/** 天下地图：先铺州轮廓，再画邻接连边与战略点，悬停时高亮邻域。 */
 export class MapScene extends Phaser.Scene {
   private readonly drawn: Phaser.GameObjects.GameObject[] = []
   private limits: ZoomLimits | null = null
   private viewReady = false
   private dragging = false
   private readonly dragFrom = { x: 0, y: 0 }
+  private state: GameState | null = null
+  private hoveredId: string | null = null
+  private highlight: Phaser.GameObjects.Graphics | null = null
 
   constructor(private readonly source: MapStateSource) {
     super('Map')
@@ -80,7 +92,8 @@ export class MapScene extends Phaser.Scene {
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.beginDrag(pointer))
     this.input.on('pointerup', () => this.endDrag())
     this.input.on('pointerupoutside', () => this.endDrag())
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.moveDrag(pointer))
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onPointerMove(pointer))
+    this.input.on('gameout', () => this.setHovered(null))
     this.input.on(
       'wheel',
       (pointer: Phaser.Input.Pointer, _objects: unknown, _deltaX: number, deltaY: number) =>
@@ -146,6 +159,52 @@ export class MapScene extends Phaser.Scene {
     this.dragging = false
   }
 
+  /** 拖动中不做悬停判定，免得平移时高亮乱跳。 */
+  private onPointerMove(pointer: Phaser.Input.Pointer): void {
+    if (this.dragging) {
+      this.moveDrag(pointer)
+      return
+    }
+    this.setHovered(this.siteAtPointer(pointer))
+  }
+
+  /** 指针下方的战略点，取落在半径内且最近的一个。 */
+  private siteAtPointer(pointer: Phaser.Input.Pointer): string | null {
+    const state = this.state
+    if (state === null) {
+      return null
+    }
+
+    const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y)
+    // 命中范围按屏幕像素给一点余量，缩小时不至于难以点中。
+    const tolerance = 4 / this.cameras.main.zoom
+
+    let nearest: string | null = null
+    let nearestDistance = Number.POSITIVE_INFINITY
+    for (const site of state.geography.sites) {
+      const region = siteRegion(site.id)
+      if (region === null) {
+        continue
+      }
+
+      const distance = Phaser.Math.Distance.Between(world.x, world.y, region.x, region.y)
+      if (distance <= region.radius + tolerance && distance < nearestDistance) {
+        nearestDistance = distance
+        nearest = site.id
+      }
+    }
+
+    return nearest
+  }
+
+  private setHovered(siteId: string | null): void {
+    if (this.hoveredId === siteId) {
+      return
+    }
+    this.hoveredId = siteId
+    this.drawHighlight()
+  }
+
   /** 屏幕位移除以缩放得到世界位移，反向施加到滚动量上。 */
   private moveDrag(pointer: Phaser.Input.Pointer): void {
     if (!this.dragging) {
@@ -184,8 +243,12 @@ export class MapScene extends Phaser.Scene {
       object.destroy()
     }
 
+    this.state = state
+    this.highlight = null
+
     this.drawLand()
     this.drawProvinces()
+    this.drawNeighborEdges(state)
 
     const colorOf = new Map(
       state.factions.map((faction) => [faction.id, toColorNumber(faction.color)]),
@@ -201,11 +264,24 @@ export class MapScene extends Phaser.Scene {
       }
 
       const ownerColor = site.owner === null ? undefined : colorOf.get(site.owner)
+      const color = ownerColor ?? UNOWNED_COLOR
+      const isPlayerSite = site.owner !== null && site.owner === state.playerFaction
 
-      graphics.fillStyle(ownerColor ?? UNOWNED_COLOR, 1)
+      if (isPlayerSite) {
+        graphics.fillStyle(color, 0.4)
+        graphics.fillCircle(region.x, region.y, region.radius + PLAYER_HALO_RADIUS)
+      }
+
+      graphics.fillStyle(color, 1)
       graphics.fillCircle(region.x, region.y, region.radius)
-      graphics.lineStyle(1.5, SITE_STROKE_COLOR, 0.45)
+      graphics.lineStyle(isPlayerSite ? 2.5 : 1.5, SITE_STROKE_COLOR, isPlayerSite ? 0.95 : 0.45)
       graphics.strokeCircle(region.x, region.y, region.radius)
+
+      // 光晕本身与州陆色差有限，再压一道亮边，玩家据点才真的跳出来。
+      if (isPlayerSite) {
+        graphics.lineStyle(1.5, SITE_STROKE_COLOR, 0.85)
+        graphics.strokeCircle(region.x, region.y, region.radius + PLAYER_HALO_RADIUS)
+      }
 
       const label = this.add
         .text(region.x, region.y + region.radius + SITE_LABEL_OFFSET, site.name, {
@@ -216,6 +292,84 @@ export class MapScene extends Phaser.Scene {
         .setOrigin(0.5, 0)
       this.drawn.push(label)
     }
+
+    const highlight = this.add.graphics()
+    this.drawn.push(highlight)
+    this.highlight = highlight
+    this.drawHighlight()
+  }
+
+  /** 相邻战略点之间的连边，每条只画一次，压在战略点下方。 */
+  private drawNeighborEdges(state: GameState): void {
+    const graphics = this.add.graphics()
+    this.drawn.push(graphics)
+    graphics.lineStyle(1.5, EDGE_COLOR, EDGE_ALPHA)
+
+    const drawnEdges = new Set<string>()
+    for (const site of state.geography.sites) {
+      const from = siteRegion(site.id)
+      if (from === null) {
+        continue
+      }
+
+      for (const neighborId of site.neighbors) {
+        const key = site.id < neighborId ? `${site.id}|${neighborId}` : `${neighborId}|${site.id}`
+        if (drawnEdges.has(key)) {
+          continue
+        }
+        drawnEdges.add(key)
+
+        const to = siteRegion(neighborId)
+        if (to === null) {
+          continue
+        }
+
+        graphics.lineBetween(from.x, from.y, to.x, to.y)
+      }
+    }
+  }
+
+  /**
+   * 悬停高亮画在独立图层上，只在悬停目标变化时重画，
+   * 免得每次移动指针都重建整幅地图。
+   */
+  private drawHighlight(): void {
+    const graphics = this.highlight
+    const state = this.state
+    if (graphics === null || state === null) {
+      return
+    }
+
+    graphics.clear()
+
+    const hoveredId = this.hoveredId
+    if (hoveredId === null) {
+      return
+    }
+
+    const focus = siteRegion(hoveredId)
+    if (focus === null) {
+      return
+    }
+
+    const site = state.geography.sites.find((entry) => entry.id === hoveredId)
+    const neighborIds = site === undefined ? [] : site.neighbors
+    const neighborRegions = neighborIds
+      .map((neighborId) => siteRegion(neighborId))
+      .filter((region): region is SiteRegion => region !== null)
+
+    graphics.lineStyle(2.5, HIGHLIGHT_COLOR, 0.95)
+    for (const neighbor of neighborRegions) {
+      graphics.lineBetween(focus.x, focus.y, neighbor.x, neighbor.y)
+    }
+
+    graphics.lineStyle(2.5, HIGHLIGHT_COLOR, 0.9)
+    for (const neighbor of neighborRegions) {
+      graphics.strokeCircle(neighbor.x, neighbor.y, neighbor.radius + 3)
+    }
+
+    graphics.lineStyle(3, HIGHLIGHT_COLOR, 1)
+    graphics.strokeCircle(focus.x, focus.y, focus.radius + 4)
   }
 
   /** 塞外陆地底衬，先于州轮廓绘制，只填充不描边。 */

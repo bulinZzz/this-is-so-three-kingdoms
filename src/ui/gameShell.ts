@@ -1,6 +1,7 @@
 import type { GameSession } from '../app/gameSession'
 import type { GameState } from '../core/model'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
+import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
 import './shell.css'
 
 const SHELL_HTML = `
@@ -46,31 +47,42 @@ function formatSlotSummary(summary: SaveSummary): string {
 }
 
 function renderFactions(list: Element, state: GameState): void {
-  list.replaceChildren(
-    ...state.factions.map((faction) => {
-      const item = document.createElement('li')
-      item.className = 'shell__faction'
+  const items = state.factions.map((faction) => {
+    const item = document.createElement('li')
+    item.className = 'shell__faction'
 
-      const swatch = document.createElement('span')
-      swatch.className = 'shell__swatch'
-      swatch.style.background = faction.color
+    const swatch = document.createElement('span')
+    swatch.className = 'shell__swatch'
+    swatch.style.background = faction.color
 
-      const name = document.createElement('span')
-      name.className = 'shell__faction-name'
-      name.textContent = faction.name
+    const name = document.createElement('span')
+    name.className = 'shell__faction-name'
+    name.textContent = faction.name
 
-      item.append(swatch, name)
+    item.append(swatch, name)
 
-      if (faction.id === state.playerFaction) {
-        const badge = document.createElement('span')
-        badge.className = 'shell__badge'
-        badge.textContent = '玩家'
-        item.append(badge)
-      }
+    if (faction.id === state.playerFaction) {
+      const badge = document.createElement('span')
+      badge.className = 'shell__badge'
+      badge.textContent = '玩家'
+      item.append(badge)
+    }
 
-      return item
-    }),
-  )
+    return item
+  })
+
+  // 地图上还有一类「无归属」战略点，同样要在图例里给出颜色。
+  const neutral = document.createElement('li')
+  neutral.className = 'shell__faction'
+  const neutralSwatch = document.createElement('span')
+  neutralSwatch.className = 'shell__swatch'
+  neutralSwatch.style.background = UNOWNED_SITE_COLOR
+  const neutralName = document.createElement('span')
+  neutralName.className = 'shell__faction-name'
+  neutralName.textContent = '无归属'
+  neutral.append(neutralSwatch, neutralName)
+
+  list.replaceChildren(...items, neutral)
 }
 
 function createSlotItem(label: string, summary: SaveSummary | null): HTMLLIElement {
