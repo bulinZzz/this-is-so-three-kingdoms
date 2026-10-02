@@ -59,6 +59,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   xiangyang: [112.12, 32.01],
   jiangling: [112.19, 30.35],
   jiangxia: [114.31, 30.55],
+  chibi: [113.85, 29.72],
   wuling: [111.69, 29.03],
   lingling: [111.61, 26.42],
   changsha: [112.94, 28.23],

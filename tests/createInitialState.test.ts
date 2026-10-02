@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
 import type { Scenario } from '../src/core/model'
-import { SANGUO_207 } from '../src/core/scenarios'
+import { SANGUO_208 } from '../src/core/scenarios'
 
 describe('createInitialState', () => {
   it('按开局剧本建立初始状态', () => {
     const state = createInitialState()
 
-    expect(state.currentDate).toEqual({ era: '建安', year: 12, season: 'autumn' })
+    expect(state.currentDate).toEqual({ era: '建安', year: 13, season: 'autumn' })
     expect(state.currentTurn).toBe(1)
     expect(state.factions.map((faction) => faction.name)).toEqual(['曹操', '刘备', '孙权'])
     expect(state.factions.some((faction) => faction.id === state.playerFaction)).toBe(true)
   })
 
-  it('剧本从建安十二年秋开局', () => {
-    expect(SANGUO_207.startDate).toEqual({ era: '建安', year: 12, season: 'autumn' })
+  it('剧本从建安十三年秋开局', () => {
+    expect(SANGUO_208.startDate).toEqual({ era: '建安', year: 13, season: 'autumn' })
   })
 
   it('势力 id 不重复', () => {
@@ -40,7 +40,7 @@ describe('createInitialState', () => {
       name: '无地理数据',
       startDate: { era: '建安', year: 20, season: 'spring' },
       playerFaction: 'liubei',
-      factions: SANGUO_207.factions,
+      factions: SANGUO_208.factions,
     }
 
     expect(createInitialState({ scenario }).geography).toEqual({ provinces: [], sites: [] })
@@ -48,7 +48,7 @@ describe('createInitialState', () => {
 
   it('地理数据来自剧本，且不与剧本共享可变对象', () => {
     const scenario: Scenario = {
-      ...SANGUO_207,
+      ...SANGUO_208,
       geography: {
         provinces: [{ id: 'jing', name: '荆州' }],
         sites: [

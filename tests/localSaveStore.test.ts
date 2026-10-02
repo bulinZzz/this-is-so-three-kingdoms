@@ -53,7 +53,7 @@ describe('LocalSaveStore', () => {
     store.save(KEY, state)
 
     expect(store.loadSummary(KEY)).toEqual({
-      date: { era: '建安', year: 12, season: 'winter' },
+      date: { era: '建安', year: 13, season: 'winter' },
       turn: 2,
     })
   })

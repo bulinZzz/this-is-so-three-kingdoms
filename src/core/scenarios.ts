@@ -1,10 +1,10 @@
 import { GEOGRAPHY_SANGUO } from './geographySanguo'
 import type { Scenario } from './model'
 
-export const SANGUO_207: Scenario = {
-  id: 'sanguo-207',
-  name: '建安十二年',
-  startDate: { era: '建安', year: 12, season: 'autumn' },
+export const SANGUO_208: Scenario = {
+  id: 'sanguo-208',
+  name: '建安十三年',
+  startDate: { era: '建安', year: 13, season: 'autumn' },
   playerFaction: 'liubei',
   factions: [
     { id: 'caocao', name: '曹操', color: '#3d6ea8' },

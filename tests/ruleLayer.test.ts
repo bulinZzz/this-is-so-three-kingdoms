@@ -32,7 +32,7 @@ describe('规则层无画面运行', () => {
       advanceTurn(state)
     }
 
-    expect(state.currentDate).toEqual({ era: '建安', year: 42, season: 'autumn' })
+    expect(state.currentDate).toEqual({ era: '建安', year: 43, season: 'autumn' })
     expect(state.currentTurn).toBe(121)
     expect(state.factions.map((faction) => faction.id)).toEqual(factionIds)
     expect(resolveFactionOrder(state)).toEqual(order)

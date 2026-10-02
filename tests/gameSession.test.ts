@@ -16,7 +16,7 @@ describe('GameSession', () => {
     const { session } = createSession()
 
     expect(session.getState().currentTurn).toBe(1)
-    expect(session.getState().currentDate).toEqual({ era: '建安', year: 12, season: 'autumn' })
+    expect(session.getState().currentDate).toEqual({ era: '建安', year: 13, season: 'autumn' })
   })
 
   it('启动时从自动存档继续', () => {
@@ -33,8 +33,8 @@ describe('GameSession', () => {
 
     session.endTurn()
 
-    expect(session.getState().currentDate).toEqual({ era: '建安', year: 12, season: 'winter' })
-    expect(store.load(AUTO_SAVE_KEY)?.currentDate).toEqual({ era: '建安', year: 12, season: 'winter' })
+    expect(session.getState().currentDate).toEqual({ era: '建安', year: 13, season: 'winter' })
+    expect(store.load(AUTO_SAVE_KEY)?.currentDate).toEqual({ era: '建安', year: 13, season: 'winter' })
   })
 
   it('结束回合后通知订阅者', () => {
@@ -99,7 +99,7 @@ describe('GameSession', () => {
     session.endTurn()
 
     expect(session.readAutoSave()).toEqual({
-      date: { era: '建安', year: 12, season: 'winter' },
+      date: { era: '建安', year: 13, season: 'winter' },
       turn: 2,
     })
   })

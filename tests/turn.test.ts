@@ -8,7 +8,7 @@ describe('advanceTurn', () => {
 
     advanceTurn(state)
 
-    expect(state.currentDate).toEqual({ era: '建安', year: 12, season: 'winter' })
+    expect(state.currentDate).toEqual({ era: '建安', year: 13, season: 'winter' })
     expect(state.currentTurn).toBe(2)
   })
 
