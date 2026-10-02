@@ -31,7 +31,15 @@ describe('createInitialState', () => {
   })
 
   it('剧本没有地理数据时开局地理为空', () => {
-    expect(createInitialState().geography).toEqual({ provinces: [], sites: [] })
+    const scenario: Scenario = {
+      id: 'bare',
+      name: '无地理数据',
+      startDate: { year: 200, month: 1 },
+      playerFaction: 'liubei',
+      factions: SANGUO_208.factions,
+    }
+
+    expect(createInitialState({ scenario }).geography).toEqual({ provinces: [], sites: [] })
   })
 
   it('地理数据来自剧本，且不与剧本共享可变对象', () => {

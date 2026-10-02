@@ -1,3 +1,4 @@
+import { GEOGRAPHY_208 } from './geography208'
 import type { Scenario } from './model'
 
 export const SANGUO_208: Scenario = {
@@ -10,4 +11,5 @@ export const SANGUO_208: Scenario = {
     { id: 'liubei', name: '刘备', color: '#3f7a5a' },
     { id: 'sunquan', name: '孙权', color: '#b0413e' },
   ],
+  geography: GEOGRAPHY_208,
 }
