@@ -1,14 +1,22 @@
 import type { GameSession } from '../app/gameSession'
-import type { GameState, Season } from '../core/model'
+import type { SettingsStore } from '../app/settingsStore'
+import type { Faction, GameState, Season } from '../core/model'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
+import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
 import './shell.css'
 
 const SHELL_HTML = `
   <div class="shell">
     <header class="shell__header">
-      <p class="shell__date"></p>
-      <p class="shell__turn"></p>
+      <div class="shell__heading">
+        <p class="shell__date"></p>
+        <p class="shell__turn"></p>
+      </div>
+      <div class="shell__menu">
+        <button type="button" class="shell__link" data-action="open-saves">存档</button>
+        <button type="button" class="shell__link" data-action="open-settings">设置</button>
+      </div>
     </header>
     <section class="shell__section">
       <h2 class="shell__title">势力</h2>
@@ -16,9 +24,18 @@ const SHELL_HTML = `
     </section>
     <section class="shell__actions">
       <button type="button" class="shell__button" data-action="end-turn">结束回合</button>
-      <button type="button" class="shell__button" data-action="open-saves">存档</button>
     </section>
     <p class="shell__status" role="status"></p>
+    <dialog class="settings">
+      <div class="saves__head">
+        <h2 class="saves__title">设置</h2>
+        <button type="button" class="saves__close" data-action="close-settings">关闭</button>
+      </div>
+      <label class="settings__option">
+        <input type="checkbox" class="settings__checkbox" />
+        <span>展示战略点的连线</span>
+      </label>
+    </dialog>
     <dialog class="saves">
       <div class="saves__head">
         <h2 class="saves__title">存档与读档</h2>
@@ -93,7 +110,12 @@ function formatSlotSummary(summary: SaveSummary): string {
 }
 
 function renderFactions(list: Element, state: GameState): void {
-  const items = state.factions.map((faction) => {
+  const factionsById = new Map(state.factions.map((faction) => [faction.id, faction]))
+  const ordered = resolveFactionOrder(state)
+    .map((id) => factionsById.get(id))
+    .filter((faction): faction is Faction => faction !== undefined)
+
+  const items = ordered.map((faction) => {
     const item = document.createElement('li')
     item.className = 'shell__faction'
 
@@ -110,7 +132,7 @@ function renderFactions(list: Element, state: GameState): void {
     if (faction.id === state.playerFaction) {
       const badge = document.createElement('span')
       badge.className = 'shell__badge'
-      badge.textContent = '玩家'
+      badge.textContent = '我'
       item.append(badge)
     }
 
@@ -182,7 +204,7 @@ function renderSlots(list: Element, session: GameSession): void {
   list.replaceChildren(autoItem, ...slotItems)
 }
 
-export function mountGameShell(session: GameSession): void {
+export function mountGameShell(session: GameSession, settings: SettingsStore): void {
   const root = requireElement<HTMLElement>(document, '#ui-root')
   root.innerHTML = SHELL_HTML
 
@@ -192,9 +214,15 @@ export function mountGameShell(session: GameSession): void {
   const slotList = requireElement<HTMLElement>(root, '.saves__list')
   const statusLabel = requireElement<HTMLElement>(root, '.shell__status')
   const endTurnButton = requireElement<HTMLButtonElement>(root, '[data-action="end-turn"]')
+  const openSettingsButton = requireElement<HTMLButtonElement>(root, '[data-action="open-settings"]')
   const openSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="open-saves"]')
+  const closeSettingsButton = requireElement<HTMLButtonElement>(root, '[data-action="close-settings"]')
   const closeSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="close-saves"]')
+  const settingsDialog = requireElement<HTMLDialogElement>(root, '.settings')
+  const settingsCheckbox = requireElement<HTMLInputElement>(root, '.settings__checkbox')
   const savesDialog = requireElement<HTMLDialogElement>(root, '.saves')
+
+  settingsCheckbox.checked = settings.get().showStrategicLinks
 
   const paint = (state: GameState): void => {
     dateLabel.textContent = formatDate(state)
@@ -206,6 +234,18 @@ export function mountGameShell(session: GameSession): void {
   endTurnButton.addEventListener('click', () => {
     session.endTurn()
     statusLabel.textContent = `已结束回合，进度保存至 ${formatDate(session.getState())}`
+  })
+
+  openSettingsButton.addEventListener('click', () => {
+    settingsDialog.showModal()
+  })
+
+  closeSettingsButton.addEventListener('click', () => {
+    settingsDialog.close()
+  })
+
+  settingsCheckbox.addEventListener('change', () => {
+    settings.update({ showStrategicLinks: settingsCheckbox.checked })
   })
 
   openSavesButton.addEventListener('click', () => {

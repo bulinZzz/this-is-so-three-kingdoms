@@ -1,5 +1,7 @@
 import Phaser from 'phaser'
-import type { GameState, SiteType } from '../../core/model'
+import type { SettingsSource } from '../../app/settingsStore'
+import type { GameState, SiteId, SiteType } from '../../core/model'
+import { SITE_COORDINATES } from '../mapData'
 import {
   landShapes,
   provinceShapes,
@@ -26,9 +28,8 @@ export interface MapStateSource {
   subscribe(listener: (state: GameState) => void): void
 }
 
-/** 开局视野中心，落在中原与荆襄。 */
-const INITIAL_CENTER_LON = 112.5
-const INITIAL_CENTER_LAT = 33
+/** 开局视野对准玩家所在的战略点，坐标直接取自战略点数据，不另存一份。 */
+const FOCUS_SITE: SiteId = 'jiangxia'
 /**
  * 开局缩放相对「整幅可见」的倍数。
  * 1.65 相当于从 2.5 往回收三格滚轮（1.15 的三次方约 1.52）。
@@ -112,20 +113,26 @@ function drawSiteMarker(
 export class MapScene extends Phaser.Scene {
   private readonly drawn: Phaser.GameObjects.GameObject[] = []
   private limits: ZoomLimits | null = null
-  private viewReady = false
+  /** 玩家是否自己动过视野。动过之后，窗口缩放不再重新对准开局视野。 */
+  private userAdjusted = false
   private dragging = false
   private readonly dragFrom = { x: 0, y: 0 }
   private state: GameState | null = null
   private hoveredId: string | null = null
   private highlight: Phaser.GameObjects.Graphics | null = null
 
-  constructor(private readonly source: MapStateSource) {
+  constructor(
+    private readonly source: MapStateSource,
+    private readonly settings: SettingsSource,
+  ) {
     super('Map')
   }
 
   create(): void {
     this.render(this.source.getState())
     this.source.subscribe((state) => this.render(state))
+    // 设置变化只影响连线是否绘制，用当前对局状态重画即可。
+    this.settings.subscribe(() => this.render(this.source.getState()))
     this.setupCamera()
   }
 
@@ -149,7 +156,7 @@ export class MapScene extends Phaser.Scene {
     this.focusInitialView()
   }
 
-  /** 开局把视野对到中原与荆襄，缩放为整幅可见的若干倍。 */
+  /** 把视野对准玩家所在的战略点，缩放为整幅可见的若干倍。 */
   private focusInitialView(): void {
     const camera = this.cameras.main
     const limits = this.limitsFor(camera.width, camera.height)
@@ -159,24 +166,29 @@ export class MapScene extends Phaser.Scene {
     this.limits = limits
     const zoom = clampZoom(limits.min * INITIAL_ZOOM_FACTOR, limits)
     camera.setZoom(zoom)
-    this.applyScroll(scrollForCenter(INITIAL_CENTER_LON, INITIAL_CENTER_LAT, zoom, camera.width, camera.height))
-    this.viewReady = true
+    const [lon, lat] = SITE_COORDINATES[FOCUS_SITE]
+    this.applyScroll(scrollForCenter(lon, lat, zoom, camera.width, camera.height))
   }
 
-  /** 窗口尺寸变化后重算缩放上下限，并把当前缩放与滚动量重新夹取。 */
+  /**
+   * 窗口尺寸变化后重算缩放上下限。
+   * 画布在创建之后还会被 Scale.RESIZE 撑到最终大小，若玩家尚未动过视野，
+   * 就按最终尺寸重新对准；动过则只把当前视野夹回范围内，不打断玩家。
+   */
   private handleResize(): void {
-    if (!this.viewReady) {
+    if (!this.userAdjusted) {
       this.focusInitialView()
       return
     }
+
     const camera = this.cameras.main
     const limits = this.limitsFor(camera.width, camera.height)
     if (!(limits.min > 0)) {
       return
     }
     this.limits = limits
-    camera.setZoom(clampZoom(camera.zoom, limits))
     camera.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
+    camera.setZoom(clampZoom(camera.zoom, limits))
     this.applyScroll({ x: camera.scrollX, y: camera.scrollY })
   }
 
@@ -255,6 +267,7 @@ export class MapScene extends Phaser.Scene {
     if (!this.dragging) {
       return
     }
+    this.userAdjusted = true
     const camera = this.cameras.main
     const dx = (pointer.x - this.dragFrom.x) / camera.zoom
     const dy = (pointer.y - this.dragFrom.y) / camera.zoom
@@ -275,6 +288,7 @@ export class MapScene extends Phaser.Scene {
     if (zoom === camera.zoom) {
       return
     }
+    this.userAdjusted = true
     const anchor = camera.getWorldPoint(pointer.x, pointer.y)
     camera.setZoom(zoom)
     this.applyScroll({
@@ -293,7 +307,7 @@ export class MapScene extends Phaser.Scene {
 
     this.drawLand()
     this.drawProvinces()
-    this.drawNeighborEdges(state)
+    this.drawNeighborEdges(state, this.settings.get().showStrategicLinks)
 
     const colorOf = new Map(
       state.factions.map((faction) => [faction.id, toColorNumber(faction.color)]),
@@ -341,8 +355,12 @@ export class MapScene extends Phaser.Scene {
     this.drawHighlight()
   }
 
-  /** 相邻战略点之间的连边，每条只画一次，压在战略点下方。 */
-  private drawNeighborEdges(state: GameState): void {
+  /** 相邻战略点之间的连边，每条只画一次，压在战略点下方；未开启连线时不绘制。 */
+  private drawNeighborEdges(state: GameState, showLinks: boolean): void {
+    if (!showLinks) {
+      return
+    }
+
     const graphics = this.add.graphics()
     this.drawn.push(graphics)
     graphics.lineStyle(1.5, EDGE_COLOR, EDGE_ALPHA)
