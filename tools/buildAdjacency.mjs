@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs'
 
 // 与 src/game/mapLayout.ts 一致的投影参数。
-const BOUNDS = { minLon: 93.5, maxLon: 129.5, minLat: 16.3, maxLat: 43.1 }
+const BOUNDS = { minLon: 82.4, maxLon: 140.6, minLat: 16.3, maxLat: 43.1 }
 const REFERENCE_LATITUDE = 33
 const KM_PER_LATITUDE_DEGREE = 110.57
 const KM_PER_LONGITUDE_DEGREE = 111.32 * Math.cos((REFERENCE_LATITUDE * Math.PI) / 180)

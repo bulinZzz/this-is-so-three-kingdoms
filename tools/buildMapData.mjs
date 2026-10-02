@@ -24,7 +24,7 @@ import { fileURLToPath } from 'node:url'
 // 配置
 // ---------------------------------------------------------------------------
 
-const BOUNDS = { minLon: 93.5, maxLon: 129.5, minLat: 16.3, maxLat: 43.1 }
+const BOUNDS = { minLon: 82.4, maxLon: 140.6, minLat: 16.3, maxLat: 43.1 }
 const CELL = 0.02
 /** Douglas–Peucker 抽稀容差，单位为度。 */
 const DP_TOLERANCE_DEG = 0.03
