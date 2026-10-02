@@ -6,7 +6,7 @@
   min-height: 0;
   padding: 16px 20px;
   background: #1b1712;
-  border-right: 1px solid #3a3128;
+  border-left: 1px solid #3a3128;
 }
 
 .shell__date {

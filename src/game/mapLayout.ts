@@ -1,0 +1,95 @@
+import type { ProvinceId, SiteId } from '../core/model'
+import {
+  MAP_VERTICES,
+  PROVINCE_OUTLINES,
+  SITE_COORDINATES,
+  SITE_DISPLAY_OFFSETS,
+  type LonLat,
+} from './mapData'
+
+/** 地图上的一个点。 */
+export interface MapPoint {
+  x: number
+  y: number
+}
+
+/** 战略点在屏幕上的区域。 */
+export interface SiteRegion extends MapPoint {
+  radius: number
+}
+
+/** 州的轮廓与州名位置。 */
+export interface ProvinceShape {
+  id: ProvinceId
+  name: string
+  points: MapPoint[]
+  label: MapPoint
+}
+
+export const SITE_RADIUS = 13
+
+/** 名称标注在圆下方的间距。 */
+export const SITE_LABEL_OFFSET = 4
+
+/** 相邻战略点之间允许的最小距离。 */
+export const MIN_SITE_DISTANCE = 2 * SITE_RADIUS
+
+/** 制图经纬度范围，覆盖十四州。 */
+const BOUNDS = { minLon: 99.5, maxLon: 123.5, minLat: 19.0, maxLat: 42.5 }
+
+/** 取中纬度做经度压缩，避免东西向被拉长。 */
+const REFERENCE_LATITUDE = 33
+const KM_PER_LATITUDE_DEGREE = 110.57
+const KM_PER_LONGITUDE_DEGREE = 111.32 * Math.cos((REFERENCE_LATITUDE * Math.PI) / 180)
+const PIXELS_PER_KILOMETER = 0.5
+const PADDING = 32
+
+function project([lon, lat]: LonLat): MapPoint {
+  return {
+    x: PADDING + (lon - BOUNDS.minLon) * KM_PER_LONGITUDE_DEGREE * PIXELS_PER_KILOMETER,
+    y: PADDING + (BOUNDS.maxLat - lat) * KM_PER_LATITUDE_DEGREE * PIXELS_PER_KILOMETER,
+  }
+}
+
+const CONTENT_WIDTH =
+  (BOUNDS.maxLon - BOUNDS.minLon) * KM_PER_LONGITUDE_DEGREE * PIXELS_PER_KILOMETER
+const CONTENT_HEIGHT =
+  (BOUNDS.maxLat - BOUNDS.minLat) * KM_PER_LATITUDE_DEGREE * PIXELS_PER_KILOMETER
+
+export const WORLD_WIDTH = Math.ceil(CONTENT_WIDTH + PADDING * 2)
+export const WORLD_HEIGHT = Math.ceil(CONTENT_HEIGHT + PADDING * 2)
+
+/** 查询战略点的屏幕区域；该点没有地理坐标时返回 null。 */
+export function siteRegion(siteId: SiteId): SiteRegion | null {
+  const coordinate = SITE_COORDINATES[siteId]
+  if (coordinate === undefined) {
+    return null
+  }
+
+  const point = project(coordinate)
+  const offset = SITE_DISPLAY_OFFSETS[siteId]
+
+  return {
+    x: point.x + (offset?.dx ?? 0),
+    y: point.y + (offset?.dy ?? 0),
+    radius: SITE_RADIUS,
+  }
+}
+
+/** 已有地理坐标的全部战略点。 */
+export function siteIdsWithLayout(): SiteId[] {
+  return Object.keys(SITE_COORDINATES)
+}
+
+/**
+ * 州的轮廓与州名位置，已投影到世界坐标。
+ * 相邻州引用同一批顶点，边界完全重合。
+ */
+export function provinceShapes(): ProvinceShape[] {
+  return PROVINCE_OUTLINES.map((outline) => ({
+    id: outline.id,
+    name: outline.name,
+    points: outline.ring.map((vertexId) => project(MAP_VERTICES[vertexId])),
+    label: project(outline.labelAt),
+  }))
+}

@@ -15,10 +15,16 @@ describe('208 年地理数据', () => {
     expect(validateGeography(GEOGRAPHY_208, FACTION_IDS)).toEqual([])
   })
 
-  it('覆盖七个州、四十个战略点，州名不重复', () => {
-    expect(GEOGRAPHY_208.provinces).toHaveLength(7)
+  it('覆盖十四个州、四十个战略点，州名不重复', () => {
+    expect(GEOGRAPHY_208.provinces).toHaveLength(14)
     expect(GEOGRAPHY_208.sites).toHaveLength(40)
-    expect(new Set(GEOGRAPHY_208.provinces.map((province) => province.name)).size).toBe(7)
+    expect(new Set(GEOGRAPHY_208.provinces.map((province) => province.name)).size).toBe(14)
+  })
+
+  it('长安隶属雍州', () => {
+    const changan = GEOGRAPHY_208.sites.find((site) => site.id === 'changan')
+
+    expect(changan?.provinceId).toBe('yong')
   })
 
   it('每个战略点都有对应的州', () => {

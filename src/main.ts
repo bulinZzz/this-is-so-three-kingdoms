@@ -6,4 +6,4 @@ import { mountGameShell } from './ui/gameShell'
 const session = new GameSession()
 
 mountGameShell(session)
-createGame()
+createGame(session)

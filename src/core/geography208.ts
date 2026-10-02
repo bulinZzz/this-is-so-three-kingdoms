@@ -2,21 +2,30 @@ import type { Geography } from './model'
 
 /**
  * 建安十三年（208 年）的地理格局。
- * 覆盖司隶、兖、豫、冀、徐、扬、荆七州，共 40 个战略点。
+ * 覆盖司隶、雍、豫、兖、徐、青、凉、并、冀、幽、扬、荆、益、交十四州，共 40 个战略点。
  */
 export const GEOGRAPHY_208: Geography = {
   provinces: [
     { id: 'sili', name: '司隶' },
-    { id: 'yan', name: '兖州' },
+    { id: 'yong', name: '雍州' },
     { id: 'yu', name: '豫州' },
-    { id: 'ji', name: '冀州' },
+    { id: 'yan', name: '兖州' },
     { id: 'xu', name: '徐州' },
+    { id: 'qing', name: '青州' },
+    { id: 'liang', name: '凉州' },
+    { id: 'bing', name: '并州' },
+    { id: 'ji', name: '冀州' },
+    { id: 'you', name: '幽州' },
     { id: 'yang', name: '扬州' },
     { id: 'jing', name: '荆州' },
+    { id: 'yi', name: '益州' },
+    { id: 'jiao', name: '交州' },
   ],
   sites: [
+    // 雍州
+    { id: 'changan', name: '长安', type: 'city', provinceId: 'yong', owner: null, neighbors: ['luoyang'] },
+
     // 司隶
-    { id: 'changan', name: '长安', type: 'city', provinceId: 'sili', owner: null, neighbors: ['luoyang'] },
     { id: 'luoyang', name: '洛阳', type: 'city', provinceId: 'sili', owner: 'caocao', neighbors: ['changan', 'sishui'] },
     { id: 'sishui', name: '汜水关', type: 'pass', provinceId: 'sili', owner: 'caocao', neighbors: ['luoyang', 'hulao'] },
     { id: 'hulao', name: '虎牢关', type: 'pass', provinceId: 'sili', owner: 'caocao', neighbors: ['sishui', 'chenliu', 'guandu'] },

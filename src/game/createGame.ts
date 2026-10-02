@@ -1,16 +1,17 @@
 import Phaser from 'phaser'
-import { BootScene } from './scenes/BootScene'
+import { WORLD_HEIGHT, WORLD_WIDTH } from './mapLayout'
+import { MapScene, type MapStateSource } from './scenes/MapScene'
 
-export const WORLD_WIDTH = 960
-export const WORLD_HEIGHT = 540
-
-export function createGame(): Phaser.Game {
+export function createGame(source: MapStateSource): Phaser.Game {
   return new Phaser.Game({
     type: Phaser.AUTO,
     parent: 'world',
     width: WORLD_WIDTH,
     height: WORLD_HEIGHT,
     backgroundColor: '#1b1712',
-    scene: [BootScene],
+    scale: {
+      mode: Phaser.Scale.FIT,
+    },
+    scene: [new MapScene(source)],
   })
 }
