@@ -31,7 +31,7 @@ export const GEOGRAPHY_208: Geography = {
     { id: 'hulao', name: '虎牢关', type: 'pass', provinceId: 'sili', owner: 'caocao', neighbors: ['sishui', 'chenliu', 'guandu'] },
 
     // 兖州
-    { id: 'guandu', name: '官渡', type: 'field', provinceId: 'yan', owner: 'caocao', neighbors: ['hulao', 'chenliu', 'puyang', 'baima'] },
+    { id: 'guandu', name: '官渡', type: 'field', provinceId: 'sili', owner: 'caocao', neighbors: ['hulao', 'chenliu', 'puyang', 'baima'] },
     { id: 'chenliu', name: '陈留', type: 'city', provinceId: 'yan', owner: 'caocao', neighbors: ['hulao', 'guandu', 'xudu', 'puyang'] },
     { id: 'puyang', name: '濮阳', type: 'city', provinceId: 'yan', owner: 'caocao', neighbors: ['chenliu', 'guandu', 'baima', 'ye', 'changyi'] },
     { id: 'baima', name: '白马', type: 'pass', provinceId: 'yan', owner: 'caocao', neighbors: ['guandu', 'puyang', 'ye'] },

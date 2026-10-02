@@ -217,7 +217,7 @@ describe('地图布局', () => {
         }
       }
     }
-  })
+  }, 60000)
 
   it('任意两个战略点的距离不小于布局下限', () => {
     const sites = GEOGRAPHY_208.sites

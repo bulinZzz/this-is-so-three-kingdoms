@@ -25,9 +25,12 @@ body {
 }
 
 #world {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
   min-width: 0;
+  min-height: 0;
   overflow: hidden;
+}
+
+#world canvas {
+  display: block;
 }
