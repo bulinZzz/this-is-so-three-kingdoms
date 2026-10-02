@@ -1,4 +1,5 @@
 import type { ProvinceId, SiteId } from '../core/model'
+import mapBounds from './mapBounds.json'
 import {
   LAND_OUTLINES,
   MAP_VERTICES,
@@ -39,11 +40,11 @@ export const UNOWNED_SITE_COLOR = '#95886e'
 export const MIN_SITE_DISTANCE = 2 * SITE_RADIUS
 
 /**
- * 制图经纬度范围。
+ * 制图经纬度范围，唯一来源为 mapBounds.json，构建工具亦读取同一文件。
  * 纬度取郡级矢量数据自身范围，经度向东西两侧对称外扩，使画幅接近常用视口比例，
  * 并将西域、青藏、朝鲜半岛与日本列岛等塞外地形纳入底衬。
  */
-const BOUNDS = { minLon: 82.4, maxLon: 140.6, minLat: 16.3, maxLat: 43.1 }
+const BOUNDS = mapBounds
 
 /** 取中纬度做经度压缩，避免东西向被拉长。 */
 const REFERENCE_LATITUDE = 33

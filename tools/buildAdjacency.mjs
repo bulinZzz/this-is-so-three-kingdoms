@@ -12,8 +12,11 @@
 
 import { readFileSync } from 'node:fs'
 
-// 与 src/game/mapLayout.ts 一致的投影参数。
-const BOUNDS = { minLon: 82.4, maxLon: 140.6, minLat: 16.3, maxLat: 43.1 }
+// 制图经纬度范围，唯一来源为 src/game/mapBounds.json，与 src/game/mapLayout.ts 共用；
+// 其余投影参数与 src/game/mapLayout.ts 保持一致。
+const BOUNDS = JSON.parse(
+  readFileSync(new URL('../src/game/mapBounds.json', import.meta.url), 'utf8'),
+)
 const REFERENCE_LATITUDE = 33
 const KM_PER_LATITUDE_DEGREE = 110.57
 const KM_PER_LONGITUDE_DEGREE = 111.32 * Math.cos((REFERENCE_LATITUDE * Math.PI) / 180)

@@ -24,7 +24,10 @@ import { fileURLToPath } from 'node:url'
 // 配置
 // ---------------------------------------------------------------------------
 
-const BOUNDS = { minLon: 82.4, maxLon: 140.6, minLat: 16.3, maxLat: 43.1 }
+/** 制图经纬度范围，唯一来源为 src/game/mapBounds.json，与 src/game/mapLayout.ts 共用。 */
+const BOUNDS = JSON.parse(
+  readFileSync(new URL('../src/game/mapBounds.json', import.meta.url), 'utf8'),
+)
 const CELL = 0.02
 /** Douglas–Peucker 抽稀容差，单位为度。 */
 const DP_TOLERANCE_DEG = 0.03
