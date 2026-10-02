@@ -23,16 +23,16 @@ const MAP_DATA_SOURCES = import.meta.glob(
 const PHASER_DEPENDENCY = /['"]phaser['"]/
 
 describe('规则层无画面运行', () => {
-  it('推进十年不出错，年月、回合数与势力列表保持稳定', () => {
+  it('推进 120 季（30 年）不出错，年号纪年、季节、回合数与势力列表保持稳定', () => {
     const state = createInitialState({ seed: 208 })
     const factionIds = state.factions.map((faction) => faction.id)
     const order = resolveFactionOrder(state)
 
-    for (let month = 0; month < 120; month += 1) {
+    for (let season = 0; season < 120; season += 1) {
       advanceTurn(state)
     }
 
-    expect(state.currentDate).toEqual({ year: 218, month: 1 })
+    expect(state.currentDate).toEqual({ era: '建安', year: 42, season: 'autumn' })
     expect(state.currentTurn).toBe(121)
     expect(state.factions.map((faction) => faction.id)).toEqual(factionIds)
     expect(resolveFactionOrder(state)).toEqual(order)
@@ -41,7 +41,7 @@ describe('规则层无画面运行', () => {
   it('相同种子重复推进，最终状态完全一致', () => {
     const run = () => {
       const state = createInitialState({ seed: 208 })
-      for (let month = 0; month < 36; month += 1) {
+      for (let season = 0; season < 36; season += 1) {
         advanceTurn(state)
       }
 
@@ -55,12 +55,12 @@ describe('规则层无画面运行', () => {
     const store = new LocalSaveStore(new MemoryStorage())
     const session = new GameSession(store)
 
-    for (let month = 0; month < 5; month += 1) {
+    for (let season = 0; season < 5; season += 1) {
       session.endTurn()
     }
     session.saveToSlot(1)
 
-    for (let month = 0; month < 3; month += 1) {
+    for (let season = 0; season < 3; season += 1) {
       session.endTurn()
     }
     const latestTurn = session.getState().currentTurn
@@ -81,7 +81,7 @@ describe('解耦回归', () => {
     const geographyRef = state.geography
     const snapshot = structuredClone(state.geography)
 
-    for (let month = 0; month < 60; month += 1) {
+    for (let season = 0; season < 60; season += 1) {
       advanceTurn(state)
     }
 

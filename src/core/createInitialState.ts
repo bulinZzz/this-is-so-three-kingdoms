@@ -1,7 +1,7 @@
 import { cloneGeography, EMPTY_GEOGRAPHY } from './geography'
 import type { GameState, Scenario } from './model'
 import { createRandom, createSeed } from './random'
-import { SANGUO_208 } from './scenarios'
+import { SANGUO_207 } from './scenarios'
 
 export interface NewGameOptions {
   scenario?: Scenario
@@ -9,7 +9,7 @@ export interface NewGameOptions {
 }
 
 export function createInitialState(options: NewGameOptions = {}): GameState {
-  const { scenario = SANGUO_208, seed = createSeed() } = options
+  const { scenario = SANGUO_207, seed = createSeed() } = options
 
   return {
     currentDate: { ...scenario.startDate },

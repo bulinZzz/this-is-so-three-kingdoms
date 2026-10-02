@@ -1485,8 +1485,8 @@ const siteBlock = extractBlock(source, 'SITE_COORDINATES')
 const offsetBlock = extractBlock(source, 'SITE_DISPLAY_OFFSETS')
 const geography = evaluateSiteCoordinates(
   extractBlock(
-    readFileSync(resolve(scriptDir, '..', 'src/core/geography208.ts'), 'utf8'),
-    'GEOGRAPHY_208',
+    readFileSync(resolve(scriptDir, '..', 'src/core/geographySanguo.ts'), 'utf8'),
+    'GEOGRAPHY_SANGUO',
   ),
 )
 const siteCoordinates = evaluateSiteCoordinates(siteBlock)

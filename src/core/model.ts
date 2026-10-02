@@ -1,6 +1,18 @@
+/** 季节，游戏以「一季」为一个回合。 */
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter'
+
+/**
+ * 年号纪年日期。
+ *
+ * 年号作为独立字段保存：将来「称帝」等事件只需更换年号的取值、并把纪年重置为 1，
+ * 不必改动存档格式。
+ */
 export interface GameDate {
+  /** 年号，如「建安」。称帝等事件可更换，将来可由玩家改名。 */
+  era: string
+  /** 年号纪年，自元年起算。建安十二年即 12。 */
   year: number
-  month: number
+  season: Season
 }
 
 export type FactionId = string

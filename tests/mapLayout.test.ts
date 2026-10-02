@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GEOGRAPHY_208 } from '../src/core/geography208'
+import { GEOGRAPHY_SANGUO } from '../src/core/geographySanguo'
 import type { SiteId } from '../src/core/model'
 import { MAP_VERTICES, PROVINCE_OUTLINES } from '../src/game/mapData'
 import {
@@ -110,8 +110,8 @@ function isContiguous(ring: readonly string[], common: ReadonlySet<string>): boo
 }
 
 describe('地图布局', () => {
-  it('208 年的每个战略点都有地理坐标，且没有多余坐标', () => {
-    const expected = GEOGRAPHY_208.sites.map((site) => site.id).sort()
+  it('剧本中每个战略点都有地理坐标，且没有多余坐标', () => {
+    const expected = GEOGRAPHY_SANGUO.sites.map((site) => site.id).sort()
 
     expect(siteIdsWithLayout().sort()).toEqual(expected)
   })
@@ -119,7 +119,7 @@ describe('地图布局', () => {
   it('每个战略点都落在所属州的轮廓内', () => {
     const shapes = new Map(provinceShapes().map((shape) => [shape.id, shape]))
 
-    for (const site of GEOGRAPHY_208.sites) {
+    for (const site of GEOGRAPHY_SANGUO.sites) {
       const shape = shapes.get(site.provinceId)
       expect(shape, `缺少 ${site.provinceId} 的轮廓`).toBeDefined()
       expect(
@@ -220,7 +220,7 @@ describe('地图布局', () => {
   }, 60000)
 
   it('任意两个战略点的距离不小于布局下限', () => {
-    const sites = GEOGRAPHY_208.sites
+    const sites = GEOGRAPHY_SANGUO.sites
 
     for (let i = 0; i < sites.length; i += 1) {
       for (let j = i + 1; j < sites.length; j += 1) {

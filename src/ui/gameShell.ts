@@ -1,5 +1,5 @@
 import type { GameSession } from '../app/gameSession'
-import type { GameState } from '../core/model'
+import type { GameState, Season } from '../core/model'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
 import './shell.css'
@@ -38,12 +38,58 @@ function requireElement<T extends Element>(scope: ParentNode, selector: string):
   return element
 }
 
+const SEASON_CHARACTERS: Record<Season, string> = {
+  spring: '春',
+  summer: '夏',
+  autumn: '秋',
+  winter: '冬',
+}
+
+const CHINESE_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九']
+
+/** 把 1–999 的纪年转成中文数字，元年以「元」表示。 */
+function toChineseNumeral(value: number): string {
+  if (value === 1) {
+    return '元'
+  }
+
+  const hundreds = Math.floor(value / 100)
+  const tens = Math.floor((value % 100) / 10)
+  const units = value % 10
+  const parts: string[] = []
+
+  if (hundreds > 0) {
+    parts.push(CHINESE_DIGITS[hundreds], '百')
+    if (tens === 0 && units > 0) {
+      parts.push('零')
+    }
+  }
+
+  if (tens > 0) {
+    if (hundreds > 0 || tens > 1) {
+      parts.push(CHINESE_DIGITS[tens])
+    }
+    parts.push('十')
+  }
+
+  if (units > 0) {
+    parts.push(CHINESE_DIGITS[units])
+  }
+
+  return parts.join('')
+}
+
+/** 把日期渲染为「建安十二年 秋」的形式。 */
 function formatDate(state: GameState): string {
-  return `${state.currentDate.year} 年 ${state.currentDate.month} 月`
+  const { era, year, season } = state.currentDate
+
+  return `${era}${toChineseNumeral(year)}年 ${SEASON_CHARACTERS[season]}`
 }
 
 function formatSlotSummary(summary: SaveSummary): string {
-  return `${summary.date.year}年${summary.date.month}月 · 第${summary.turn}回合`
+  const { era, year, season } = summary.date
+
+  return `${era}${toChineseNumeral(year)}年${SEASON_CHARACTERS[season]} · 第${summary.turn}回合`
 }
 
 function renderFactions(list: Element, state: GameState): void {

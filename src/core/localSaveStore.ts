@@ -1,4 +1,4 @@
-import type { GameState } from './model'
+import type { GameDate, GameState, Season } from './model'
 import {
   SCHEMA_VERSION,
   type SaveData,
@@ -12,18 +12,39 @@ export interface KeyValueStorage {
   setItem(key: string, value: string): void
 }
 
+const SEASONS: readonly Season[] = ['spring', 'summer', 'autumn', 'winter']
+
+function isSeason(value: unknown): value is Season {
+  return SEASONS.includes(value as Season)
+}
+
+function isGameDate(value: unknown): value is GameDate {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as Partial<GameDate>
+
+  return (
+    typeof candidate.era === 'string' &&
+    typeof candidate.year === 'number' &&
+    isSeason(candidate.season)
+  )
+}
+
 function isSaveData(value: unknown): value is SaveData {
   if (typeof value !== 'object' || value === null) {
     return false
   }
 
   const candidate = value as Partial<SaveData>
+  const gameState = candidate.gameState
 
-  return (
-    typeof candidate.schemaVersion === 'number' &&
-    typeof candidate.gameState === 'object' &&
-    candidate.gameState !== null
-  )
+  if (typeof candidate.schemaVersion !== 'number' || typeof gameState !== 'object' || gameState === null) {
+    return false
+  }
+
+  return isGameDate((gameState as Partial<GameState>).currentDate)
 }
 
 export class LocalSaveStore implements SaveStore {

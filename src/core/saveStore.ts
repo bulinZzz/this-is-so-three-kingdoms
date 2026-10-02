@@ -1,6 +1,6 @@
 import type { GameDate, GameState } from './model'
 
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 /** 手动存档槽位数量，槽位编号从 1 开始。 */
 export const SLOT_COUNT = 10

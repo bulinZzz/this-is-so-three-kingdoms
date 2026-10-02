@@ -45,14 +45,17 @@ describe('LocalSaveStore', () => {
     expect(JSON.parse(raw as string).schemaVersion).toBe(SCHEMA_VERSION)
   })
 
-  it('读取摘要得到年月与回合数', () => {
+  it('读取摘要得到年号纪年、季节与回合数', () => {
     const store = new LocalSaveStore(new MemoryStorage())
     const state = createInitialState({ seed: 208 })
     advanceTurn(state)
 
     store.save(KEY, state)
 
-    expect(store.loadSummary(KEY)).toEqual({ date: { year: 208, month: 2 }, turn: 2 })
+    expect(store.loadSummary(KEY)).toEqual({
+      date: { era: '建安', year: 12, season: 'winter' },
+      turn: 2,
+    })
   })
 
   it('空键位读取摘要为空', () => {
@@ -87,5 +90,22 @@ describe('LocalSaveStore', () => {
     storage.setItem(KEY, 'null')
 
     expect(new LocalSaveStore(storage).load(KEY)).toBeNull()
+  })
+
+  it('存档日期结构不符时读取为空', () => {
+    const storage = new MemoryStorage()
+    const state = createInitialState({ seed: 208 })
+    storage.setItem(
+      KEY,
+      JSON.stringify({
+        schemaVersion: SCHEMA_VERSION,
+        gameState: { ...state, currentDate: { year: 12, month: 1 } },
+      }),
+    )
+
+    const store = new LocalSaveStore(storage)
+
+    expect(store.load(KEY)).toBeNull()
+    expect(store.loadSummary(KEY)).toBeNull()
   })
 })

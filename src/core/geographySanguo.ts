@@ -1,10 +1,10 @@
 import type { Geography } from './model'
 
 /**
- * 建安十三年（208 年）的地理格局。
+ * 三国时期的地理格局。
  * 覆盖司隶、雍、豫、兖、徐、青、凉、并、冀、幽、扬、荆、益、交十四州，共 40 个战略点。
  */
-export const GEOGRAPHY_208: Geography = {
+export const GEOGRAPHY_SANGUO: Geography = {
   provinces: [
     { id: 'sili', name: '司隶' },
     { id: 'yong', name: '雍州' },

@@ -3,33 +3,61 @@ import { createInitialState } from '../src/core/createInitialState'
 import { advanceTurn, resolveFactionOrder } from '../src/core/turn'
 
 describe('advanceTurn', () => {
-  it('推进一个月，回合数同步增加', () => {
+  it('推进一季，回合数同步增加', () => {
     const state = createInitialState({ seed: 208 })
 
     advanceTurn(state)
 
-    expect(state.currentDate).toEqual({ year: 208, month: 2 })
+    expect(state.currentDate).toEqual({ era: '建安', year: 12, season: 'winter' })
     expect(state.currentTurn).toBe(2)
   })
 
-  it('十二月推进后进入下一年一月', () => {
+  it('冬季推进后进入下一年春季', () => {
     const state = createInitialState({ seed: 208 })
-    state.currentDate = { year: 208, month: 12 }
+    state.currentDate = { era: '建安', year: 12, season: 'winter' }
 
     advanceTurn(state)
 
-    expect(state.currentDate).toEqual({ year: 209, month: 1 })
+    expect(state.currentDate).toEqual({ era: '建安', year: 13, season: 'spring' })
   })
 
-  it('连续推进十二个月，年份增加一年且月份回到起点', () => {
+  it('只有冬季跨年，春、夏、秋只前进一季且年份不变', () => {
     const state = createInitialState({ seed: 208 })
+    state.currentDate = { era: '建安', year: 12, season: 'spring' }
 
-    for (let month = 0; month < 12; month += 1) {
+    advanceTurn(state)
+    expect(state.currentDate).toEqual({ era: '建安', year: 12, season: 'summer' })
+
+    advanceTurn(state)
+    expect(state.currentDate).toEqual({ era: '建安', year: 12, season: 'autumn' })
+
+    advanceTurn(state)
+    expect(state.currentDate).toEqual({ era: '建安', year: 12, season: 'winter' })
+
+    advanceTurn(state)
+    expect(state.currentDate).toEqual({ era: '建安', year: 13, season: 'spring' })
+  })
+
+  it('连续推进四季，季节回到春季且年份增加一年', () => {
+    const state = createInitialState({ seed: 208 })
+    state.currentDate = { era: '建安', year: 12, season: 'spring' }
+
+    for (let season = 0; season < 4; season += 1) {
       advanceTurn(state)
     }
 
-    expect(state.currentDate).toEqual({ year: 209, month: 1 })
-    expect(state.currentTurn).toBe(13)
+    expect(state.currentDate).toEqual({ era: '建安', year: 13, season: 'spring' })
+    expect(state.currentTurn).toBe(5)
+  })
+
+  it('每个季节回合数只增加一', () => {
+    const state = createInitialState({ seed: 208 })
+
+    for (let step = 1; step <= 4; step += 1) {
+      advanceTurn(state)
+
+      expect(state.currentTurn).toBe(1 + step)
+    }
   })
 
   it('不改变势力列表', () => {
