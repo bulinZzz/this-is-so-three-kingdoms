@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import type { GameState } from '../../core/model'
+import type { GameState, SiteType } from '../../core/model'
 import {
   landShapes,
   provinceShapes,
@@ -61,6 +61,51 @@ const LABEL_FONT = '"Noto Serif SC", "Songti SC", "SimSun", serif'
 
 function toColorNumber(hexColor: string): number {
   return Number.parseInt(hexColor.replace('#', ''), 16)
+}
+
+/**
+ * 按战略点类型换形制：城市为圆、关隘为菱形、野地为淡底方框。
+ * 颜色仍按归属，形制只表达类型。
+ */
+function drawSiteMarker(
+  graphics: Phaser.GameObjects.Graphics,
+  type: SiteType,
+  region: SiteRegion,
+  color: number,
+  isPlayerSite: boolean,
+): void {
+  const strokeWidth = isPlayerSite ? 2.5 : 1.5
+  const strokeAlpha = isPlayerSite ? 0.95 : 0.45
+
+  if (type === 'pass') {
+    const half = region.radius * 1.15
+    const corners = [
+      new Phaser.Math.Vector2(region.x, region.y - half),
+      new Phaser.Math.Vector2(region.x + half, region.y),
+      new Phaser.Math.Vector2(region.x, region.y + half),
+      new Phaser.Math.Vector2(region.x - half, region.y),
+    ]
+    graphics.fillStyle(color, 1)
+    graphics.fillPoints(corners, true)
+    graphics.lineStyle(strokeWidth, SITE_STROKE_COLOR, strokeAlpha)
+    graphics.strokePoints(corners, true)
+    return
+  }
+
+  if (type === 'field') {
+    const half = region.radius * 0.85
+    // 野地不是聚落：底色压淡，靠描边保持归属色可辨。
+    graphics.fillStyle(color, 0.35)
+    graphics.fillRect(region.x - half, region.y - half, half * 2, half * 2)
+    graphics.lineStyle(strokeWidth, color, 1)
+    graphics.strokeRect(region.x - half, region.y - half, half * 2, half * 2)
+    return
+  }
+
+  graphics.fillStyle(color, 1)
+  graphics.fillCircle(region.x, region.y, region.radius)
+  graphics.lineStyle(strokeWidth, SITE_STROKE_COLOR, strokeAlpha)
+  graphics.strokeCircle(region.x, region.y, region.radius)
 }
 
 /** 天下地图：先铺州轮廓，再画邻接连边与战略点，悬停时高亮邻域。 */
@@ -272,10 +317,7 @@ export class MapScene extends Phaser.Scene {
         graphics.fillCircle(region.x, region.y, region.radius + PLAYER_HALO_RADIUS)
       }
 
-      graphics.fillStyle(color, 1)
-      graphics.fillCircle(region.x, region.y, region.radius)
-      graphics.lineStyle(isPlayerSite ? 2.5 : 1.5, SITE_STROKE_COLOR, isPlayerSite ? 0.95 : 0.45)
-      graphics.strokeCircle(region.x, region.y, region.radius)
+      drawSiteMarker(graphics, site.type, region, color, isPlayerSite)
 
       // 光晕本身与州陆色差有限，再压一道亮边，玩家据点才真的跳出来。
       if (isPlayerSite) {
