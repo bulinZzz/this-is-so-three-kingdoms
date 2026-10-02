@@ -15,6 +15,7 @@ import {
 import {
   clampScroll,
   clampZoom,
+  coverZoom,
   fitZoom,
   scrollForCenter,
   zoomLimits,
@@ -32,6 +33,7 @@ export interface MapStateSource {
 const FOCUS_SITE: SiteId = 'jiangxia'
 /**
  * 开局缩放相对「整幅可见」的倍数。
+ * 开局视野以整幅可见为基准，再夹进铺满视口的缩放范围。
  * 1.65 相当于从 2.5 往回收三格滚轮（1.15 的三次方约 1.52）。
  */
 const INITIAL_ZOOM_FACTOR = 1.65
@@ -156,7 +158,7 @@ export class MapScene extends Phaser.Scene {
     this.focusInitialView()
   }
 
-  /** 把视野对准玩家所在的战略点，缩放为整幅可见的若干倍。 */
+  /** 把视野对准玩家所在的战略点，缩放为整幅可见的若干倍，并夹进铺满视口的范围。 */
   private focusInitialView(): void {
     const camera = this.cameras.main
     const limits = this.limitsFor(camera.width, camera.height)
@@ -164,7 +166,8 @@ export class MapScene extends Phaser.Scene {
       return
     }
     this.limits = limits
-    const zoom = clampZoom(limits.min * INITIAL_ZOOM_FACTOR, limits)
+    const fit = fitZoom(camera.width, camera.height, WORLD_WIDTH, WORLD_HEIGHT)
+    const zoom = clampZoom(fit * INITIAL_ZOOM_FACTOR, limits)
     camera.setZoom(zoom)
     const [lon, lat] = SITE_COORDINATES[FOCUS_SITE]
     this.applyScroll(scrollForCenter(lon, lat, zoom, camera.width, camera.height))
@@ -193,7 +196,7 @@ export class MapScene extends Phaser.Scene {
   }
 
   private limitsFor(viewWidth: number, viewHeight: number): ZoomLimits {
-    return zoomLimits(fitZoom(viewWidth, viewHeight, WORLD_WIDTH, WORLD_HEIGHT))
+    return zoomLimits(coverZoom(viewWidth, viewHeight, WORLD_WIDTH, WORLD_HEIGHT))
   }
 
   /** 写入滚动量并夹在地图边界内。 */

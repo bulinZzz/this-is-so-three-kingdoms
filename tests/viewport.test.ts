@@ -3,6 +3,7 @@ import { projectLonLat } from '../src/game/mapLayout'
 import {
   clampScroll,
   clampZoom,
+  coverZoom,
   fitZoom,
   scrollForCenter,
   zoomLimits,
@@ -22,10 +23,16 @@ describe('视口相机运算', () => {
     expect(fitZoom(900, 2000, WORLD_WIDTH, WORLD_HEIGHT)).toBeCloseTo(900 / WORLD_WIDTH)
   })
 
-  it('缩放范围下限为整幅可见，上限为其五倍', () => {
-    const limits = zoomLimits(0.5)
-    expect(limits.min).toBeCloseTo(0.5)
-    expect(limits.max).toBeCloseTo(2.5)
+  it('铺满视口时按受限的一边取缩放', () => {
+    expect(coverZoom(2000, 900, WORLD_WIDTH, WORLD_HEIGHT)).toBeCloseTo(2000 / WORLD_WIDTH)
+    expect(coverZoom(900, 2000, WORLD_WIDTH, WORLD_HEIGHT)).toBeCloseTo(2000 / WORLD_HEIGHT)
+  })
+
+  it('缩放范围下限为铺满视口，上限为其五倍', () => {
+    const cover = coverZoom(2000, 900, WORLD_WIDTH, WORLD_HEIGHT)
+    const limits = zoomLimits(cover)
+    expect(limits.min).toBeCloseTo(cover)
+    expect(limits.max).toBeCloseTo(cover * 5)
   })
 
   it('缩放被夹在范围两端，范围之内保持原值', () => {
@@ -79,11 +86,43 @@ describe('视口相机运算', () => {
   })
 
   it('缩放限制任意取值都落在范围之内', () => {
-    const limits = zoomLimits(fitZoom(WORLD_WIDTH, WORLD_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT))
+    const limits = zoomLimits(coverZoom(WORLD_WIDTH, WORLD_HEIGHT, WORLD_WIDTH, WORLD_HEIGHT))
     for (const zoom of [0, 0.4, 1, 99]) {
       const clamped = clampZoom(zoom, limits)
       expect(clamped).toBeGreaterThanOrEqual(limits.min)
       expect(clamped).toBeLessThanOrEqual(limits.max)
     }
+  })
+
+  it('最小缩放下地图在横竖两轴都铺满视口，可见区域不出现空边', () => {
+    for (const [viewWidth, viewHeight] of [
+      [1640, 1080],
+      [2280, 1310],
+      [787, 868],
+    ]) {
+      const limits = zoomLimits(coverZoom(viewWidth, viewHeight, WORLD_WIDTH, WORLD_HEIGHT))
+      // 地图缩放后在两轴都不小于视口：视口内没有空边。
+      expect(WORLD_WIDTH * limits.min).toBeGreaterThanOrEqual(viewWidth)
+      expect(WORLD_HEIGHT * limits.min).toBeGreaterThanOrEqual(viewHeight)
+      // 可见世界区域落在两轴的地图范围之内。
+      expect(viewWidth / limits.min).toBeLessThanOrEqual(WORLD_WIDTH)
+      expect(viewHeight / limits.min).toBeLessThanOrEqual(WORLD_HEIGHT)
+    }
+  })
+
+  it('缩放范围上限恰为下限的五倍', () => {
+    const limits = zoomLimits(coverZoom(787, 868, WORLD_WIDTH, WORLD_HEIGHT))
+    expect(limits.max).toBeCloseTo(limits.min * 5)
+  })
+
+  it('开局缩放为整幅可见的 1.65 倍，且落在铺满范围之内', () => {
+    const viewWidth = 2000
+    const viewHeight = 900
+    const fit = fitZoom(viewWidth, viewHeight, WORLD_WIDTH, WORLD_HEIGHT)
+    const limits = zoomLimits(coverZoom(viewWidth, viewHeight, WORLD_WIDTH, WORLD_HEIGHT))
+    const opening = clampZoom(fit * 1.65, limits)
+    expect(opening).toBeCloseTo(fit * 1.65)
+    expect(opening).toBeGreaterThanOrEqual(limits.min)
+    expect(opening).toBeLessThanOrEqual(limits.max)
   })
 })

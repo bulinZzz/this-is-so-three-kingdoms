@@ -1,6 +1,6 @@
 import { projectLonLat } from './mapLayout'
 
-/** 相机缩放范围，下限为整幅地图可见。 */
+/** 相机缩放范围，下限为地图铺满视口。 */
 export interface ZoomLimits {
   readonly min: number
   readonly max: number
@@ -25,9 +25,22 @@ export function fitZoom(
   return Math.min(viewWidth / worldWidth, viewHeight / worldHeight)
 }
 
-/** 缩放范围：下限为整幅可见，上限为其五倍。 */
-export function zoomLimits(fit: number): ZoomLimits {
-  return { min: fit, max: fit * 5 }
+/**
+ * 地图恰好铺满视口时的缩放，两轴都不留空边。
+ * 取宽高两个方向所需缩放的较大者，较短的一边被裁切，靠平移看到其余部分。
+ */
+export function coverZoom(
+  viewWidth: number,
+  viewHeight: number,
+  worldWidth: number,
+  worldHeight: number,
+): number {
+  return Math.max(viewWidth / worldWidth, viewHeight / worldHeight)
+}
+
+/** 缩放范围：下限为铺满视口，上限为其五倍。 */
+export function zoomLimits(cover: number): ZoomLimits {
+  return { min: cover, max: cover * 5 }
 }
 
 /** 把缩放限制在给定范围内。 */
