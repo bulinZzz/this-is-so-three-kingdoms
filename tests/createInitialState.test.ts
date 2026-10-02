@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
+import type { Scenario } from '../src/core/model'
+import { SANGUO_208 } from '../src/core/scenarios'
 
 describe('createInitialState', () => {
   it('按开局剧本建立初始状态', () => {
@@ -26,6 +28,36 @@ describe('createInitialState', () => {
 
     expect(fresh.factions[0].name).toBe('曹操')
     expect(fresh.currentDate.month).toBe(1)
+  })
+
+  it('剧本没有地理数据时开局地理为空', () => {
+    expect(createInitialState().geography).toEqual({ provinces: [], sites: [] })
+  })
+
+  it('地理数据来自剧本，且不与剧本共享可变对象', () => {
+    const scenario: Scenario = {
+      ...SANGUO_208,
+      geography: {
+        provinces: [{ id: 'jing', name: '荆州' }],
+        sites: [
+          {
+            id: 'xinye',
+            name: '新野',
+            type: 'city',
+            provinceId: 'jing',
+            owner: 'liubei',
+            neighbors: [],
+          },
+        ],
+      },
+    }
+
+    const state = createInitialState({ scenario })
+    state.geography.provinces[0].name = '改动'
+    state.geography.sites[0].neighbors.push('wancheng')
+
+    expect(scenario.geography?.provinces[0].name).toBe('荆州')
+    expect(scenario.geography?.sites[0].neighbors).toEqual([])
   })
 
   it('初始随机状态由种子决定', () => {

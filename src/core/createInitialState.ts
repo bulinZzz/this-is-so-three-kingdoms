@@ -1,3 +1,4 @@
+import { cloneGeography, EMPTY_GEOGRAPHY } from './geography'
 import type { GameState, Scenario } from './model'
 import { createRandom, createSeed } from './random'
 import { SANGUO_208 } from './scenarios'
@@ -14,6 +15,7 @@ export function createInitialState(options: NewGameOptions = {}): GameState {
     currentDate: { ...scenario.startDate },
     currentTurn: 1,
     playerFaction: scenario.playerFaction,
+    geography: cloneGeography(scenario.geography ?? EMPTY_GEOGRAPHY),
     factions: scenario.factions.map((faction) => ({ ...faction })),
     randomState: createRandom(seed).getState(),
   }
