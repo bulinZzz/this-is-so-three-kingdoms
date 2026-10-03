@@ -6,6 +6,7 @@ import {
   landShapes,
   provinceShapes,
   riverShapes,
+  SEA_COLOR,
   SITE_LABEL_OFFSET,
   siteRegion,
   UNOWNED_SITE_COLOR,
@@ -55,10 +56,11 @@ const PROVINCE_FILL_COLOR = 0x5a4930
 const LAND_FILL_COLOR = 0x33322a
 const PROVINCE_STROKE_COLOR = 0x8f7550
 /**
- * 河流：冷色海面同一色系里提亮一档的钢蓝，压在暖棕州陆上读作水，
- * 与暖色的州界、邻接连边都不撞色。单色、细线，不与战略点抢注意力。
+ * 河流取海面同色：全图水色归一，河口与海面无缝相接；明度低于州陆，
+ * 压在暖棕地面上读作下沉的深色水道，不再以亮度抢注意力。
+ * 压在塞外底衬上的上中游随之很淡，那几段不在视线重心。
  */
-const RIVER_COLOR = 0x4f7f9e
+const RIVER_COLOR = toColorNumber(SEA_COLOR)
 /**
  * 线宽为世界单位，随缩放一并放大，因此须按最不利的开局缩放来定。
  * 开局缩放在 0.56–0.97 之间，一两个世界像素落到屏幕上不足一像素，

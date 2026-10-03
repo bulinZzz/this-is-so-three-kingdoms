@@ -37,6 +37,9 @@ export const SITE_LABEL_OFFSET = 4
 /** 无归属战略点的颜色，地图与侧栏图例共用这一处定义。 */
 export const UNOWNED_SITE_COLOR = '#95886e'
 
+/** 海面颜色，画布底色与河流共用这一处定义；河口因此与海面连成一片。 */
+export const SEA_COLOR = '#172832'
+
 /** 相邻战略点之间允许的最小距离。 */
 export const MIN_SITE_DISTANCE = 2 * SITE_RADIUS
 
