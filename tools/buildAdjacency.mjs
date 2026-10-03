@@ -12,6 +12,15 @@
 
 import { readFileSync } from 'node:fs'
 
+/**
+ * 强制相邻的战略点对：几何规则（Gabriel 图）之外，因史实需要必须连通的两点。
+ * 每项为 [点甲, 点乙]，并在注释中说明理由；这些点对无条件写入邻接表，不再受几何规则约束。
+ */
+const FORCED_EDGES = [
+  // 赤壁之战为孙刘联军；柴桑是周瑜的前线基地。
+  ['chibi', 'chaisang'],
+]
+
 // 制图经纬度范围，唯一来源为 src/game/mapBounds.json，与 src/game/mapLayout.ts 共用；
 // 其余投影参数与 src/game/mapLayout.ts 保持一致。
 const BOUNDS = JSON.parse(
@@ -91,6 +100,13 @@ function buildAdjacency() {
         adjacency.get(v).push(u)
       }
     }
+  }
+  for (const [u, v] of FORCED_EDGES) {
+    if (!adjacency.has(u) || !adjacency.has(v)) {
+      throw new Error(`强制相邻引用了未知战略点：${u} - ${v}`)
+    }
+    if (!adjacency.get(u).includes(v)) adjacency.get(u).push(v)
+    if (!adjacency.get(v).includes(u)) adjacency.get(v).push(u)
   }
   for (const [id, list] of adjacency) {
     list.sort((a, b) => pixelDistance(id, a) - pixelDistance(id, b))

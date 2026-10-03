@@ -5,6 +5,7 @@ import { SITE_COORDINATES } from '../mapData'
 import {
   landShapes,
   provinceShapes,
+  riverShapes,
   SITE_LABEL_OFFSET,
   siteRegion,
   UNOWNED_SITE_COLOR,
@@ -53,6 +54,19 @@ const PROVINCE_FILL_COLOR = 0x5a4930
  */
 const LAND_FILL_COLOR = 0x33322a
 const PROVINCE_STROKE_COLOR = 0x8f7550
+/**
+ * 河流：冷色海面同一色系里提亮一档的钢蓝，压在暖棕州陆上读作水，
+ * 与暖色的州界、邻接连边都不撞色。单色、细线，不与战略点抢注意力。
+ */
+const RIVER_COLOR = 0x4f7f9e
+/**
+ * 线宽为世界单位，随缩放一并放大，因此须按最不利的开局缩放来定。
+ * 开局缩放在 0.56–0.97 之间，一两个世界像素落到屏幕上不足一像素，
+ * 抗锯齿一糊便断成零星亮点；取 3 个世界像素，最不利时仍有约 1.7 屏幕像素，
+ * 足以成一条连续可辨的线。
+ */
+const RIVER_WIDTH = 3
+const RIVER_ALPHA = 0.95
 const SITE_LABEL_COLOR = '#f2e4c2'
 const PROVINCE_LABEL_COLOR = '#a8906a'
 /** 邻接连边平时轻描淡写，不压过战略点本身。 */
@@ -111,7 +125,7 @@ function drawSiteMarker(
   graphics.strokeCircle(region.x, region.y, region.radius)
 }
 
-/** 天下地图：先铺州轮廓，再画邻接连边与战略点，悬停时高亮邻域。 */
+/** 天下地图：先铺州轮廓与河流，再画邻接连边与战略点，悬停时高亮邻域。 */
 export class MapScene extends Phaser.Scene {
   private readonly drawn: Phaser.GameObjects.GameObject[] = []
   private limits: ZoomLimits | null = null
@@ -310,6 +324,7 @@ export class MapScene extends Phaser.Scene {
 
     this.drawLand()
     this.drawProvinces()
+    this.drawRivers()
     this.drawNeighborEdges(state, this.settings.get().showStrategicLinks)
 
     const colorOf = new Map(
@@ -453,15 +468,19 @@ export class MapScene extends Phaser.Scene {
     this.drawn.push(graphics)
 
     for (const shape of shapes) {
-      const points = shape.points.map((point) => new Phaser.Math.Vector2(point.x, point.y))
       graphics.fillStyle(PROVINCE_FILL_COLOR, 1)
-      graphics.fillPoints(points, true)
+      for (const polygon of shape.polygons) {
+        const points = polygon.map((point) => new Phaser.Math.Vector2(point.x, point.y))
+        graphics.fillPoints(points, true)
+      }
     }
 
     for (const shape of shapes) {
-      const points = shape.points.map((point) => new Phaser.Math.Vector2(point.x, point.y))
       graphics.lineStyle(1, PROVINCE_STROKE_COLOR, 0.9)
-      graphics.strokePoints(points, true)
+      for (const polygon of shape.polygons) {
+        const points = polygon.map((point) => new Phaser.Math.Vector2(point.x, point.y))
+        graphics.strokePoints(points, true)
+      }
     }
 
     for (const shape of shapes) {
@@ -473,6 +492,18 @@ export class MapScene extends Phaser.Scene {
         })
         .setOrigin(0.5)
       this.drawn.push(label)
+    }
+  }
+
+  /** 长江与黄河的中心线，压在州陆之上、邻接连边与战略点之下，均为开放折线。 */
+  private drawRivers(): void {
+    const graphics = this.add.graphics()
+    this.drawn.push(graphics)
+    graphics.lineStyle(RIVER_WIDTH, RIVER_COLOR, RIVER_ALPHA)
+
+    for (const line of riverShapes()) {
+      const points = line.map((point) => new Phaser.Math.Vector2(point.x, point.y))
+      graphics.strokePoints(points, false)
     }
   }
 }

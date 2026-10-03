@@ -4,6 +4,7 @@ import {
   LAND_OUTLINES,
   MAP_VERTICES,
   PROVINCE_OUTLINES,
+  RIVER_LINES,
   SITE_COORDINATES,
   SITE_DISPLAY_OFFSETS,
   type LonLat,
@@ -20,11 +21,11 @@ export interface SiteRegion extends MapPoint {
   radius: number
 }
 
-/** 州的轮廓与州名位置。 */
+/** 州的轮廓与州名位置。轮廓可能有多块（离岸沙洲自成一块）。 */
 export interface ProvinceShape {
   id: ProvinceId
   name: string
-  points: MapPoint[]
+  polygons: MapPoint[][]
   label: MapPoint
 }
 
@@ -93,13 +94,13 @@ export function siteIdsWithLayout(): SiteId[] {
 
 /**
  * 州的轮廓与州名位置，已投影到世界坐标。
- * 相邻州引用同一批顶点，边界完全重合。
+ * 相邻州引用同一批顶点，边界完全重合；一块轮廓是一个闭合环。
  */
 export function provinceShapes(): ProvinceShape[] {
   return PROVINCE_OUTLINES.map((outline) => ({
     id: outline.id,
     name: outline.name,
-    points: outline.ring.map((vertexId) => projectLonLat(MAP_VERTICES[vertexId])),
+    polygons: outline.rings.map((ring) => ring.map((vertexId) => projectLonLat(MAP_VERTICES[vertexId]))),
     label: projectLonLat(outline.labelAt),
   }))
 }
@@ -110,4 +111,12 @@ export function provinceShapes(): ProvinceShape[] {
  */
 export function landShapes(): MapPoint[][] {
   return LAND_OUTLINES.map((ring) => ring.map((point) => projectLonLat(point)))
+}
+
+/**
+ * 长江与黄河的中心线，已投影到世界坐标。
+ * 每条为一条开放折线，河流被拆成多个要素时各段独立保留。
+ */
+export function riverShapes(): MapPoint[][] {
+  return RIVER_LINES.map((line) => line.map((point) => projectLonLat(point)))
 }

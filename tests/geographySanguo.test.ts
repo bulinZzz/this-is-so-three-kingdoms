@@ -34,6 +34,19 @@ function projectedDistance(u: SiteId, v: SiteId): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
+/**
+ * 几何规则之外的史实强制相邻边，与 tools/buildAdjacency.mjs 的 FORCED_EDGES 保持一致。
+ * 赤壁之战为孙刘联军；柴桑是周瑜的前线基地。
+ */
+const FORCED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [['chibi', 'chaisang']]
+
+const forcedEdgeKeys = new Set(FORCED_EDGES.map(([a, b]) => [a, b].sort().join('|')))
+
+/** 该点对是否为已登记在案的强制相邻边（按点 id 判定，与顺序无关）。 */
+function isForcedEdge(u: SiteId, v: SiteId): boolean {
+  return forcedEdgeKeys.has([u, v].sort().join('|'))
+}
+
 describe('三国地理数据', () => {
   it('数据自洽', () => {
     expect(validateGeography(GEOGRAPHY_SANGUO, FACTION_IDS)).toEqual([])
@@ -45,10 +58,10 @@ describe('三国地理数据', () => {
     expect(new Set(GEOGRAPHY_SANGUO.provinces.map((province) => province.name)).size).toBe(14)
   })
 
-  it('长安隶属雍州', () => {
+  it('长安隶属司隶', () => {
     const changan = GEOGRAPHY_SANGUO.sites.find((site) => site.id === 'changan')
 
-    expect(changan?.provinceId).toBe('yong')
+    expect(changan?.provinceId).toBe('sili')
   })
 
   it('每个战略点都有对应的州', () => {
@@ -105,11 +118,17 @@ describe('三国地理数据', () => {
     expect(visited.size).toBe(GEOGRAPHY_SANGUO.sites.length)
   })
 
-  it('邻接按地理推导：相邻两点之间不存在第三个战略点', () => {
+  it('邻接按地理推导：相邻两点之间不存在第三个战略点（史实强制相邻除外）', () => {
     const allIds = GEOGRAPHY_SANGUO.sites.map((site) => site.id)
+    let skipped = 0
 
     for (const site of GEOGRAPHY_SANGUO.sites) {
       for (const neighborId of site.neighbors) {
+        if (isForcedEdge(site.id, neighborId)) {
+          skipped += 1
+          continue
+        }
+
         for (const otherId of allIds) {
           if (otherId === site.id || otherId === neighborId) {
             continue
@@ -119,6 +138,25 @@ describe('三国地理数据', () => {
         }
       }
     }
+
+    // 豁免必须恰好等于名单中的强制边（两端各计一次），除此之外的边一律照常校验。
+    expect(skipped).toBe(FORCED_EDGES.length * 2)
+  })
+
+  it('史实强制相邻按名字豁免，几何判据本身未被削弱', () => {
+    // 名单中的每条边都必须真实存在于邻接表，避免豁免落空。
+    for (const [a, b] of FORCED_EDGES) {
+      const siteA = GEOGRAPHY_SANGUO.sites.find((site) => site.id === a)
+      const siteB = GEOGRAPHY_SANGUO.sites.find((site) => site.id === b)
+
+      expect(siteA?.neighbors).toContain(b)
+      expect(siteB?.neighbors).toContain(a)
+    }
+
+    // 只有名字被豁免：赤壁–柴桑的几何判据依旧判定江夏落在直径圆内。
+    expect(insideDiameterCircle('jiangxia', 'chibi', 'chaisang')).toBe(true)
+    // 反向对照：同一条直径圆上，江陵确在圆外，判据本身照常给出否定结果。
+    expect(insideDiameterCircle('jiangling', 'chibi', 'chaisang')).toBe(false)
   })
 
   it('相邻列表按距离升序排列', () => {
