@@ -1753,18 +1753,39 @@ async function fetchRiverLines() {
 // ---------------------------------------------------------------------------
 
 /**
- * 长江下游入海尾段（经度、纬度）。Natural Earth 的长江中心线在镇江以下被制图综合截断，
- * 崇明一带的入海河道没有保留；这里按真实河道补出这一段，
- * 使长江收在长江口，而不是在半途断掉或沿纬线折向东。
+ * 长江下游尾段（经度、纬度），自南京以下补到入海处。
+ * Natural Earth 的长江中心线在镇江以下被制图综合成稀疏粗顶点，方向在几十公里内反复折；
+ * 这里改用沿真实河道的密集控制点替换该段，使下游以平滑的弧线经江阴、南通抵达入海口，
+ * 而不是折来折去或在半途断掉。起点为南京下游，接续处与上游中心线走向一致，避免出现折角。
+ * 终点没入长江口的开阔海面：下游沿河口的水道折向东北，再以平顺的弧线转东没入海面，全程落在水道与海面上，不横穿图集上无主的近代淤积陆块。
  */
 const YANGTZE_TAIL = [
-  [119.85, 32.08],
-  [120.28, 31.91],
-  [120.62, 31.95],
-  [120.95, 31.68],
-  [121.3, 31.55],
-  [121.6, 31.42],
-  [121.92, 31.28],
+  [118.78, 32.187],
+  [118.9, 32.176],
+  [119.02, 32.182],
+  [119.14, 32.196],
+  [119.26, 32.208],
+  [119.38, 32.216],
+  [119.5, 32.22],
+  [119.62, 32.223],
+  [119.74, 32.224],
+  [119.86, 32.22],
+  [119.98, 32.206],
+  [120.1, 32.183],
+  [120.22, 32.15],
+  [120.32, 32.11],
+  [120.42, 32.066],
+  [120.51, 32.022],
+  [120.6, 31.988],
+  [120.632, 31.9815],
+  [120.652, 31.9825],
+  [120.664, 31.9865],
+  [120.678, 31.993],
+  [120.686, 31.9975],
+  [120.7, 32.002],
+  [120.71, 32.0035],
+  [120.735, 32.005],
+  [120.76, 32.0055],
 ]
 
 /**
@@ -1828,8 +1849,9 @@ function trimRiverToCoast(line, seaQuery, maxExtendKm) {
 }
 
 /**
- * 给长江下游端补上入海尾段：取经度最大的折线为下游段，方向对准下游后按真实河道逐点接上。
- * 直接改写传入的折线，返回值仅供打印。
+ * 用真实河道的密集控制点替换长江下游尾段：取经度最大的折线为下游段，方向对准下游后，
+ * 先截掉尾段起点以东由制图综合产生的粗顶点，再逐点接上尾段。
+ * 尾段终点落在入海处的海面，故不与海岸线相接。直接改写传入的折线，返回值仅供打印。
  */
 function extendYangtzeToSea(yangtzeLines) {
   let downstream = null
@@ -1846,13 +1868,18 @@ function extendYangtzeToSea(yangtzeLines) {
   if (downstream[0][0] > downstream[downstream.length - 1][0]) downstream.reverse()
 
   const lengthBefore = polylineLengthKm(downstream)
+  const tailStartLon = YANGTZE_TAIL[0][0]
+  let cut = downstream.length
+  while (cut > 1 && downstream[cut - 1][0] >= tailStartLon) cut -= 1
+  const removed = downstream.length - cut
+  downstream.length = cut
   let added = 0
   for (const point of YANGTZE_TAIL) {
     if (point[0] <= downstream[downstream.length - 1][0]) continue
     downstream.push(point)
     added += 1
   }
-  return { line: downstream, added, lengthBefore }
+  return { line: downstream, added, removed, lengthBefore }
 }
 
 /**
@@ -2199,10 +2226,9 @@ const {
   summary: riverSummary,
 } = await fetchRiverLines()
 
-// 长江尾段补到入海口，再把长江与黄河的下游端收在海岸线上；判海沿用绘制所用的州陆与塞外底衬栅格。
+// 长江下游用真实河道的密集控制点补到入海口，黄河下游端收到海岸线上；判海沿用绘制所用的州陆与塞外底衬栅格。
 const seaQuery = makeSeaQuery(cols, rows, labels, backdropMask)
 const yangtzeTail = extendYangtzeToSea(riverByKey.yangtze)
-const yangtzeCoast = closeRiverToCoast(riverByKey.yangtze, seaQuery, RIVER_COAST_EXTEND_KM)
 const yellowCoast = closeRiverToCoast(riverByKey.yellow, seaQuery, RIVER_COAST_EXTEND_KM)
 for (const key of ['yangtze', 'yellow']) {
   riverSummary[key].points = riverByKey[key].reduce((sum, line) => sum + line.length, 0)
@@ -2330,6 +2356,7 @@ const riverComment = `/**
  * 长江与黄河的中心线，来自 Natural Earth，公有领域。
  * 数据源：${riverUrl}（Natural Earth 1:10m 河流与湖泊中心线，公有领域）。
  * 已按图幅裁剪并抽稀，仅保留长江与黄河两条河流，均为开放折线。
+ * 长江南京以下由制图综合产生的稀疏粗顶点改用沿真实河道的密集控制点，止于长江口的入海处。
  */
 export const RIVER_LINES: readonly (readonly LonLat[])[] = [
 `
@@ -2404,16 +2431,12 @@ for (const [key, label] of [
   )
 }
 if (yangtzeTail !== null) {
-  console.log(`  长江尾段补入 ${yangtzeTail.added} 个顶点`)
+  console.log(`  长江尾段：截去上游粗顶点 ${yangtzeTail.removed} 个，补入 ${yangtzeTail.added} 个`)
 }
-for (const [coast, label] of [
-  [yangtzeCoast, '长江'],
-  [yellowCoast, '黄河'],
-]) {
-  if (coast === null) continue
+if (yellowCoast !== null) {
   console.log(
-    `  ${label}下游端收到海岸线：${coast.kind}，终点 [${round(coast.endpoint[0])}, ${round(coast.endpoint[1])}]` +
-      (coast.km === null ? '' : `，距岸 ${coast.km.toFixed(1)} km`),
+    `  黄河下游端收到海岸线：${yellowCoast.kind}，终点 [${round(yellowCoast.endpoint[0])}, ${round(yellowCoast.endpoint[1])}]` +
+      (yellowCoast.km === null ? '' : `，距岸 ${yellowCoast.km.toFixed(1)} km`),
   )
 }
 console.log(
