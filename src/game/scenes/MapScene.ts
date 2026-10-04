@@ -452,7 +452,7 @@ export class MapScene extends Phaser.Scene {
     graphics.strokeCircle(focus.x, focus.y, focus.radius + 4)
   }
 
-  /** 塞外陆地底衬，先于州轮廓绘制；外缘即真实海岸线，用细描边勾出。 */
+  /** 塞外陆地底衬，先于州轮廓绘制，只做同色填充，海岸线由填色边界呈现。 */
   private drawLand(): void {
     const graphics = this.add.graphics()
     this.drawn.push(graphics)
