@@ -452,13 +452,16 @@ export class MapScene extends Phaser.Scene {
     graphics.strokeCircle(focus.x, focus.y, focus.radius + 4)
   }
 
-  /** 塞外陆地底衬，先于州轮廓绘制，只填充不描边。 */
+  /** 塞外陆地底衬，先于州轮廓绘制；外缘即真实海岸线，用细描边勾出。 */
   private drawLand(): void {
     const graphics = this.add.graphics()
     this.drawn.push(graphics)
-    graphics.fillStyle(LAND_FILL_COLOR, 1)
+    const rings = landShapes()
 
-    for (const ring of landShapes()) {
+    // 无主陆地只做同色填充，不描边：描边会在与大陆相接处留下一条分界线。
+    // 海岸线由填充边界本身呈现。
+    graphics.fillStyle(LAND_FILL_COLOR, 1)
+    for (const ring of rings) {
       const points = ring.map((point) => new Phaser.Math.Vector2(point.x, point.y))
       graphics.fillPoints(points, true)
     }
@@ -477,11 +480,20 @@ export class MapScene extends Phaser.Scene {
       }
     }
 
+    // 只描与邻州相接的州界；海岸与无主地一侧不描边，海陆由填色直接分野。
+    graphics.lineStyle(1, PROVINCE_STROKE_COLOR, 0.9)
     for (const shape of shapes) {
-      graphics.lineStyle(1, PROVINCE_STROKE_COLOR, 0.9)
-      for (const polygon of shape.polygons) {
-        const points = polygon.map((point) => new Phaser.Math.Vector2(point.x, point.y))
-        graphics.strokePoints(points, true)
+      for (let index = 0; index < shape.polygons.length; index += 1) {
+        const polygon = shape.polygons[index]
+        const borderEdges = shape.borderEdges[index]
+        for (let i = 0; i < polygon.length; i += 1) {
+          if (!borderEdges[i]) {
+            continue
+          }
+          const from = polygon[i]
+          const to = polygon[(i + 1) % polygon.length]
+          graphics.lineBetween(from.x, from.y, to.x, to.y)
+        }
       }
     }
 

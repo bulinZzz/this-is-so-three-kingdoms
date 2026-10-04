@@ -26,6 +26,8 @@ export interface ProvinceShape {
   id: ProvinceId
   name: string
   polygons: MapPoint[][]
+  /** 与每条边一一对应：该边是否为与邻州相接的州界（海岸/无主地一侧为 false，不描边）。 */
+  borderEdges: readonly (readonly boolean[])[]
   label: MapPoint
 }
 
@@ -100,17 +102,35 @@ export function siteIdsWithLayout(): SiteId[] {
  * 相邻州引用同一批顶点，边界完全重合；一块轮廓是一个闭合环。
  */
 export function provinceShapes(): ProvinceShape[] {
+  const shared = new Map<string, number>()
+  for (const outline of PROVINCE_OUTLINES) {
+    for (const ring of outline.rings) {
+      for (let i = 0; i < ring.length; i += 1) {
+        const a = ring[i]
+        const b = ring[(i + 1) % ring.length]
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`
+        shared.set(key, (shared.get(key) ?? 0) + 1)
+      }
+    }
+  }
   return PROVINCE_OUTLINES.map((outline) => ({
     id: outline.id,
     name: outline.name,
     polygons: outline.rings.map((ring) => ring.map((vertexId) => projectLonLat(MAP_VERTICES[vertexId]))),
+    borderEdges: outline.rings.map((ring) =>
+      ring.map((vertex, i) => {
+        const next = ring[(i + 1) % ring.length]
+        const key = vertex < next ? `${vertex}|${next}` : `${next}|${vertex}`
+        return (shared.get(key) ?? 0) > 1
+      }),
+    ),
     label: projectLonLat(outline.labelAt),
   }))
 }
 
 /**
  * 塞外陆地的轮廓，已投影到世界坐标。
- * 这些陆地区域不属于十四州，单独作为底衬绘制。
+ * 这些陆地区域不属于十三州，单独作为底衬绘制。
  */
 export function landShapes(): MapPoint[][] {
   return LAND_OUTLINES.map((ring) => ring.map((point) => projectLonLat(point)))

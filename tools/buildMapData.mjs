@@ -2,9 +2,12 @@
 //
 // 数据来源：《三国地图集》全国页（彩色分区图，源图不入库）。
 //   州界按图集各州的彩色分区数字化，覆盖 208 年基准（见 AGENTS.md 附录）：
-//   河西入雍州、阴平入凉州、上郡故地入并州；图幅底边以南的交州南端沿既有州界。
-//   图集内容在 104.5°E 以西较真实经度整体偏东，取样时按经度分段修正；
-//   河西与陇右在图集上同用一片绿色，按乌鞘岭折线切分：线北为雍州、线南为凉州。
+//   河西与陇右同属凉州、阴平入凉州、上郡故地入并州。
+//   交州的下边界（不与益州、荆州、扬州相邻的一段）照《三国地图集》交州图手工重描
+//   （见 mapData.ts 的 k 系列顶点）：西界沿图集分区的无主地一侧南下，海疆取真实海岸线。
+//   该手工段重跑本脚本会覆盖。
+//   塞外陆地南界不越出制图范围，止于北纬 16.3°，其以南的陆地一概不取；重跑本脚本会覆盖此手工处理。
+//   图集内容在 104.5°E 以西较真实经度整体偏东，取样时按经度分段修正。
 //
 // 复现步骤：
 //   node tools/buildMapData.mjs <全国页 PNG 路径> [--out src/game/mapData.ts]
@@ -79,7 +82,6 @@ const MIN_SITE_DISTANCE = 2 * SITE_RADIUS
 
 const PROVINCES = [
   { id: 'sili', name: '司隶' },
-  { id: 'yong', name: '雍州' },
   { id: 'yu', name: '豫州' },
   { id: 'yan', name: '兖州' },
   { id: 'xu', name: '徐州' },
@@ -95,8 +97,8 @@ const PROVINCES = [
 ]
 
 const PROVINCE_INDEX = new Map(PROVINCES.map((province, index) => [province.id, index]))
-/** ASCII 陆地掩膜使用的州字母，十四州互不重复。 */
-const PROVINCE_LETTERS = ['s', 'o', 'u', 'n', 'x', 'q', 'l', 'b', 'j', 'v', 'g', 'i', 'e', 'c']
+/** ASCII 陆地掩膜使用的州字母，十三州互不重复。 */
+const PROVINCE_LETTERS = ['s', 'u', 'n', 'x', 'q', 'l', 'b', 'j', 'v', 'g', 'i', 'e', 'c']
 const OUTSIDE = -2
 
 // ---------------------------------------------------------------------------
@@ -138,49 +140,12 @@ const ATLAS_SEA_RGB = [163, 204, 255]
 const ATLAS_SEA_TOLERANCE = 45
 
 /**
- * 图集把河西与陇右画成同一片绿色，无色界可分。两州的语义分界取乌鞘岭一线（真实经纬度折线）：
- * 折线以北为河西（雍州），以南为陇右（凉州）；折线两端落在绿色区块的边界上。
- */
-const ATLAS_HEXI_CUT = [
-  [99.5, 38.45],
-  [100.8, 37.95],
-  [101.8, 37.55],
-  [102.55, 37.33],
-  [102.85, 37.2],
-  [103.3, 37.32],
-  [103.8, 37.55],
-  [104.35, 38.05],
-  [104.85, 38.75],
-  [104.95, 39.5],
-  [104.8, 40.1],
-]
-
-/** 折线在给定经度上的纬度；折线为纬度的单值函数。 */
-function hexiCutLat(lon) {
-  const points = ATLAS_HEXI_CUT
-  if (lon <= points[0][0]) return points[0][1]
-  for (let k = 1; k < points.length; k += 1) {
-    const [lon0, lat0] = points[k - 1]
-    const [lon1, lat1] = points[k]
-    if (lon <= lon1) return lat0 + ((lat1 - lat0) * (lon - lon0)) / (lon1 - lon0)
-  }
-  return points[points.length - 1][1]
-}
-
-/** 绿色格元的州属：99.5°E 以西全属雍州，104.8°E 以东全属凉州，中间按乌鞘岭折线比较纬度。 */
-function classifyAtlasHexi(lon, lat) {
-  if (lon < 99.5) return PROVINCE_INDEX.get('yong')
-  if (lon > 104.8) return PROVINCE_INDEX.get('liang')
-  return PROVINCE_INDEX.get(lat > hexiCutLat(lon) ? 'yong' : 'liang')
-}
-
-/**
  * 图集的州填充色。相邻两州的填充色在图上可能相同（扬与兖、并与冀），以既有州界的州标签为界拆开；
- * 阴平在图集上用益色，按既有州界改判入凉；河西与陇右同用一片绿色，按乌鞘岭折线切分。海面与纸底同属无归属。
+ * 阴平在图集上用益色，按既有州界改判入凉；河西与陇右同属凉州，共用那片绿色，无须再分。海面与纸底同属无归属。
  */
 const ATLAS_COLORS = [
   { rgb: [207, 204, 240], kind: 'flip', base: 'yi', flip: 'liang' },
-  { rgb: [227, 245, 199], kind: 'cut' },
+  { rgb: [227, 245, 199], kind: 'direct', province: 'liang' },
   { rgb: [207, 224, 240], kind: 'shared', members: ['yang', 'yan'], ambig: ATLAS_AMBIG_YANG_YAN },
   { rgb: [248, 245, 199], kind: 'direct', province: 'jing' },
   { rgb: [248, 204, 199], kind: 'shared', members: ['bing', 'ji'], ambig: ATLAS_AMBIG_BING_JI },
@@ -342,7 +307,6 @@ function extractAtlasLabels(atlasPath, cols, rows, oldLabels) {
       const old = oldLabels[index]
       if (rule.kind === 'direct') labels[index] = rule.province
       else if (rule.kind === 'flip') labels[index] = old === rule.flip ? old : rule.base
-      else if (rule.kind === 'cut') labels[index] = classifyAtlasHexi(lon, lat)
       else labels[index] = rule.members.includes(old) ? old : rule.ambig
     }
   }
@@ -1361,7 +1325,7 @@ async function fetchLandRings() {
   return rings
 }
 
-/** 按与十四州完全相同的格网（同原点、同格距、同尺寸）把环填充为布尔掩膜。 */
+/** 按与十三州完全相同的格网（同原点、同格距、同尺寸）把环填充为布尔掩膜。 */
 function rasterizeRings(rings, cols, rows) {
   const mask = new Uint8Array(cols * rows)
   for (let j = 0; j < rows; j += 1) {
@@ -1527,8 +1491,8 @@ function traceMaskContours(cols, rows, mask) {
 }
 
 /**
- * 塞外底衬：Natural Earth 陆地扣除十四州陆地后，按连通块抽取外轮廓并抽稀。
- * 州陆与底衬同源于一份陆地栅格。仅作底衬，不参与十四州分区。
+ * 塞外底衬：Natural Earth 陆地扣除十三州陆地后，按连通块抽取外轮廓并抽稀。
+ * 州陆与底衬同源于一份陆地栅格。仅作底衬，不参与十三州分区。
  */
 function buildLandOutlines(cols, rows, labels, landMask) {
   const backdropMask = new Uint8Array(cols * rows)
@@ -2210,7 +2174,7 @@ if (remainingOutside.length > 0) {
 }
 const labelPoints = computeLabels(cols, rows, labels, provinceRings, vertexIJ)
 
-// 塞外底衬：从同一份陆地掩膜扣除十四州陆地，仅用于绘制，不参与州界。
+// 塞外底衬：从同一份陆地掩膜扣除十三州陆地，仅用于绘制，不参与州界。
 const { rings: landOutlines, backdropCells, backdropMask } = buildLandOutlines(
   cols,
   rows,
@@ -2343,9 +2307,9 @@ export const PROVINCE_OUTLINES: readonly ProvinceOutline[] = [
 
 const offsetSource = adjustedOffsets.length > 0 ? serializeOffsets(offsetBlock, offsets) : offsetBlock
 const landComment = `/**
- * 塞外陆地（不属于十四州的陆地区域），来自 Natural Earth，公有领域。
+ * 塞外陆地（不属于十三州的陆地区域），来自 Natural Earth，公有领域。
  * 数据源：${LAND_URL}（Natural Earth 1:10m 陆地图层，公有领域）。
- * 已栅格化到与十四州相同的格网、扣除十四州陆地并抽稀，仅作底衬，不参与十四州分区。
+ * 已栅格化到与十三州相同的格网、扣除十三州陆地并抽稀，仅作底衬，不参与十三州分区。
  */
 export const LAND_OUTLINES: readonly (readonly LonLat[])[] = [
 `

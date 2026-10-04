@@ -36,9 +36,18 @@ function projectedDistance(u: SiteId, v: SiteId): number {
 
 /**
  * 几何规则之外的史实强制相邻边，与 tools/buildAdjacency.mjs 的 FORCED_EDGES 保持一致。
- * 赤壁之战为孙刘联军；柴桑是周瑜的前线基地。
+ * 赤壁之战为孙刘联军，柴桑是周瑜的前线基地；江陵与夷陵之间是长江水道。
  */
-const FORCED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [['chibi', 'chaisang']]
+const FORCED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [
+  ['chibi', 'chaisang'],
+  ['jiangling', 'yiling'],
+]
+
+/**
+ * 几何上无第三点阻挡、但史实上并无直接通道的点对，与 tools/buildAdjacency.mjs 的 EXCLUDED_EDGES 保持一致。
+ * 长安在关中、白帝城在巴东，中隔秦岭与大巴山。
+ */
+const EXCLUDED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [['changan', 'baidicheng']]
 
 const forcedEdgeKeys = new Set(FORCED_EDGES.map(([a, b]) => [a, b].sort().join('|')))
 
@@ -52,10 +61,10 @@ describe('三国地理数据', () => {
     expect(validateGeography(GEOGRAPHY_SANGUO, FACTION_IDS)).toEqual([])
   })
 
-  it('覆盖十四个州、四十一个战略点，州名不重复', () => {
-    expect(GEOGRAPHY_SANGUO.provinces).toHaveLength(14)
-    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(41)
-    expect(new Set(GEOGRAPHY_SANGUO.provinces.map((province) => province.name)).size).toBe(14)
+  it('覆盖十三个州、四十九个战略点，州名不重复', () => {
+    expect(GEOGRAPHY_SANGUO.provinces).toHaveLength(13)
+    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(49)
+    expect(new Set(GEOGRAPHY_SANGUO.provinces.map((province) => province.name)).size).toBe(13)
   })
 
   it('长安隶属司隶', () => {
@@ -91,10 +100,10 @@ describe('三国地理数据', () => {
     const liubei = sitesOwnedBy('liubei')
     const unowned = GEOGRAPHY_SANGUO.sites.filter((site) => site.owner === null)
 
-    expect(caocao.length).toBe(27)
-    expect(sunquan.length).toBe(5)
+    expect(caocao.length).toBe(23)
+    expect(sunquan.length).toBe(7)
     expect(liubei.length).toBe(1)
-    expect(unowned.length).toBe(8)
+    expect(unowned.length).toBe(18)
     expect(caocao.length).toBeGreaterThan(sunquan.length)
     expect(sunquan.length).toBeGreaterThan(0)
     expect(unowned.length).toBeGreaterThan(0)
@@ -159,6 +168,19 @@ describe('三国地理数据', () => {
     expect(insideDiameterCircle('jiangling', 'chibi', 'chaisang')).toBe(false)
   })
 
+  it('史实强制不相邻按名字排除', () => {
+    for (const [a, b] of EXCLUDED_EDGES) {
+      const siteA = GEOGRAPHY_SANGUO.sites.find((site) => site.id === a)
+      const siteB = GEOGRAPHY_SANGUO.sites.find((site) => site.id === b)
+
+      expect(siteA?.neighbors).not.toContain(b)
+      expect(siteB?.neighbors).not.toContain(a)
+    }
+
+    // 该点对本身满足几何规则，只因史实无通道才排除。
+    expect(insideDiameterCircle('hanzhong', 'changan', 'baidicheng')).toBe(false)
+  })
+
   it('相邻列表按距离升序排列', () => {
     for (const site of GEOGRAPHY_SANGUO.sites) {
       const distances = site.neighbors.map((neighborId) => projectedDistance(site.id, neighborId))
@@ -181,7 +203,7 @@ describe('三国地理数据', () => {
       GEOGRAPHY_SANGUO.sites.reduce((sum, site) => sum + site.neighbors.length, 0) / 2
     const completeGraphEdgeCount = (siteCount * (siteCount - 1)) / 2
 
-    expect(completeGraphEdgeCount).toBe(820)
+    expect(completeGraphEdgeCount).toBe(1176)
     expect(edgeCount).toBeLessThan(siteCount * 4)
   })
 })

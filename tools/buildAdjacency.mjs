@@ -14,11 +14,22 @@ import { readFileSync } from 'node:fs'
 
 /**
  * 强制相邻的战略点对：几何规则（Gabriel 图）之外，因史实需要必须连通的两点。
- * 每项为 [点甲, 点乙]，并在注释中说明理由；这些点对无条件写入邻接表，不再受几何规则约束。
+ * 每项为 [点甲, 点乙]，并在注释中说明理由；这些点对无条件写入邻接表，不再受几何约束。
  */
 const FORCED_EDGES = [
   // 赤壁之战为孙刘联军；柴桑是周瑜的前线基地。
   ['chibi', 'chaisang'],
+  // 江陵与夷陵之间是长江水道，舟行直通；当阳的长坂坡落在这条直径圆内，仅凭几何会误判为不相邻。
+  ['jiangling', 'yiling'],
+]
+
+/**
+ * 强制不相邻的战略点对：几何上无第三点阻挡，但两地之间隔着秦岭、巴山，并无直接通道。
+ * 每项为 [点甲, 点乙]，并在注释中说明理由；这些点对从邻接表中删除。
+ */
+const EXCLUDED_EDGES = [
+  // 长安在关中、白帝城在巴东，中隔秦岭与大巴山，须经汉中或葭萌关绕行。
+  ['changan', 'baidicheng'],
 ]
 
 // 制图经纬度范围，唯一来源为 src/game/mapBounds.json，与 src/game/mapLayout.ts 共用；
@@ -107,6 +118,17 @@ function buildAdjacency() {
     }
     if (!adjacency.get(u).includes(v)) adjacency.get(u).push(v)
     if (!adjacency.get(v).includes(u)) adjacency.get(v).push(u)
+  }
+  for (const [u, v] of EXCLUDED_EDGES) {
+    if (!adjacency.has(u) || !adjacency.has(v)) {
+      throw new Error(`强制不相邻引用了未知战略点：${u} - ${v}`)
+    }
+    const listU = adjacency.get(u)
+    const listV = adjacency.get(v)
+    const indexU = listU.indexOf(v)
+    if (indexU !== -1) listU.splice(indexU, 1)
+    const indexV = listV.indexOf(u)
+    if (indexV !== -1) listV.splice(indexV, 1)
   }
   for (const [id, list] of adjacency) {
     list.sort((a, b) => pixelDistance(id, a) - pixelDistance(id, b))

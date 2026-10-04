@@ -185,8 +185,8 @@ describe('地图布局', () => {
   it('州的轮廓与州名落在画布内，州名落在自己的轮廓内', () => {
     const shapes = provinceShapes()
 
-    expect(shapes).toHaveLength(14)
-    expect(new Set(shapes.map((shape) => shape.name)).size).toBe(14)
+    expect(shapes).toHaveLength(13)
+    expect(new Set(shapes.map((shape) => shape.name)).size).toBe(13)
 
     for (const shape of shapes) {
       for (const polygon of shape.polygons) {
