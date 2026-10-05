@@ -1,19 +1,19 @@
 // 三国州级轮廓数据生成器
 //
-// 数据来源：《三国地图集》全国页（彩色分区图，源图不入库）。
-//   州界按图集各州的彩色分区数字化，覆盖 208 年基准（见 AGENTS.md 附录）：
+// 数据来源：彩色分区底图（本地素材，源图不入库）。
+//   州界按底图各州的彩色分区数字化，覆盖 208 年基准（见 AGENTS.md 附录）：
 //   河西与陇右同属凉州、阴平入凉州、上郡故地入并州。
-//   交州的下边界（不与益州、荆州、扬州相邻的一段）照《三国地图集》交州图手工重描
-//   （见 mapData.ts 的 k 系列顶点）：西界沿图集分区的无主地一侧南下，海疆同取图集轮廓。
+//   交州的下边界（不与益州、荆州、扬州相邻的一段）照底图的交州分区手工重描
+//   （见 mapData.ts 的 k 系列顶点）：西界沿底图分区的无主地一侧南下，海疆同取底图轮廓。
 //   该手工段重跑本脚本会覆盖。
 //   塞外陆地南界不越出制图范围，止于北纬 16.3°，其以南的陆地一概不取；重跑本脚本会覆盖此手工处理。
-//   图集内容在 104.5°E 以西较真实经度整体偏东，取样时按经度分段修正。
+//   底图内容在 104.5°E 以西较真实经度整体偏东，取样时按经度分段修正。
 //
 // 复现步骤：
-//   node tools/buildMapData.mjs <全国页 PNG 路径> [--out src/game/mapData.ts]
+//   node tools/buildMapData.mjs <分区底图 PNG 路径> [--out src/game/mapData.ts]
 //   脚本重写 src/game/mapData.ts，并打印提取统计、各州顶点数、战略点归属与 ASCII 陆地掩膜。
 //
-// 输出：每个 0.01° 格元从图集取样定州，边界形状与图集一致；再抽取边界链、统一抽稀，
+// 输出：每个 0.01° 格元从底图取样定州，边界形状与底图一致；再抽取边界链、统一抽稀，
 // 相邻州因此共用同一批顶点，接缝既不重叠也不留空隙。脚本不依赖 Phaser。
 // 运行结束打印提取统计与 72x36 的 ASCII 陆地掩膜，便于在无图环境下核对轮廓。
 
@@ -102,24 +102,24 @@ const PROVINCE_LETTERS = ['s', 'u', 'n', 'x', 'q', 'l', 'b', 'j', 'v', 'g', 'i',
 const OUTSIDE = -2
 
 // ---------------------------------------------------------------------------
-// 图集提取：全国页彩色分区 → 州标签栅格
+// 底图提取：彩色分区 → 州标签栅格
 // ---------------------------------------------------------------------------
 
-/** 图集全国页的经纬度映射：双比例等经纬，横 237.7103 px/°、纵 271.0309 px/°，基点 90.7°E、44.7017°N。 */
+/** 底图的经纬度映射：双比例等经纬，横 237.7103 px/°、纵 271.0309 px/°，基点 90.7°E、44.7017°N。 */
 const ATLAS_PIXELS_PER_LON = 237.7103290899571
 const ATLAS_PIXELS_PER_LAT = 271.030859444176
 const ATLAS_ORIGIN_LON = 90.7
 const ATLAS_ORIGIN_LAT = 44.70167585044964
 
 /**
- * 图集内容在 104.5°E 以西较真实经度整体偏东：101°E 以西约 +0.85°，向东线性减至 0。
+ * 底图内容在 104.5°E 以西较真实经度整体偏东：101°E 以西约 +0.85°，向东线性减至 0。
  * 偏移量由湖泊与城邑点位标定；换算后使格元取到对应地物的颜色，104.5°E 以东不修正。
  */
 const ATLAS_LON_CORRECTION_MAX = 0.85
 const ATLAS_LON_CORRECTION_END = 104.5
 const ATLAS_LON_CORRECTION_SPAN = 3.5
 
-/** 真实经度 → 图集经度。 */
+/** 真实经度 → 底图经度。 */
 function atlasLonOf(lon) {
   if (lon >= ATLAS_LON_CORRECTION_END) return lon
   const t = Math.min(1, (ATLAS_LON_CORRECTION_END - lon) / ATLAS_LON_CORRECTION_SPAN)
@@ -135,13 +135,13 @@ const ATLAS_MIN_SUPPORT = 4
 /** 扬与兖、并与冀的共用色标记，由 resolveSharedColors 拆分。 */
 const ATLAS_AMBIG_YANG_YAN = 14
 const ATLAS_AMBIG_BING_JI = 15
-/** 图集海面填充色；取样时记入海掩膜，缝合通道须避开。 */
+/** 底图海面填充色；取样时记入海掩膜，缝合通道须避开。 */
 const ATLAS_SEA_RGB = [163, 204, 255]
 const ATLAS_SEA_TOLERANCE = 45
 
 /**
- * 图集的州填充色。相邻两州的填充色在图上可能相同（扬与兖、并与冀），以既有州界的州标签为界拆开；
- * 阴平在图集上用益色，按既有州界改判入凉；河西与陇右同属凉州，共用那片绿色，无须再分。海面与纸底同属无归属。
+ * 底图的州填充色。相邻两州的填充色在图上可能相同（扬与兖、并与冀），以既有州界的州标签为界拆开；
+ * 阴平在底图上用益色，按既有州界改判入凉；河西与陇右同属凉州，共用那片绿色，无须再分。海面与纸底同属无归属。
  */
 const ATLAS_COLORS = [
   { rgb: [207, 204, 240], kind: 'flip', base: 'yi', flip: 'liang' },
@@ -215,7 +215,7 @@ function decodePng(file) {
 }
 
 /**
- * 从图集全国页提取州标签：0.01° 格元按 5×5 窗内与各填充色几乎相同的像素数定州，取最多者。
+ * 从底图提取州标签：0.01° 格元按 5×5 窗内与各填充色几乎相同的像素数定州，取最多者。
  * 细线（道路、界线）与零星色斑的窗内同名像素不足下限，视为无归属；海面、纸底与文字同属无归属。
  * 相邻州共用填充色时记下待拆标记；图幅之外的格元沿用既有州界，交州南端由此保留。
  * 海面另记入掩膜，供缝合通道避开。
@@ -347,7 +347,7 @@ function resolveSharedColors(cols, rows, labels, members, ambig) {
   return leftover
 }
 
-/** 去掉不与既有州界重叠、又小于给定格数的分量：多为图集噪声或边界误差。 */
+/** 去掉不与既有州界重叠、又小于给定格数的分量：多为底图噪声或边界误差。 */
 function pruneUnanchoredComponents(cols, rows, labels, oldLabels, maxCells) {
   const removed = []
   for (let p = 0; p < PROVINCES.length; p += 1) {
@@ -1721,7 +1721,7 @@ async function fetchRiverLines() {
  * Natural Earth 的长江中心线在镇江以下被制图综合成稀疏粗顶点，方向在几十公里内反复折；
  * 这里改用沿真实河道的密集控制点替换该段，使下游以平滑的弧线经江阴、南通抵达入海口，
  * 而不是折来折去或在半途断掉。起点为南京下游，接续处与上游中心线走向一致，避免出现折角。
- * 终点没入长江口的开阔海面：下游沿河口的水道折向东北，再以平顺的弧线转东没入海面，全程落在水道与海面上，不横穿图集上无主的近代淤积陆块。
+ * 终点没入长江口的开阔海面：下游沿河口的水道折向东北，再以平顺的弧线转东没入海面，全程落在水道与海面上，不横穿底图上无主的近代淤积陆块。
  */
 const YANGTZE_TAIL = [
   [118.78, 32.187],
@@ -2015,7 +2015,7 @@ function asciiLegend() {
 const args = process.argv.slice(2)
 const atlasPath = args.find((arg) => !arg.startsWith('--'))
 if (!atlasPath) {
-  console.error('用法：node tools/buildMapData.mjs <三国地图集·全国页 PNG> [--out src/game/mapData.ts]')
+  console.error('用法：node tools/buildMapData.mjs <分区底图 PNG> [--out src/game/mapData.ts]')
   process.exit(1)
 }
 const outIndex = args.indexOf('--out')
@@ -2045,7 +2045,7 @@ for (const [site, offset] of Object.entries(evaluateSiteCoordinates(offsetBlock)
 }
 const provinceIndexById = new Map(PROVINCES.map((province, index) => [province.id, index]))
 
-// 分区：以图集全国页的彩色分区为准取样定州，再让分区尊重战略点的史实归属。
+// 分区：以底图的彩色分区为准取样定州，再让分区尊重战略点的史实归属。
 const oldLabels = rasterize(
   oldOutlines.map((outline) => ({
     provinceIndex: PROVINCE_INDEX.get(outline.id),
@@ -2056,7 +2056,7 @@ const oldLabels = rasterize(
 ).labels
 const { labels, stats, sea } = extractAtlasLabels(resolve(atlasPath), cols, rows, oldLabels)
 console.error(
-  `图集取样：色块命中 ${stats.hit}、无归属 ${stats.blank}、图外沿用既有州界 ${stats.outside}`,
+  `底图取样：色块命中 ${stats.hit}、无归属 ${stats.blank}、图外沿用既有州界 ${stats.outside}`,
 )
 for (const entry of ATLAS_COLORS) {
   if (entry.kind !== 'shared') continue
@@ -2285,7 +2285,7 @@ export type LonLat = readonly [number, number]
 `
 const verticesComment = `/**
  * 州轮廓的全部顶点。
- * 州界取自《三国地图集》全国页的彩色分区，栅格化定州后统一抽稀，
+ * 州界取自彩色分区底图，栅格化定州后统一抽稀，
  * 相邻州共用同一批顶点，边界只存在一份，接缝既不重叠也不留空隙。
  */
 export const MAP_VERTICES: Record<string, LonLat> = {

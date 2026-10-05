@@ -94,7 +94,7 @@ export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: numb
 
 /**
  * 州轮廓的全部顶点。
- * 州界取自《三国地图集》全国页的彩色分区，栅格化定州后统一抽稀，
+ * 州界取自彩色分区底图，栅格化定州后统一抽稀，
  * 相邻州共用同一批顶点，边界只存在一份，接缝既不重叠也不留空隙。
  */
 export const MAP_VERTICES: Record<string, LonLat> = {
