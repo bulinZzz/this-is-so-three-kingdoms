@@ -1,4 +1,4 @@
-import type { Character, FactionId, ProvinceId } from './model'
+import type { Character, FactionId, Geography } from './model'
 
 /** 麾下武将上限。安全阀：在仕武将数达到上限后不能再寻访，解任与替换留待迭代 9。 */
 export const CHARACTER_LIMIT = 30
@@ -20,19 +20,26 @@ export function cloneCharacters(characters: readonly Character[]): Character[] {
   return characters.map((character) => ({ ...character }))
 }
 
+/** 武力、统率、智谋、忠诚的取值范围。 */
+const STAT_MIN = 0
+const STAT_MAX = 100
+
 /**
- * 校验人物数据是否自洽：标识唯一、所在州存在、在仕者必有有效势力、在野与退场者不隶属任何势力。
+ * 校验人物数据是否自洽：标识唯一、所在州存在、能力数值齐备、倾向有效，
+ * 在仕者必有有效势力与自有驻地、君主唯一，在野与退场者不隶属势力也无驻地。
  * 返回全部问题，为空表示数据可用。
  */
 export function validateCharacters(
   characters: readonly Character[],
   factionIds: readonly FactionId[],
-  provinceIds: readonly ProvinceId[],
+  geography: Geography,
 ): string[] {
   const problems: string[] = []
   const characterIds = new Set<string>()
   const factionIdSet = new Set(factionIds)
-  const provinceIdSet = new Set(provinceIds)
+  const provinceIdSet = new Set(geography.provinces.map((province) => province.id))
+  const siteOwner = new Map(geography.sites.map((site) => [site.id, site.owner]))
+  const monarchCounts = new Map<FactionId, number>()
 
   for (const character of characters) {
     if (characterIds.has(character.id)) {
@@ -44,17 +51,59 @@ export function validateCharacters(
       problems.push(`武将 ${character.id} 的所在州不存在：${character.provinceId}`)
     }
 
+    for (const [label, value] of [
+      ['武力', character.might],
+      ['统率', character.command],
+      ['智谋', character.intellect],
+      ['忠诚', character.loyalty],
+    ] as const) {
+      if (!Number.isInteger(value) || value < STAT_MIN || value > STAT_MAX) {
+        problems.push(`武将 ${character.id} 的${label}超出范围：${value}`)
+      }
+    }
+
+    if (character.factionAffinity !== null && !factionIdSet.has(character.factionAffinity)) {
+      problems.push(`武将 ${character.id} 的势力倾向不存在：${character.factionAffinity}`)
+    }
+
+    if (character.isMonarch) {
+      if (character.status !== 'serving' || character.factionId === null) {
+        problems.push(`非在仕武将 ${character.id} 不应是君主`)
+      } else {
+        monarchCounts.set(character.factionId, (monarchCounts.get(character.factionId) ?? 0) + 1)
+      }
+    }
+
     if (character.status === 'serving') {
       if (character.factionId === null) {
         problems.push(`在仕武将 ${character.id} 没有所属势力`)
       } else if (!factionIdSet.has(character.factionId)) {
         problems.push(`武将 ${character.id} 的所属势力不存在：${character.factionId}`)
       }
+
+      const station = character.stationedSiteId
+      if (station === null) {
+        problems.push(`在仕武将 ${character.id} 没有驻地`)
+      } else if (!siteOwner.has(station)) {
+        problems.push(`武将 ${character.id} 的驻地不存在：${station}`)
+      } else if (siteOwner.get(station) !== character.factionId) {
+        problems.push(`武将 ${character.id} 的驻地 ${station} 不属于其势力`)
+      }
+
       continue
     }
 
     if (character.factionId !== null) {
       problems.push(`非在仕武将 ${character.id} 不应隶属势力：${character.factionId}`)
+    }
+    if (character.stationedSiteId !== null) {
+      problems.push(`非在仕武将 ${character.id} 不应有驻地：${character.stationedSiteId}`)
+    }
+  }
+
+  for (const [factionId, count] of monarchCounts) {
+    if (count > 1) {
+      problems.push(`势力 ${factionId} 有多名君主`)
     }
   }
 

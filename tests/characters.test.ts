@@ -6,40 +6,83 @@ import {
   isRecruitable,
   validateCharacters,
 } from '../src/core/characters'
-import type { Character } from '../src/core/model'
+import type { Character, Geography } from '../src/core/model'
 
 const FACTION_IDS = ['liubei', 'caocao', 'sunquan']
-const PROVINCE_IDS = ['jing', 'yu']
+const GEOGRAPHY: Geography = {
+  provinces: [
+    { id: 'jing', name: '荆州', owner: null },
+    { id: 'yu', name: '豫州', owner: null },
+  ],
+  sites: [
+    { id: 'jiangxia', name: '江夏', type: 'city', provinceId: 'jing', owner: 'liubei', neighbors: [] },
+    { id: 'xudu', name: '许都', type: 'city', provinceId: 'yu', owner: 'caocao', neighbors: [] },
+  ],
+}
 
 function character(overrides: Partial<Character> = {}): Character {
-  return { id: 'a', name: '甲', status: 'wild', factionId: null, provinceId: 'jing', ...overrides }
+  return {
+    id: 'a',
+    name: '甲',
+    status: 'wild',
+    factionId: null,
+    provinceId: 'jing',
+    might: 50,
+    command: 50,
+    intellect: 50,
+    factionAffinity: null,
+    loyalty: 0,
+    isMonarch: false,
+    stationedSiteId: null,
+    ...overrides,
+  }
 }
 
 describe('validateCharacters', () => {
   it('自洽数据没有问题', () => {
     const characters = [
       character({ id: 'a' }),
-      character({ id: 'b', status: 'serving', factionId: 'liubei' }),
+      character({
+        id: 'b',
+        status: 'serving',
+        factionId: 'liubei',
+        stationedSiteId: 'jiangxia',
+      }),
     ]
 
-    expect(validateCharacters(characters, FACTION_IDS, PROVINCE_IDS)).toEqual([])
+    expect(validateCharacters(characters, FACTION_IDS, GEOGRAPHY)).toEqual([])
   })
 
   it('标识重复会被指出', () => {
-    expect(validateCharacters([character(), character()], FACTION_IDS, PROVINCE_IDS)).toContain(
+    expect(validateCharacters([character(), character()], FACTION_IDS, GEOGRAPHY)).toContain(
       '武将 id 重复：a',
     )
   })
 
   it('所在州不存在会被指出', () => {
     expect(
-      validateCharacters([character({ provinceId: 'unknown' })], FACTION_IDS, PROVINCE_IDS),
+      validateCharacters([character({ provinceId: 'unknown' })], FACTION_IDS, GEOGRAPHY),
     ).toContain('武将 a 的所在州不存在：unknown')
+  })
+
+  it('能力数值超出范围会被指出', () => {
+    expect(validateCharacters([character({ might: 120 })], FACTION_IDS, GEOGRAPHY)).toContain(
+      '武将 a 的武力超出范围：120',
+    )
+    expect(validateCharacters([character({ loyalty: 0.5 })], FACTION_IDS, GEOGRAPHY)).toContain(
+      '武将 a 的忠诚超出范围：0.5',
+    )
+  })
+
+  it('势力倾向不存在会被指出', () => {
+    expect(
+      validateCharacters([character({ factionAffinity: 'unknown' })], FACTION_IDS, GEOGRAPHY),
+    ).toContain('武将 a 的势力倾向不存在：unknown')
   })
 
   it('在仕武将缺少势力会被指出', () => {
     expect(
-      validateCharacters([character({ status: 'serving' })], FACTION_IDS, PROVINCE_IDS),
+      validateCharacters([character({ status: 'serving' })], FACTION_IDS, GEOGRAPHY),
     ).toContain('在仕武将 a 没有所属势力')
   })
 
@@ -48,15 +91,76 @@ describe('validateCharacters', () => {
       validateCharacters(
         [character({ status: 'serving', factionId: 'unknown' })],
         FACTION_IDS,
-        PROVINCE_IDS,
+        GEOGRAPHY,
       ),
     ).toContain('武将 a 的所属势力不存在：unknown')
   })
 
+  it('在仕武将缺少驻地被指出', () => {
+    expect(
+      validateCharacters(
+        [character({ status: 'serving', factionId: 'liubei' })],
+        FACTION_IDS,
+        GEOGRAPHY,
+      ),
+    ).toContain('在仕武将 a 没有驻地')
+  })
+
+  it('驻地不存在会被指出', () => {
+    expect(
+      validateCharacters(
+        [character({ status: 'serving', factionId: 'liubei', stationedSiteId: 'unknown' })],
+        FACTION_IDS,
+        GEOGRAPHY,
+      ),
+    ).toContain('武将 a 的驻地不存在：unknown')
+  })
+
+  it('驻地不属于其势力会被指出', () => {
+    expect(
+      validateCharacters(
+        [character({ status: 'serving', factionId: 'liubei', stationedSiteId: 'xudu' })],
+        FACTION_IDS,
+        GEOGRAPHY,
+      ),
+    ).toContain('武将 a 的驻地 xudu 不属于其势力')
+  })
+
   it('在野或退场武将不应隶属势力', () => {
     expect(
-      validateCharacters([character({ factionId: 'liubei' })], FACTION_IDS, PROVINCE_IDS),
+      validateCharacters([character({ factionId: 'liubei' })], FACTION_IDS, GEOGRAPHY),
     ).toContain('非在仕武将 a 不应隶属势力：liubei')
+  })
+
+  it('非在仕武将不应有驻地', () => {
+    expect(
+      validateCharacters(
+        [character({ stationedSiteId: 'jiangxia' })],
+        FACTION_IDS,
+        GEOGRAPHY,
+      ),
+    ).toContain('非在仕武将 a 不应有驻地：jiangxia')
+  })
+
+  it('非在仕武将不应是君主', () => {
+    expect(
+      validateCharacters([character({ isMonarch: true })], FACTION_IDS, GEOGRAPHY),
+    ).toContain('非在仕武将 a 不应是君主')
+  })
+
+  it('同一势力有多名君主会被指出', () => {
+    const monarch = (id: string) =>
+      character({
+        id,
+        status: 'serving',
+        factionId: 'liubei',
+        stationedSiteId: 'jiangxia',
+        isMonarch: true,
+      })
+
+    expect(validateCharacters([monarch('a'), monarch('b')], FACTION_IDS, GEOGRAPHY)).toContain(
+      '势力 liubei 有多名君主',
+    )
   })
 })
 

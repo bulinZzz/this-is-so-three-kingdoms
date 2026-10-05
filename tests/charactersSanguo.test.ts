@@ -5,11 +5,10 @@ import { GEOGRAPHY_SANGUO } from '../src/core/geographySanguo'
 import { SANGUO_208 } from '../src/core/scenarios'
 
 const FACTION_IDS = SANGUO_208.factions.map((faction) => faction.id)
-const PROVINCE_IDS = GEOGRAPHY_SANGUO.provinces.map((province) => province.id)
 
 describe('三国人物数据', () => {
   it('数据自洽', () => {
-    expect(validateCharacters(CHARACTERS_SANGUO, FACTION_IDS, PROVINCE_IDS)).toEqual([])
+    expect(validateCharacters(CHARACTERS_SANGUO, FACTION_IDS, GEOGRAPHY_SANGUO)).toEqual([])
   })
 
   it('三家各有在仕武将', () => {
@@ -19,6 +18,25 @@ describe('三国人物数据', () => {
       )
 
       expect(serving.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('三家各有且只有一名君主', () => {
+    for (const factionId of FACTION_IDS) {
+      const monarchs = CHARACTERS_SANGUO.filter(
+        (character) =>
+          character.status === 'serving' && character.factionId === factionId && character.isMonarch,
+      )
+
+      expect(monarchs).toHaveLength(1)
+    }
+  })
+
+  it('在仕武将驻守各自势力的自有据点', () => {
+    const siteOwner = new Map(GEOGRAPHY_SANGUO.sites.map((site) => [site.id, site.owner]))
+
+    for (const character of CHARACTERS_SANGUO.filter((item) => item.status === 'serving')) {
+      expect(siteOwner.get(character.stationedSiteId as string)).toBe(character.factionId)
     }
   })
 

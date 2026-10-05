@@ -35,8 +35,13 @@ export function seekTalent(state: GameState, random: Random): ActionResult {
     },
     execute: (current) => {
       const picked = candidates[Math.floor(random.next() * candidates.length)]
+      const station = current.geography.sites.find(
+        (site) => site.owner === current.playerFaction && site.provinceId === picked.provinceId,
+      )
+
       picked.status = 'serving'
       picked.factionId = current.playerFaction
+      picked.stationedSiteId = station?.id ?? null
 
       return { targetId: picked.provinceId, outcome: `招募 ${picked.name}` }
     },

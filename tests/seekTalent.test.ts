@@ -82,6 +82,13 @@ describe('seekTalent', () => {
         status: 'serving',
         factionId: state.playerFaction,
         provinceId: 'jing',
+        might: 50,
+        command: 50,
+        intellect: 50,
+        factionAffinity: null,
+        loyalty: 0,
+        isMonarch: false,
+        stationedSiteId: 'jiangxia',
       })
       index += 1
     }

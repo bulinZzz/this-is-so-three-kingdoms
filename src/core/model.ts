@@ -65,8 +65,8 @@ export type CharacterId = string
 export type CharacterStatus = 'wild' | 'serving' | 'retired'
 
 /**
- * 武将：初版只承载寻访所需的最少字段，战斗属性留待迭代 4。
- * 不在三家之列的势力，其部属按在野处理。
+ * 武将：能力、倾向与处境。
+ * 野心、声望、性格与年龄留待迭代 7；兵种、士气随部队留待迭代 8。
  */
 export interface Character {
   id: CharacterId
@@ -76,6 +76,23 @@ export interface Character {
   factionId: FactionId | null
   /** 所在州，决定可被哪一州寻访到。 */
   provinceId: ProvinceId
+  /** 武力，参与战斗结算。 */
+  might: number
+  /** 统率，参与战斗结算。 */
+  command: number
+  /** 智谋，参与战斗结算。 */
+  intellect: number
+  /**
+   * 势力倾向：最倾向的势力，无倾向时为 null。
+   * 初版只记一个主要倾向，多重倾向与其数值计算留待迭代 7。
+   */
+  factionAffinity: FactionId | null
+  /** 忠诚，静态度量，未出仕者为 0；计算留待迭代 7。 */
+  loyalty: number
+  /** 是否为所在势力的君主，每个势力有且只有一人。 */
+  isMonarch: boolean
+  /** 驻守的自有据点，供部队定位与调动；未出仕者为 null。 */
+  stationedSiteId: SiteId | null
 }
 
 /** 开局剧本：一组初始条件的集合，不同时间点的开局各是一份剧本。 */

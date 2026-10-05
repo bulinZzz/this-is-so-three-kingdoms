@@ -83,7 +83,22 @@ describe('createInitialState', () => {
   it('人物数据来自剧本，且不与剧本共享可变对象', () => {
     const scenario: Scenario = {
       ...SANGUO_208,
-      characters: [{ id: 'a', name: '甲', status: 'wild', factionId: null, provinceId: 'jing' }],
+      characters: [
+        {
+          id: 'a',
+          name: '甲',
+          status: 'wild',
+          factionId: null,
+          provinceId: 'jing',
+          might: 50,
+          command: 50,
+          intellect: 50,
+          factionAffinity: null,
+          loyalty: 0,
+          isMonarch: false,
+          stationedSiteId: null,
+        },
+      ],
     }
 
     const state = createInitialState({ scenario })
