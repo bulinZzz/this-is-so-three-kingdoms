@@ -21,12 +21,17 @@ export function validateGeography(
   const problems: string[] = []
   const provinceIds = new Set<string>()
   const siteIds = new Set<string>()
+  const factionIdSet = new Set(factionIds)
 
   for (const province of geography.provinces) {
     if (provinceIds.has(province.id)) {
       problems.push(`州 id 重复：${province.id}`)
     }
     provinceIds.add(province.id)
+
+    if (province.owner !== null && !factionIdSet.has(province.owner)) {
+      problems.push(`州 ${province.id} 的归属势力不存在：${province.owner}`)
+    }
   }
 
   for (const site of geography.sites) {
@@ -35,8 +40,6 @@ export function validateGeography(
     }
     siteIds.add(site.id)
   }
-
-  const factionIdSet = new Set(factionIds)
 
   for (const site of geography.sites) {
     if (!provinceIds.has(site.provinceId)) {
@@ -76,4 +79,41 @@ export function validateGeography(
   }
 
   return problems
+}
+
+/**
+ * 重算各州归属：占该州战略点最多者为归属势力。
+ * 与他方并列时不改判，原归属势力得以保持；州内没有任何势力据点时归属为空。
+ * 归属取决于此前的归属，结果与过程相关，不能只由当前版图推出。
+ */
+export function resolveProvinceOwners(geography: Geography): void {
+  for (const province of geography.provinces) {
+    const counts = new Map<FactionId, number>()
+
+    for (const site of geography.sites) {
+      if (site.provinceId === province.id && site.owner !== null) {
+        counts.set(site.owner, (counts.get(site.owner) ?? 0) + 1)
+      }
+    }
+
+    province.owner = pickOwner(counts, province.owner)
+  }
+}
+
+/** 取据点最多者为归属；并列时保留原归属势力，无从保留则为无归属。 */
+function pickOwner(counts: Map<FactionId, number>, current: FactionId | null): FactionId | null {
+  if (counts.size === 0) {
+    return null
+  }
+
+  const maxCount = Math.max(...counts.values())
+  const leaders = [...counts.entries()]
+    .filter(([, count]) => count === maxCount)
+    .map(([factionId]) => factionId)
+
+  if (leaders.length === 1) {
+    return leaders[0] ?? null
+  }
+
+  return current !== null && leaders.includes(current) ? current : null
 }

@@ -25,10 +25,12 @@ export interface Faction {
 
 export type ProvinceId = string
 
-/** 州：初版只作为地理分组。 */
+/** 州：地理分组，并记录归属势力。 */
 export interface Province {
   id: ProvinceId
   name: string
+  /** 当前归属势力，无归属时为 null。 */
+  owner: FactionId | null
 }
 
 export type SiteId = string

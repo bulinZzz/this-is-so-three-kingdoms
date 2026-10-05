@@ -58,7 +58,7 @@ describe('createInitialState', () => {
     const scenario: Scenario = {
       ...SANGUO_208,
       geography: {
-        provinces: [{ id: 'jing', name: '荆州' }],
+        provinces: [{ id: 'jing', name: '荆州', owner: null }],
         sites: [
           {
             id: 'xinye',

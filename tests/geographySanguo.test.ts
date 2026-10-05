@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { validateGeography } from '../src/core/geography'
+import { cloneGeography, resolveProvinceOwners, validateGeography } from '../src/core/geography'
 import { GEOGRAPHY_SANGUO } from '../src/core/geographySanguo'
 import type { SiteId } from '../src/core/model'
 import { SANGUO_208 } from '../src/core/scenarios'
@@ -113,6 +113,28 @@ describe('三国地理数据', () => {
     expect(caocao.length).toBeGreaterThan(sunquan.length)
     expect(sunquan.length).toBeGreaterThan(0)
     expect(unowned.length).toBeGreaterThan(0)
+  })
+
+  it('州归属与占点多寡一致', () => {
+    const geography = cloneGeography(GEOGRAPHY_SANGUO)
+    const authors = geography.provinces.map((province) => province.owner)
+
+    resolveProvinceOwners(geography)
+
+    expect(geography.provinces.map((province) => province.owner)).toEqual(authors)
+  })
+
+  it('建安十三年：曹操据江北诸州，孙权据扬州，益、凉、交无归属', () => {
+    const ownerOf = (provinceId: string) =>
+      GEOGRAPHY_SANGUO.provinces.find((province) => province.id === provinceId)?.owner
+
+    for (const provinceId of ['sili', 'yu', 'yan', 'xu', 'qing', 'ji', 'bing', 'you', 'jing']) {
+      expect(ownerOf(provinceId)).toBe('caocao')
+    }
+    expect(ownerOf('yang')).toBe('sunquan')
+    expect(ownerOf('yi')).toBeNull()
+    expect(ownerOf('liang')).toBeNull()
+    expect(ownerOf('jiao')).toBeNull()
   })
 
   it('从江夏出发可以走遍所有战略点', () => {

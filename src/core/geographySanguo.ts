@@ -2,24 +2,24 @@ import type { Geography } from './model'
 
 /**
  * 三国时期的地理格局。
- * 河西与陇右同属凉州，共覆盖司隶、豫、兖、徐、青、凉、并、冀、幽、扬、荆、益、交十三州，共 49 个战略点。
+ * 河西与陇右同属凉州，共覆盖司隶、豫、兖、徐、青、凉、并、冀、幽、扬、荆、益、交十三州，共 55 个战略点。
  * 邻接表示「可直接行军」，按地理推导：若两点之间存在第三个战略点，则它们不相邻。
  */
 export const GEOGRAPHY_SANGUO: Geography = {
   provinces: [
-    { id: 'sili', name: '司隶' },
-    { id: 'yu', name: '豫州' },
-    { id: 'yan', name: '兖州' },
-    { id: 'xu', name: '徐州' },
-    { id: 'qing', name: '青州' },
-    { id: 'liang', name: '凉州' },
-    { id: 'bing', name: '并州' },
-    { id: 'ji', name: '冀州' },
-    { id: 'you', name: '幽州' },
-    { id: 'yang', name: '扬州' },
-    { id: 'jing', name: '荆州' },
-    { id: 'yi', name: '益州' },
-    { id: 'jiao', name: '交州' },
+    { id: 'sili', name: '司隶', owner: 'caocao' },
+    { id: 'yu', name: '豫州', owner: 'caocao' },
+    { id: 'yan', name: '兖州', owner: 'caocao' },
+    { id: 'xu', name: '徐州', owner: 'caocao' },
+    { id: 'qing', name: '青州', owner: 'caocao' },
+    { id: 'liang', name: '凉州', owner: null },
+    { id: 'bing', name: '并州', owner: 'caocao' },
+    { id: 'ji', name: '冀州', owner: 'caocao' },
+    { id: 'you', name: '幽州', owner: 'caocao' },
+    { id: 'yang', name: '扬州', owner: 'sunquan' },
+    { id: 'jing', name: '荆州', owner: 'caocao' },
+    { id: 'yi', name: '益州', owner: null },
+    { id: 'jiao', name: '交州', owner: null },
   ],
   sites: [
     // 司隶

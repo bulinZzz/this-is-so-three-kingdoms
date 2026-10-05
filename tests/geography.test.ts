@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { cloneGeography, EMPTY_GEOGRAPHY, validateGeography } from '../src/core/geography'
+import {
+  cloneGeography,
+  EMPTY_GEOGRAPHY,
+  resolveProvinceOwners,
+  validateGeography,
+} from '../src/core/geography'
 import type { Geography } from '../src/core/model'
 
 const FACTION_IDS = ['caocao', 'liubei']
@@ -8,8 +13,8 @@ const FACTION_IDS = ['caocao', 'liubei']
 function createGeography(): Geography {
   return {
     provinces: [
-      { id: 'jing', name: '荆州' },
-      { id: 'yu', name: '豫州' },
+      { id: 'jing', name: '荆州', owner: null },
+      { id: 'yu', name: '豫州', owner: null },
     ],
     sites: [
       {
@@ -48,7 +53,7 @@ describe('validateGeography', () => {
 
   it('指出重复的州 id', () => {
     const geography = createGeography()
-    geography.provinces.push({ id: 'jing', name: '荆州南部' })
+    geography.provinces.push({ id: 'jing', name: '荆州南部', owner: null })
 
     expect(validateGeography(geography, FACTION_IDS)).toEqual(['州 id 重复：jing'])
   })
@@ -75,6 +80,15 @@ describe('validateGeography', () => {
 
     expect(validateGeography(geography, FACTION_IDS)).toEqual([
       '战略点 xinye 的归属势力不存在：yuanshao',
+    ])
+  })
+
+  it('指出不存在的州归属势力', () => {
+    const geography = createGeography()
+    geography.provinces[0].owner = 'yuanshao'
+
+    expect(validateGeography(geography, FACTION_IDS)).toEqual([
+      '州 jing 的归属势力不存在：yuanshao',
     ])
   })
 
@@ -125,5 +139,65 @@ describe('cloneGeography', () => {
     expect(original.provinces[0].name).toBe('荆州')
     expect(original.sites[0].owner).toBe('liubei')
     expect(original.sites[0].neighbors).toEqual(['wancheng'])
+  })
+})
+
+/** 构造只有一州的地理，州内据点按给定归属排列。 */
+function geographyWith(
+  provinceOwner: string | null,
+  siteOwners: ReadonlyArray<string | null>,
+): Geography {
+  return {
+    provinces: [{ id: 'jing', name: '荆州', owner: provinceOwner }],
+    sites: siteOwners.map((owner, index) => ({
+      id: `site-${index}`,
+      name: `据点${index}`,
+      type: 'city',
+      provinceId: 'jing',
+      owner,
+      neighbors: [],
+    })),
+  }
+}
+
+describe('resolveProvinceOwners', () => {
+  it('占该州战略点最多者取得归属', () => {
+    const geography = geographyWith(null, ['liubei', 'liubei', 'caocao'])
+
+    resolveProvinceOwners(geography)
+
+    expect(geography.provinces[0].owner).toBe('liubei')
+  })
+
+  it('与他方并列时保持原归属势力', () => {
+    const geography = geographyWith('caocao', ['liubei', 'caocao'])
+
+    resolveProvinceOwners(geography)
+
+    expect(geography.provinces[0].owner).toBe('caocao')
+  })
+
+  it('并列而原归属不在其中时判为无归属', () => {
+    const geography = geographyWith('sunquan', ['liubei', 'caocao'])
+
+    resolveProvinceOwners(geography)
+
+    expect(geography.provinces[0].owner).toBeNull()
+  })
+
+  it('一州之内优势易手，归属随之改变', () => {
+    const geography = geographyWith('caocao', ['liubei', 'liubei', 'caocao'])
+
+    resolveProvinceOwners(geography)
+
+    expect(geography.provinces[0].owner).toBe('liubei')
+  })
+
+  it('州内没有任何势力据点时归属为空', () => {
+    const geography = geographyWith('caocao', [null, null])
+
+    resolveProvinceOwners(geography)
+
+    expect(geography.provinces[0].owner).toBeNull()
   })
 })
