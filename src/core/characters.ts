@@ -56,10 +56,15 @@ export function validateCharacters(
       ['统率', character.command],
       ['智谋', character.intellect],
       ['忠诚', character.loyalty],
+      ['士气', character.morale],
     ] as const) {
       if (!Number.isInteger(value) || value < STAT_MIN || value > STAT_MAX) {
         problems.push(`武将 ${character.id} 的${label}超出范围：${value}`)
       }
+    }
+
+    if (!Number.isInteger(character.troops) || character.troops < 0) {
+      problems.push(`武将 ${character.id} 的兵力超出范围：${character.troops}`)
     }
 
     if (character.factionAffinity !== null && !factionIdSet.has(character.factionAffinity)) {
@@ -98,6 +103,9 @@ export function validateCharacters(
     }
     if (character.stationedSiteId !== null) {
       problems.push(`非在仕武将 ${character.id} 不应有驻地：${character.stationedSiteId}`)
+    }
+    if (character.troops !== 0) {
+      problems.push(`非在仕武将 ${character.id} 不应有部队：${character.troops}`)
     }
   }
 

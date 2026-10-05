@@ -21,6 +21,8 @@ export interface Faction {
   id: FactionId
   name: string
   color: string
+  /** 粮食，初版唯一的资源，征兵与维持部队所用。 */
+  grain: number
 }
 
 export type ProvinceId = string
@@ -61,12 +63,12 @@ export interface Geography {
 
 export type CharacterId = string
 
-/** 武将状态：在野、在仕、退场。 */
-export type CharacterStatus = 'wild' | 'serving' | 'retired'
+/** 武将状态：在野、在仕、被俘、退场。 */
+export type CharacterStatus = 'wild' | 'serving' | 'captured' | 'retired'
 
 /**
  * 武将：能力、倾向与处境。
- * 野心、声望、性格与年龄留待迭代 7；兵种、士气随部队留待迭代 8。
+ * 野心、声望、性格与年龄留待迭代 7；兵种随部队留待迭代 8。
  */
 export interface Character {
   id: CharacterId
@@ -93,6 +95,10 @@ export interface Character {
   isMonarch: boolean
   /** 驻守的自有据点，供部队定位与调动；未出仕者为 null。 */
   stationedSiteId: SiteId | null
+  /** 所统率部队的兵力；未出仕者为 0。 */
+  troops: number
+  /** 士气，0–100，参与战力计算，可被单挑改变。 */
+  morale: number
 }
 
 /** 开局剧本：一组初始条件的集合，不同时间点的开局各是一份剧本。 */
@@ -109,7 +115,7 @@ export interface Scenario {
 }
 
 /** 玩家可执行的行动。 */
-export type ActionKind = 'seekTalent'
+export type ActionKind = 'seekTalent' | 'recruit' | 'transfer' | 'attack'
 
 /** 一条行动记录：行动类型、势力、时间、目标与结果。 */
 export interface ActionRecord {
@@ -129,6 +135,8 @@ export interface GameState {
   currentTurn: number
   /** 当季剩余行动力，结束回合时恢复为当季预算。 */
   actionPoints: number
+  /** 本回合已执行调动或进攻的武将，结束回合时清空。 */
+  actedCharacterIds: CharacterId[]
   /** 全局行动历史，按发生顺序追加，回合推进不清空。 */
   history: ActionRecord[]
   playerFaction: FactionId

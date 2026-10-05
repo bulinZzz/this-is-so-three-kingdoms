@@ -34,6 +34,8 @@ function character(overrides: Partial<Character> = {}): Character {
     loyalty: 0,
     isMonarch: false,
     stationedSiteId: null,
+    troops: 0,
+    morale: 100,
     ...overrides,
   }
 }
@@ -71,6 +73,9 @@ describe('validateCharacters', () => {
     )
     expect(validateCharacters([character({ loyalty: 0.5 })], FACTION_IDS, GEOGRAPHY)).toContain(
       '武将 a 的忠诚超出范围：0.5',
+    )
+    expect(validateCharacters([character({ morale: 120 })], FACTION_IDS, GEOGRAPHY)).toContain(
+      '武将 a 的士气超出范围：120',
     )
   })
 
@@ -140,6 +145,12 @@ describe('validateCharacters', () => {
         GEOGRAPHY,
       ),
     ).toContain('非在仕武将 a 不应有驻地：jiangxia')
+  })
+
+  it('非在仕武将不应有部队', () => {
+    expect(validateCharacters([character({ troops: 500 })], FACTION_IDS, GEOGRAPHY)).toContain(
+      '非在仕武将 a 不应有部队：500',
+    )
   })
 
   it('非在仕武将不应是君主', () => {

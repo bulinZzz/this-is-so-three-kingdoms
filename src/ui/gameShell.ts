@@ -236,6 +236,7 @@ function renderOfficers(list: Element, state: GameState): number {
 const CHARACTER_STATUS_LABELS: Record<CharacterStatus, string> = {
   wild: '在野',
   serving: '在仕',
+  captured: '被俘',
   retired: '退场',
 }
 

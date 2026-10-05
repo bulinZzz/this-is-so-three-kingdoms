@@ -3,9 +3,15 @@ import type { ActionKind, ActionRecord, FactionId, GameState } from './model'
 /** 每季的行动力预算。 */
 export const ACTION_POINTS_PER_TURN = 10
 
-/** 各项行动的行动力消耗，集中定义。 */
+/**
+ * 各项行动的行动力消耗，集中定义。
+ * 初值供迭代 5 按实测调整：寻访与进攻最贵，征其次，调动最轻。
+ */
 export const ACTION_COSTS: Record<ActionKind, number> = {
   seekTalent: 4,
+  recruit: 3,
+  transfer: 2,
+  attack: 4,
 }
 
 /** 当季剩余行动力是否够执行某项行动。 */

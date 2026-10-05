@@ -89,6 +89,8 @@ describe('seekTalent', () => {
         loyalty: 0,
         isMonarch: false,
         stationedSiteId: 'jiangxia',
+        troops: 0,
+        morale: 100,
       })
       index += 1
     }
