@@ -15,6 +15,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   hulao: [113.05, 34.82],
   tongguan: [110.25, 34.55],
   wuzhangyuan: [107.62, 34.28],
+  chencang: [107.2, 34.36],
 
   // 兖州
   guandu: [113.98, 34.72],
@@ -30,9 +31,18 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   pengcheng: [117.19, 34.27],
   xiapi: [117.94, 33.91],
 
+  // 青州
+  linzi: [118.31, 36.83],
+
   // 冀州
   ye: [114.62, 36.35],
   nanpi: [116.71, 38.04],
+
+  // 并州
+  jinyang: [112.55, 37.87],
+
+  // 幽州
+  jicheng: [116.4, 39.9],
 
   // 扬州
   shouchun: [117.16, 32.58],
@@ -74,13 +84,17 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   hanzhong: [107.03, 33.07],
   jieting: [105.98, 35.0],
   qishan: [105.18, 34.19],
+  tianshui: [105.34, 34.75],
+
+  // 交州
+  panyu: [113.26, 23.13],
 }
 
 /**
  * 表现层的错位量，单位为像素。
  * 少数地点在真实地理上过于接近（虎牢关与汜水关同为一关、樊城与襄阳隔汉水相望、
  * 洛阳与二关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、
- * 雒城与成都隔成都平原相望），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
+ * 雒城与成都隔成都平原相望、陈仓与五丈原在渭水两岸相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
  */
 export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: number }>> = {
   sishui: { dx: 0, dy: 13 },
@@ -90,6 +104,7 @@ export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: numb
   puyang: { dx: 1, dy: -2 },
   changbanpo: { dx: 0, dy: -8 },
   luocheng: { dx: 0, dy: -10 },
+  chencang: { dx: -12, dy: 8 },
 }
 
 /**

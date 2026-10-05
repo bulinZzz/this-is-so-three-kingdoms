@@ -28,12 +28,13 @@ export const GEOGRAPHY_SANGUO: Geography = {
     { id: 'sishui', name: '汜水关', type: 'pass', provinceId: 'sili', owner: 'caocao', neighbors: ['hulao', 'guandu', 'xudu'] },
     { id: 'hulao', name: '虎牢关', type: 'pass', provinceId: 'sili', owner: 'caocao', neighbors: ['sishui', 'luoyang'] },
     { id: 'tongguan', name: '潼关', type: 'pass', provinceId: 'sili', owner: null, neighbors: ['changan', 'luoyang'] },
-    { id: 'wuzhangyuan', name: '五丈原', type: 'field', provinceId: 'sili', owner: null, neighbors: ['changan', 'hanzhong', 'jieting'] },
+    { id: 'wuzhangyuan', name: '五丈原', type: 'field', provinceId: 'sili', owner: null, neighbors: ['chencang', 'changan', 'hanzhong'] },
+    { id: 'chencang', name: '陈仓', type: 'city', provinceId: 'sili', owner: null, neighbors: ['wuzhangyuan', 'jieting', 'hanzhong'] },
 
     // 兖州
     { id: 'guandu', name: '官渡', type: 'field', provinceId: 'sili', owner: 'caocao', neighbors: ['chenliu', 'sishui', 'xudu', 'baima'] },
     { id: 'chenliu', name: '陈留', type: 'city', provinceId: 'yan', owner: 'caocao', neighbors: ['guandu', 'baima', 'xiaopei'] },
-    { id: 'puyang', name: '濮阳', type: 'city', provinceId: 'yan', owner: 'caocao', neighbors: ['baima', 'ye', 'xiaopei'] },
+    { id: 'puyang', name: '濮阳', type: 'city', provinceId: 'yan', owner: 'caocao', neighbors: ['baima', 'ye', 'xiaopei', 'linzi'] },
     { id: 'baima', name: '白马', type: 'pass', provinceId: 'yan', owner: 'caocao', neighbors: ['puyang', 'ye', 'chenliu', 'guandu'] },
 
     // 豫州
@@ -44,9 +45,18 @@ export const GEOGRAPHY_SANGUO: Geography = {
     { id: 'pengcheng', name: '彭城', type: 'city', provinceId: 'xu', owner: 'caocao', neighbors: ['xiaopei', 'xiapi'] },
     { id: 'xiapi', name: '下邳', type: 'city', provinceId: 'xu', owner: 'caocao', neighbors: ['pengcheng', 'shouchun', 'jianye'] },
 
+    // 青州
+    { id: 'linzi', name: '临淄', type: 'city', provinceId: 'qing', owner: 'caocao', neighbors: ['nanpi', 'puyang'] },
+
     // 冀州
-    { id: 'ye', name: '邺', type: 'city', provinceId: 'ji', owner: 'caocao', neighbors: ['puyang', 'baima', 'nanpi'] },
-    { id: 'nanpi', name: '南皮', type: 'city', provinceId: 'ji', owner: 'caocao', neighbors: ['ye'] },
+    { id: 'ye', name: '邺', type: 'city', provinceId: 'ji', owner: 'caocao', neighbors: ['puyang', 'baima', 'jinyang', 'nanpi'] },
+    { id: 'nanpi', name: '南皮', type: 'city', provinceId: 'ji', owner: 'caocao', neighbors: ['linzi', 'jicheng', 'ye'] },
+
+    // 并州
+    { id: 'jinyang', name: '晋阳', type: 'city', provinceId: 'bing', owner: 'caocao', neighbors: ['ye'] },
+
+    // 幽州
+    { id: 'jicheng', name: '蓟', type: 'city', provinceId: 'you', owner: 'caocao', neighbors: ['nanpi'] },
 
     // 扬州
     { id: 'shouchun', name: '寿春', type: 'city', provinceId: 'yang', owner: 'caocao', neighbors: ['hefei', 'jianye', 'xiapi'] },
@@ -71,10 +81,10 @@ export const GEOGRAPHY_SANGUO: Geography = {
     { id: 'chibi', name: '赤壁', type: 'field', provinceId: 'jing', owner: null, neighbors: ['jiangxia', 'jiangling', 'chaisang', 'changsha'] },
     { id: 'changbanpo', name: '长坂坡', type: 'field', provinceId: 'jing', owner: 'caocao', neighbors: ['yiling', 'jiangling', 'xiangyang'] },
     { id: 'yiling', name: '夷陵', type: 'field', provinceId: 'jing', owner: 'caocao', neighbors: ['changbanpo', 'jiangling', 'baidicheng'] },
-    { id: 'wuling', name: '武陵', type: 'city', provinceId: 'jing', owner: null, neighbors: ['changsha', 'jiangling'] },
-    { id: 'lingling', name: '零陵', type: 'city', provinceId: 'jing', owner: null, neighbors: ['guiyang', 'changsha'] },
+    { id: 'wuling', name: '武陵', type: 'city', provinceId: 'jing', owner: null, neighbors: ['changsha', 'jiangling', 'lingling'] },
+    { id: 'lingling', name: '零陵', type: 'city', provinceId: 'jing', owner: null, neighbors: ['guiyang', 'changsha', 'wuling'] },
     { id: 'changsha', name: '长沙', type: 'city', provinceId: 'jing', owner: null, neighbors: ['wuling', 'chibi', 'lingling', 'guiyang', 'yuzhang'] },
-    { id: 'guiyang', name: '桂阳', type: 'city', provinceId: 'jing', owner: null, neighbors: ['lingling', 'changsha'] },
+    { id: 'guiyang', name: '桂阳', type: 'city', provinceId: 'jing', owner: null, neighbors: ['lingling', 'changsha', 'panyu'] },
 
     // 益州
     { id: 'chengdu', name: '成都', type: 'city', provinceId: 'yi', owner: null, neighbors: ['luocheng', 'jiangzhou'] },
@@ -85,8 +95,12 @@ export const GEOGRAPHY_SANGUO: Geography = {
     { id: 'luocheng', name: '雒城', type: 'city', provinceId: 'yi', owner: null, neighbors: ['chengdu', 'fucheng', 'jiangzhou'] },
 
     // 凉州
-    { id: 'hanzhong', name: '汉中', type: 'city', provinceId: 'liang', owner: null, neighbors: ['jiamengguan', 'wuzhangyuan', 'qishan', 'baidicheng'] },
-    { id: 'jieting', name: '街亭', type: 'field', provinceId: 'liang', owner: null, neighbors: ['qishan', 'wuzhangyuan'] },
-    { id: 'qishan', name: '祁山', type: 'field', provinceId: 'liang', owner: null, neighbors: ['jieting', 'hanzhong', 'jiamengguan'] },
+    { id: 'hanzhong', name: '汉中', type: 'city', provinceId: 'liang', owner: null, neighbors: ['jiamengguan', 'chencang', 'wuzhangyuan', 'qishan', 'baidicheng'] },
+    { id: 'jieting', name: '街亭', type: 'field', provinceId: 'liang', owner: null, neighbors: ['tianshui', 'chencang'] },
+    { id: 'qishan', name: '祁山', type: 'field', provinceId: 'liang', owner: null, neighbors: ['tianshui', 'hanzhong', 'jiamengguan'] },
+    { id: 'tianshui', name: '天水', type: 'city', provinceId: 'liang', owner: null, neighbors: ['qishan', 'jieting'] },
+
+    // 交州
+    { id: 'panyu', name: '番禺', type: 'city', provinceId: 'jiao', owner: null, neighbors: ['guiyang'] },
   ],
 }

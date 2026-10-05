@@ -36,18 +36,24 @@ function projectedDistance(u: SiteId, v: SiteId): number {
 
 /**
  * 几何规则之外的史实强制相邻边，与 tools/buildAdjacency.mjs 的 FORCED_EDGES 保持一致。
- * 赤壁之战为孙刘联军，柴桑是周瑜的前线基地；江陵与夷陵之间是长江水道。
+ * 赤壁之战为孙刘联军，柴桑是周瑜的前线基地；江陵与夷陵之间是长江水道；
+ * 零陵与武陵同属荆南，湘江与沅水水道相通。
  */
 const FORCED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [
   ['chibi', 'chaisang'],
   ['jiangling', 'yiling'],
+  ['lingling', 'wuling'],
 ]
 
 /**
  * 几何上无第三点阻挡、但史实上并无直接通道的点对，与 tools/buildAdjacency.mjs 的 EXCLUDED_EDGES 保持一致。
- * 长安在关中、白帝城在巴东，中隔秦岭与大巴山。
+ * 长安在关中、白帝城在巴东，中隔秦岭与大巴山；临淄与小沛隔兖、徐二州；晋阳与蓟隔冀州。
  */
-const EXCLUDED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [['changan', 'baidicheng']]
+const EXCLUDED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [
+  ['changan', 'baidicheng'],
+  ['linzi', 'xiaopei'],
+  ['jinyang', 'jicheng'],
+]
 
 const forcedEdgeKeys = new Set(FORCED_EDGES.map(([a, b]) => [a, b].sort().join('|')))
 
@@ -61,9 +67,9 @@ describe('三国地理数据', () => {
     expect(validateGeography(GEOGRAPHY_SANGUO, FACTION_IDS)).toEqual([])
   })
 
-  it('覆盖十三个州、四十九个战略点，州名不重复', () => {
+  it('覆盖十三个州、五十五个战略点，州名不重复', () => {
     expect(GEOGRAPHY_SANGUO.provinces).toHaveLength(13)
-    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(49)
+    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(55)
     expect(new Set(GEOGRAPHY_SANGUO.provinces.map((province) => province.name)).size).toBe(13)
   })
 
@@ -100,10 +106,10 @@ describe('三国地理数据', () => {
     const liubei = sitesOwnedBy('liubei')
     const unowned = GEOGRAPHY_SANGUO.sites.filter((site) => site.owner === null)
 
-    expect(caocao.length).toBe(23)
+    expect(caocao.length).toBe(26)
     expect(sunquan.length).toBe(7)
     expect(liubei.length).toBe(1)
-    expect(unowned.length).toBe(18)
+    expect(unowned.length).toBe(21)
     expect(caocao.length).toBeGreaterThan(sunquan.length)
     expect(sunquan.length).toBeGreaterThan(0)
     expect(unowned.length).toBeGreaterThan(0)
@@ -203,7 +209,7 @@ describe('三国地理数据', () => {
       GEOGRAPHY_SANGUO.sites.reduce((sum, site) => sum + site.neighbors.length, 0) / 2
     const completeGraphEdgeCount = (siteCount * (siteCount - 1)) / 2
 
-    expect(completeGraphEdgeCount).toBe(1176)
+    expect(completeGraphEdgeCount).toBe(1485)
     expect(edgeCount).toBeLessThan(siteCount * 4)
   })
 })

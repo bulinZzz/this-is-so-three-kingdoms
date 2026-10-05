@@ -21,6 +21,8 @@ const FORCED_EDGES = [
   ['chibi', 'chaisang'],
   // 江陵与夷陵之间是长江水道，舟行直通；当阳的长坂坡落在这条直径圆内，仅凭几何会误判为不相邻。
   ['jiangling', 'yiling'],
+  // 零陵与武陵同属荆南，湘江与沅水水道相通；长沙落在两点直径圆内，仅凭几何会误判为不相邻。
+  ['lingling', 'wuling'],
 ]
 
 /**
@@ -30,6 +32,10 @@ const FORCED_EDGES = [
 const EXCLUDED_EDGES = [
   // 长安在关中、白帝城在巴东，中隔秦岭与大巴山，须经汉中或葭萌关绕行。
   ['changan', 'baidicheng'],
+  // 临淄在青州、小沛在豫州，中隔兖、徐二州，并无直接通道。
+  ['linzi', 'xiaopei'],
+  // 晋阳在并州、蓟在幽州，中隔冀州（太行、恒山），须经邺或南皮绕行。
+  ['jinyang', 'jicheng'],
 ]
 
 // 制图经纬度范围，唯一来源为 src/game/mapBounds.json，与 src/game/mapLayout.ts 共用；
@@ -41,12 +47,11 @@ const REFERENCE_LATITUDE = 33
 const KM_PER_LATITUDE_DEGREE = 110.57
 const KM_PER_LONGITUDE_DEGREE = 111.32 * Math.cos((REFERENCE_LATITUDE * Math.PI) / 180)
 const PIXELS_PER_KILOMETER = 0.5
-const PADDING = 32
 
 function projectLonLat([lon, lat]) {
   return {
-    x: PADDING + (lon - BOUNDS.minLon) * KM_PER_LONGITUDE_DEGREE * PIXELS_PER_KILOMETER,
-    y: PADDING + (BOUNDS.maxLat - lat) * KM_PER_LATITUDE_DEGREE * PIXELS_PER_KILOMETER,
+    x: (lon - BOUNDS.minLon) * KM_PER_LONGITUDE_DEGREE * PIXELS_PER_KILOMETER,
+    y: (BOUNDS.maxLat - lat) * KM_PER_LATITUDE_DEGREE * PIXELS_PER_KILOMETER,
   }
 }
 
