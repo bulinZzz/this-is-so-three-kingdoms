@@ -1,11 +1,11 @@
-import type { ActionKind, ActionRecord, GameState } from './model'
+import type { ActionKind, ActionRecord, FactionId, GameState } from './model'
 
 /** 每季的行动力预算。 */
-export const ACTION_POINTS_PER_TURN = 4
+export const ACTION_POINTS_PER_TURN = 10
 
 /** 各项行动的行动力消耗，集中定义。 */
 export const ACTION_COSTS: Record<ActionKind, number> = {
-  seekTalent: 1,
+  seekTalent: 4,
 }
 
 /** 当季剩余行动力是否够执行某项行动。 */
@@ -27,6 +27,8 @@ export function spendActionPoints(state: GameState, kind: ActionKind): boolean {
 /** 行动的规则实现：前置条件与执行本身。 */
 export interface ActionRequest {
   kind: ActionKind
+  /** 发起行动的势力，缺省为玩家势力。 */
+  factionId?: FactionId
   /** 前置条件校验，不满足时返回原因；满足时返回 null。 */
   precondition?: (state: GameState) => string | null
   /** 执行规则，此时行动力已扣除；返回行动的目标与结果。 */
@@ -59,8 +61,14 @@ export function runAction(state: GameState, request: ActionRequest): ActionResul
   }
 
   const { targetId = null, outcome } = request.execute(state)
-  const record: ActionRecord = { kind: request.kind, targetId, outcome }
-  state.actionLog.push(record)
+  const record: ActionRecord = {
+    kind: request.kind,
+    factionId: request.factionId ?? state.playerFaction,
+    date: { ...state.currentDate },
+    targetId,
+    outcome,
+  }
+  state.history.push(record)
 
   return { ok: true, record }
 }

@@ -79,13 +79,19 @@ describe('advanceTurn', () => {
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
   })
 
-  it('结束回合后本季行动记录清空', () => {
+  it('结束回合保留行动历史', () => {
     const state = createInitialState({ seed: 208 })
-    state.actionLog.push({ kind: 'seekTalent', targetId: null, outcome: '测试' })
+    state.history.push({
+      kind: 'seekTalent',
+      factionId: 'liubei',
+      date: { era: '建安', year: 13, season: 'autumn' },
+      targetId: null,
+      outcome: '测试',
+    })
 
     advanceTurn(state)
 
-    expect(state.actionLog).toEqual([])
+    expect(state.history).toHaveLength(1)
   })
 })
 

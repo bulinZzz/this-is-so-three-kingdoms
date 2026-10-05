@@ -17,7 +17,7 @@ export function createInitialState(options: NewGameOptions = {}): GameState {
     currentDate: { ...scenario.startDate },
     currentTurn: 1,
     actionPoints: ACTION_POINTS_PER_TURN,
-    actionLog: [],
+    history: [],
     playerFaction: scenario.playerFaction,
     geography: cloneGeography(scenario.geography ?? EMPTY_GEOGRAPHY),
     factions: scenario.factions.map((faction) => ({ ...faction })),

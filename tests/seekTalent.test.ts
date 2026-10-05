@@ -13,7 +13,7 @@ function servingOf(state: GameState): Character[] {
 }
 
 describe('seekTalent', () => {
-  it('从玩家占地所在州寻得一人入仕，并扣行动力、写记录', () => {
+  it('从玩家占地所在州招募一人入仕，并扣行动力、写记录', () => {
     const state = createInitialState({ seed: 208 })
     const before = servingOf(state).length
 
@@ -28,10 +28,10 @@ describe('seekTalent', () => {
     expect(result.record.targetId).toBe('jing')
     expect(servingOf(state)).toHaveLength(before + 1)
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
-    expect(state.actionLog).toEqual([result.record])
+    expect(state.history).toEqual([result.record])
   })
 
-  it('只寻得玩家占地所在州的在野之人', () => {
+  it('只招募玩家占地所在州的在野之人', () => {
     const state = createInitialState({ seed: 208 })
     const before = new Set(servingOf(state).map((character) => character.id))
 
@@ -90,7 +90,7 @@ describe('seekTalent', () => {
 
     expect(result).toEqual({ ok: false, reason: '麾下已满' })
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
-    expect(state.actionLog).toEqual([])
+    expect(state.history).toEqual([])
   })
 
   it('该州没有在野之人时拒绝，不扣行动力也不写记录', () => {
@@ -101,6 +101,6 @@ describe('seekTalent', () => {
 
     expect(result).toEqual({ ok: false, reason: '此处已无可寻之人' })
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
-    expect(state.actionLog).toEqual([])
+    expect(state.history).toEqual([])
   })
 })

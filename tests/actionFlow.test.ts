@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GameSession } from '../src/app/gameSession'
-import { ACTION_POINTS_PER_TURN } from '../src/core/actions'
+import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { MemoryStorage } from './memoryStorage'
 
@@ -9,24 +9,26 @@ function createSession(drawSeed: number): GameSession {
 }
 
 describe('行动力与寻访流程（无画面）', () => {
-  it('一季内寻访至行动力耗尽，结束回合后恢复预算并清空记录', () => {
+  it('一季内寻访到行动力不足以再寻访，结束回合后恢复预算，历史跨回合保留', () => {
     const session = createSession(3)
     const startTurn = session.getState().currentTurn
 
-    for (let i = 0; i < ACTION_POINTS_PER_TURN; i += 1) {
-      expect(session.seekTalent().ok).toBe(true)
+    let successes = 0
+    while (session.seekTalent().ok) {
+      successes += 1
     }
 
-    expect(session.getState().actionPoints).toBe(0)
-    expect(session.getState().actionLog).toHaveLength(ACTION_POINTS_PER_TURN)
-
-    expect(session.seekTalent()).toEqual({ ok: false, reason: '行动力不足' })
+    expect(successes).toBe(Math.floor(ACTION_POINTS_PER_TURN / ACTION_COSTS.seekTalent))
+    expect(session.getState().actionPoints).toBe(
+      ACTION_POINTS_PER_TURN - successes * ACTION_COSTS.seekTalent,
+    )
+    expect(session.getState().history).toHaveLength(successes)
 
     session.endTurn()
 
     expect(session.getState().currentTurn).toBe(startTurn + 1)
     expect(session.getState().actionPoints).toBe(ACTION_POINTS_PER_TURN)
-    expect(session.getState().actionLog).toEqual([])
+    expect(session.getState().history).toHaveLength(successes)
   })
 
   it('寻访只消耗抽卡流，模拟流的随机状态保持不变', () => {
@@ -44,7 +46,7 @@ describe('行动力与寻访流程（无画面）', () => {
       const session = createSession(11)
       const outcomes: string[] = []
 
-      for (let i = 0; i < 3; i += 1) {
+      for (let i = 0; i < 2; i += 1) {
         const result = session.seekTalent()
         outcomes.push(result.ok ? result.record.outcome : result.reason)
       }

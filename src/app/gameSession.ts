@@ -14,7 +14,7 @@ export interface GameSessionOptions {
   drawSeed?: number
 }
 
-/** 持有当前对局的唯一 GameState，负责回合推进、行动、自动存档与手动槽位。 */
+/** 持有当前对局的唯一 GameState，负责回合推进、行动、回合开始的自动存档与手动槽位。 */
 export class GameSession {
   private state: GameState
   private readonly listeners = new Set<StateListener>()
@@ -33,18 +33,18 @@ export class GameSession {
     return this.state
   }
 
+  /** 结束本回合；进入下一回合时写入自动存档。 */
   endTurn(): void {
     advanceTurn(this.state)
     this.saveStore.save(AUTO_SAVE_KEY, this.state)
     this.notify()
   }
 
-  /** 执行人才寻访；成功后自动保存并通知界面，失败时返回原因且不改变对局。 */
+  /** 执行人才寻访；成功后通知界面，失败时返回原因且不改变对局。自动存档只在回合开始时写入。 */
   seekTalent(): ActionResult {
     const result = runSeekTalent(this.state, this.drawRandom)
 
     if (result.ok) {
-      this.saveStore.save(AUTO_SAVE_KEY, this.state)
       this.notify()
     }
 

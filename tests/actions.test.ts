@@ -35,19 +35,21 @@ describe('runAction', () => {
     ...overrides,
   })
 
-  it('成功时扣除行动力并写入本季记录', () => {
+  it('成功时扣除行动力并写入行动历史', () => {
     const state = createInitialState({ seed: 208 })
 
     const result = runAction(state, seekTalent())
 
-    expect(result).toEqual({
-      ok: true,
-      record: { kind: 'seekTalent', targetId: 'jing', outcome: '发现一人' },
-    })
+    const record = {
+      kind: 'seekTalent',
+      factionId: 'liubei',
+      date: { era: '建安', year: 13, season: 'autumn' },
+      targetId: 'jing',
+      outcome: '发现一人',
+    }
+    expect(result).toEqual({ ok: true, record })
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
-    expect(state.actionLog).toEqual([
-      { kind: 'seekTalent', targetId: 'jing', outcome: '发现一人' },
-    ])
+    expect(state.history).toEqual([record])
   })
 
   it('前置条件不满足时拒绝，不扣行动力也不记入记录', () => {
@@ -57,7 +59,7 @@ describe('runAction', () => {
 
     expect(result).toEqual({ ok: false, reason: '麾下已满' })
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
-    expect(state.actionLog).toEqual([])
+    expect(state.history).toEqual([])
   })
 
   it('行动力不足时拒绝，状态不变', () => {
@@ -68,6 +70,6 @@ describe('runAction', () => {
 
     expect(result).toEqual({ ok: false, reason: '行动力不足' })
     expect(state.actionPoints).toBe(0)
-    expect(state.actionLog).toEqual([])
+    expect(state.history).toEqual([])
   })
 })

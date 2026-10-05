@@ -127,7 +127,7 @@ describe('GameSession', () => {
     expect(session.getState().currentTurn).toBe(2)
   })
 
-  it('寻访成功后扣行动力、招募武将并写入自动存档', () => {
+  it('寻访成功后扣行动力并招募武将，但不在行动时写自动存档', () => {
     const store = new LocalSaveStore(new MemoryStorage())
     const session = new GameSession(store, { drawSeed: 1 })
     const before = servingCount(session)
@@ -137,15 +137,13 @@ describe('GameSession', () => {
     expect(result.ok).toBe(true)
     expect(session.getState().actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
     expect(servingCount(session)).toBe(before + 1)
-    expect(store.load(AUTO_SAVE_KEY)?.actionPoints).toBe(
-      ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent,
-    )
+    expect(store.load(AUTO_SAVE_KEY)).toBeNull()
   })
 
   it('寻访成功后通知订阅者', () => {
     const { session } = createSession()
     const seen: number[] = []
-    session.subscribe((state) => seen.push(state.actionLog.length))
+    session.subscribe((state) => seen.push(state.history.length))
 
     session.seekTalent()
 
@@ -159,7 +157,7 @@ describe('GameSession', () => {
     const result = session.seekTalent()
 
     expect(result).toEqual({ ok: false, reason: '行动力不足' })
-    expect(session.getState().actionLog).toEqual([])
+    expect(session.getState().history).toEqual([])
   })
 
   it('读档不回退抽卡源，再次寻访得到不同的人', () => {

@@ -92,9 +92,13 @@ export interface Scenario {
 /** 玩家可执行的行动。 */
 export type ActionKind = 'seekTalent'
 
-/** 一条行动记录：行动类型、目标与结果。 */
+/** 一条行动记录：行动类型、势力、时间、目标与结果。 */
 export interface ActionRecord {
   kind: ActionKind
+  /** 发起行动的势力。 */
+  factionId: FactionId
+  /** 行动发生的日期。 */
+  date: GameDate
   /** 行动目标，如寻访所在的州；没有具体目标时为 null。 */
   targetId: string | null
   /** 行动结果的描述，供界面展示。 */
@@ -106,8 +110,8 @@ export interface GameState {
   currentTurn: number
   /** 当季剩余行动力，结束回合时恢复为当季预算。 */
   actionPoints: number
-  /** 本季已执行的行动，结束回合时清空。 */
-  actionLog: ActionRecord[]
+  /** 全局行动历史，按发生顺序追加，回合推进不清空。 */
+  history: ActionRecord[]
   playerFaction: FactionId
   geography: Geography
   factions: Faction[]

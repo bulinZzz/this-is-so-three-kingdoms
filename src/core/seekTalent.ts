@@ -38,7 +38,7 @@ export function seekTalent(state: GameState, random: Random): ActionResult {
       picked.status = 'serving'
       picked.factionId = current.playerFaction
 
-      return { targetId: picked.provinceId, outcome: `寻得 ${picked.name}` }
+      return { targetId: picked.provinceId, outcome: `招募 ${picked.name}` }
     },
   })
 }

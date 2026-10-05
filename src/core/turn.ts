@@ -3,11 +3,10 @@ import type { FactionId, GameState, Season } from './model'
 
 const SEASONS: readonly Season[] = ['spring', 'summer', 'autumn', 'winter']
 
-/** 结束当前回合，进入下一个季节，冬季之后跨入下一年的春季；当季行动力恢复为预算，行动记录清空。 */
+/** 结束当前回合，进入下一个季节，冬季之后跨入下一年的春季；当季行动力恢复为预算。行动历史跨回合保留。 */
 export function advanceTurn(state: GameState): void {
   state.currentTurn += 1
   state.actionPoints = ACTION_POINTS_PER_TURN
-  state.actionLog.length = 0
 
   const index = SEASONS.indexOf(state.currentDate.season)
   if (index === SEASONS.length - 1) {
