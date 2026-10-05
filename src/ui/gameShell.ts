@@ -1,11 +1,14 @@
 import type { GameSession } from '../app/gameSession'
 import type { SettingsStore } from '../app/settingsStore'
-import { ACTION_POINTS_PER_TURN } from '../core/actions'
-import type { CharacterStatus, Faction, GameState, Season } from '../core/model'
+import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../core/actions'
+import type { CharacterStatus, Faction, FactionId, GameDate, GameState, Season } from '../core/model'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
 import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
 import './shell.css'
+
+/** 侧栏「近况」展示的最新条数。 */
+const RECENT_HISTORY_LIMIT = 8
 
 const SHELL_HTML = `
   <div class="shell">
@@ -25,8 +28,9 @@ const SHELL_HTML = `
       <ul class="shell__factions"></ul>
     </section>
     <section class="shell__section">
-      <h2 class="shell__title">本季已执行</h2>
-      <ul class="shell__log"></ul>
+      <h2 class="shell__title">近况</h2>
+      <ul class="shell__history"></ul>
+      <p class="shell__history-more" hidden>更早的记录见底部「历史」</p>
     </section>
     <section class="shell__actions">
       <button type="button" class="shell__button" data-action="end-turn">结束回合</button>
@@ -38,15 +42,27 @@ const SHELL_HTML = `
         <button type="button" class="saves__close" data-action="close-talents">关闭</button>
       </div>
       <div class="talents__body">
-        <button type="button" class="shell__button" data-action="seek-talent">寻访人才</button>
+        <button type="button" class="talents__seek" data-action="seek-talent">
+          <span>寻访人才</span>
+          <span class="talents__seek-cost"></span>
+        </button>
         <p class="talents__status" role="status"></p>
-        <h3 class="shell__title">麾下</h3>
-        <ul class="talents__list talents__officers"></ul>
-        <section class="talents__dev" hidden>
-          <h3 class="shell__title">全部武将</h3>
-          <ul class="talents__list talents__all"></ul>
+        <section class="talents__section">
+          <h3 class="talents__section-title">麾下<span class="talents__count talents__officers-count"></span></h3>
+          <ul class="talents__officers"></ul>
+        </section>
+        <section class="talents__section talents__dev" hidden>
+          <h3 class="talents__section-title">全部武将<span class="talents__count talents__all-count"></span></h3>
+          <ul class="talents__all"></ul>
         </section>
       </div>
+    </dialog>
+    <dialog class="history">
+      <div class="saves__head">
+        <h2 class="saves__title">历史</h2>
+        <button type="button" class="saves__close" data-action="close-history">关闭</button>
+      </div>
+      <ul class="history__list"></ul>
     </dialog>
     <dialog class="settings">
       <div class="saves__head">
@@ -76,6 +92,7 @@ const SHELL_HTML = `
 const ACTION_BAR_HTML = `
   <nav class="action-bar">
     <button type="button" class="action-bar__button" data-action="open-talents">人才</button>
+    <button type="button" class="action-bar__button" data-action="open-history">历史</button>
   </nav>
 `
 
@@ -130,10 +147,12 @@ function toChineseNumeral(value: number): string {
 }
 
 /** 把日期渲染为「建安十二年 秋」的形式。 */
-function formatDate(state: GameState): string {
-  const { era, year, season } = state.currentDate
+function formatGameDate(date: GameDate): string {
+  return `${date.era}${toChineseNumeral(date.year)}年 ${SEASON_CHARACTERS[date.season]}`
+}
 
-  return `${era}${toChineseNumeral(year)}年 ${SEASON_CHARACTERS[season]}`
+function formatDate(state: GameState): string {
+  return formatGameDate(state.currentDate)
 }
 
 function formatSlotSummary(summary: SaveSummary): string {
@@ -190,20 +209,28 @@ function renderActionPoints(label: Element, state: GameState): void {
   label.textContent = `行动力 ${state.actionPoints} / ${ACTION_POINTS_PER_TURN}`
 }
 
-function renderOfficers(list: Element, state: GameState): void {
+function createListItem(className: string, text: string): HTMLLIElement {
+  const item = document.createElement('li')
+  item.className = className
+  item.textContent = text
+
+  return item
+}
+
+/** 渲染麾下武将为姓名胶囊，返回人数。 */
+function renderOfficers(list: Element, state: GameState): number {
   const officers = state.characters.filter(
     (character) => character.status === 'serving' && character.factionId === state.playerFaction,
   )
 
-  list.replaceChildren(
-    ...officers.map((officer) => {
-      const item = document.createElement('li')
-      item.className = 'talents__item'
-      item.textContent = officer.name
+  if (officers.length === 0) {
+    list.replaceChildren(createListItem('talents__empty', '麾下暂无武将'))
+    return 0
+  }
 
-      return item
-    }),
-  )
+  list.replaceChildren(...officers.map((officer) => createListItem('talents__officer', officer.name)))
+
+  return officers.length
 }
 
 const CHARACTER_STATUS_LABELS: Record<CharacterStatus, string> = {
@@ -212,8 +239,8 @@ const CHARACTER_STATUS_LABELS: Record<CharacterStatus, string> = {
   retired: '退场',
 }
 
-/** 开发者模式：列出全部武将及其所在州、状态与所属势力。 */
-function renderAllCharacters(list: Element, state: GameState): void {
+/** 开发者模式：列出全部武将及其所在州、状态与所属势力，返回人数。 */
+function renderAllCharacters(list: Element, state: GameState): number {
   const provinceNames = new Map(
     state.geography.provinces.map((province) => [province.id, province.name]),
   )
@@ -221,27 +248,132 @@ function renderAllCharacters(list: Element, state: GameState): void {
 
   list.replaceChildren(
     ...state.characters.map((character) => {
+      const item = document.createElement('li')
+      item.className = 'talents__all-item'
+
+      const name = document.createElement('span')
+      name.className = 'talents__all-name'
+      name.textContent = character.name
+
       const where = provinceNames.get(character.provinceId) ?? character.provinceId
       const owner =
         character.factionId === null
           ? ''
           : ` · ${factionNames.get(character.factionId) ?? character.factionId}`
 
-      const item = document.createElement('li')
-      item.className = 'talents__item'
-      item.textContent = `${character.name} · ${where} · ${CHARACTER_STATUS_LABELS[character.status]}${owner}`
+      const meta = document.createElement('span')
+      meta.className = 'talents__all-meta'
+      meta.textContent = `${where} · ${CHARACTER_STATUS_LABELS[character.status]}${owner}`
+
+      item.append(name, meta)
 
       return item
     }),
   )
+
+  return state.characters.length
 }
 
-function renderActionLog(list: Element, state: GameState): void {
+interface HistoryFactionGroup {
+  factionId: FactionId
+  outcomes: string[]
+}
+
+interface HistoryTurnGroup {
+  label: string
+  factions: HistoryFactionGroup[]
+}
+
+/** 按「时间 → 势力」把历史折叠成分组；历史本身是时间正序。 */
+function groupHistory(state: GameState): HistoryTurnGroup[] {
+  const turns: HistoryTurnGroup[] = []
+
+  for (const record of state.history) {
+    const label = formatGameDate(record.date)
+    let turn = turns[turns.length - 1]
+    if (turn === undefined || turn.label !== label) {
+      turn = { label, factions: [] }
+      turns.push(turn)
+    }
+
+    let faction = turn.factions[turn.factions.length - 1]
+    if (faction === undefined || faction.factionId !== record.factionId) {
+      faction = { factionId: record.factionId, outcomes: [] }
+      turn.factions.push(faction)
+    }
+
+    faction.outcomes.push(record.outcome)
+  }
+
+  return turns
+}
+
+/** 历史弹窗：按时间大分组、势力小分组，最新的在最下。 */
+function renderHistory(list: Element, state: GameState): void {
+  const factionNames = new Map(state.factions.map((faction) => [faction.id, faction.name]))
+
+  if (state.history.length === 0) {
+    list.replaceChildren(createListItem('history__empty', '暂无行动'))
+    return
+  }
+
   list.replaceChildren(
-    ...state.actionLog.map((record) => {
+    ...groupHistory(state).map((turn) => {
+      const turnItem = document.createElement('li')
+      turnItem.className = 'history__turn'
+
+      const label = document.createElement('p')
+      label.className = 'history__date'
+      label.textContent = turn.label
+      turnItem.append(label)
+
+      for (const faction of turn.factions) {
+        const block = document.createElement('div')
+        block.className = 'history__faction'
+
+        const name = document.createElement('p')
+        name.className = 'history__faction-name'
+        name.textContent = factionNames.get(faction.factionId) ?? faction.factionId
+
+        const actions = document.createElement('ul')
+        actions.className = 'history__actions'
+        actions.replaceChildren(
+          ...faction.outcomes.map((outcome) => createListItem('history__action', outcome)),
+        )
+
+        block.append(name, actions)
+        turnItem.append(block)
+      }
+
+      return turnItem
+    }),
+  )
+}
+
+/** 侧栏近况：最新若干条，单行「势力 + 行动」，最新的在最下。 */
+function renderRecentHistory(list: Element, state: GameState): void {
+  const factionNames = new Map(state.factions.map((faction) => [faction.id, faction.name]))
+  const records = state.history.slice(-RECENT_HISTORY_LIMIT)
+
+  if (records.length === 0) {
+    list.replaceChildren(createListItem('history__empty', '暂无行动'))
+    return
+  }
+
+  list.replaceChildren(
+    ...records.map((record) => {
       const item = document.createElement('li')
-      item.className = 'shell__log-item'
-      item.textContent = record.outcome
+      item.className = 'recent__item'
+
+      const who = document.createElement('span')
+      who.className = 'recent__faction'
+      who.textContent = factionNames.get(record.factionId) ?? record.factionId
+
+      const action = document.createElement('span')
+      action.className = 'recent__action'
+      action.textContent = record.outcome
+
+      item.append(who, action)
 
       return item
     }),
@@ -310,7 +442,8 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
   const turnLabel = requireElement<HTMLElement>(root, '.shell__turn')
   const actionPointsLabel = requireElement<HTMLElement>(root, '.shell__action-points')
   const factionList = requireElement<HTMLElement>(root, '.shell__factions')
-  const actionLogList = requireElement<HTMLElement>(root, '.shell__log')
+  const recentHistoryList = requireElement<HTMLElement>(root, '.shell__history')
+  const recentHistoryMore = requireElement<HTMLElement>(root, '.shell__history-more')
   const slotList = requireElement<HTMLElement>(root, '.saves__list')
   const statusLabel = requireElement<HTMLElement>(root, '.shell__status')
   const endTurnButton = requireElement<HTMLButtonElement>(root, '[data-action="end-turn"]')
@@ -318,10 +451,16 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
   const openTalentsButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-talents"]')
   const closeTalentsButton = requireElement<HTMLButtonElement>(root, '[data-action="close-talents"]')
   const talentsDialog = requireElement<HTMLDialogElement>(root, '.talents')
+  const openHistoryButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-history"]')
+  const closeHistoryButton = requireElement<HTMLButtonElement>(root, '[data-action="close-history"]')
+  const historyDialog = requireElement<HTMLDialogElement>(root, '.history')
+  const historyList = requireElement<HTMLElement>(root, '.history__list')
   const talentsStatus = requireElement<HTMLElement>(root, '.talents__status')
   const officerList = requireElement<HTMLElement>(root, '.talents__officers')
+  const officerCount = requireElement<HTMLElement>(root, '.talents__officers-count')
   const devSection = requireElement<HTMLElement>(root, '.talents__dev')
   const allCharactersList = requireElement<HTMLElement>(root, '.talents__all')
+  const allCount = requireElement<HTMLElement>(root, '.talents__all-count')
   const openSettingsButton = requireElement<HTMLButtonElement>(root, '[data-action="open-settings"]')
   const openSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="open-saves"]')
   const closeSettingsButton = requireElement<HTMLButtonElement>(root, '[data-action="close-settings"]')
@@ -334,25 +473,30 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
   linksCheckbox.checked = settings.get().showStrategicLinks
   developerCheckbox.checked = settings.get().developerMode
 
+  const seekCostLabel = requireElement<HTMLElement>(root, '.talents__seek-cost')
+  seekCostLabel.textContent = `${ACTION_COSTS.seekTalent} 行动力`
+
   const paint = (state: GameState): void => {
     dateLabel.textContent = formatDate(state)
     turnLabel.textContent = `第 ${state.currentTurn} 回合`
     renderActionPoints(actionPointsLabel, state)
     renderFactions(factionList, state)
-    renderOfficers(officerList, state)
-    renderActionLog(actionLogList, state)
+    officerCount.textContent = String(renderOfficers(officerList, state))
+    renderRecentHistory(recentHistoryList, state)
+    recentHistoryMore.hidden = state.history.length <= RECENT_HISTORY_LIMIT
+    renderHistory(historyList, state)
     renderSlots(slotList, session)
 
     const developerMode = settings.get().developerMode
     devSection.hidden = !developerMode
     if (developerMode) {
-      renderAllCharacters(allCharactersList, state)
+      allCount.textContent = String(renderAllCharacters(allCharactersList, state))
     }
   }
 
   endTurnButton.addEventListener('click', () => {
     session.endTurn()
-    statusLabel.textContent = `已结束回合，进度保存至 ${formatDate(session.getState())}`
+    statusLabel.textContent = `新回合开始：${formatDate(session.getState())}，已自动保存`
   })
 
   openTalentsButton.addEventListener('click', () => {
@@ -361,6 +505,15 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
 
   closeTalentsButton.addEventListener('click', () => {
     talentsDialog.close()
+  })
+
+  openHistoryButton.addEventListener('click', () => {
+    historyDialog.showModal()
+    historyList.scrollTop = historyList.scrollHeight
+  })
+
+  closeHistoryButton.addEventListener('click', () => {
+    historyDialog.close()
   })
 
   seekTalentButton.addEventListener('click', () => {

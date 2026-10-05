@@ -97,56 +97,232 @@
   color: #e8d9b5;
 }
 
-.shell__log {
+.shell__history {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: 140px;
+  gap: 6px;
+  max-height: 200px;
   margin: 0;
   padding: 0;
   overflow-y: auto;
   list-style: none;
 }
 
-.shell__log-item {
+.recent__item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   font-size: 13px;
-  color: #d8c7a0;
+}
+
+.recent__faction {
+  flex: none;
+  color: #9a8b70;
+}
+
+.recent__action {
+  color: #e8d9b5;
+}
+
+.history__empty {
+  font-size: 13px;
+  color: #6f6250;
+}
+
+.shell__history-more {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #6f6250;
+}
+
+.history__list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  margin: 0;
+  padding: 14px 18px 18px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.history__turn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.history__date {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: #c8b48c;
+}
+
+.history__faction {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 2px solid #2a241c;
+}
+
+.history__faction-name {
+  margin: 0;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.history__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history__action {
+  font-size: 13px;
+  color: #e8d9b5;
 }
 
 .talents__body {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   min-height: 0;
-  padding: 14px 16px;
+  padding: 16px 18px 18px;
   overflow-y: auto;
 }
 
+.talents__seek {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid #7a6746;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #33291c, #2a2219);
+  color: #f0e2bd;
+  font-family: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.talents__seek:hover {
+  border-color: #8f7a53;
+  background: linear-gradient(180deg, #3d3122, #322819);
+}
+
+.talents__seek:active {
+  transform: translateY(1px);
+}
+
+.talents__seek-cost {
+  flex: none;
+  padding: 2px 9px;
+  border: 1px solid #574a36;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #c8b48c;
+}
+
 .talents__status {
-  margin: 0;
-  min-height: 18px;
+  min-height: 16px;
+  margin: -8px 0 0;
   font-size: 12px;
   color: #9a8b70;
 }
 
-.talents__list {
+.talents__section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 10px;
+}
+
+.talents__dev[hidden] {
+  display: none;
+}
+
+.talents__section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 2px;
+  color: #9a8b70;
+}
+
+.talents__count {
+  font-size: 11px;
+  letter-spacing: 0;
+  color: #9a8b70;
+}
+
+.talents__officers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.talents__item {
+.talents__officer {
+  padding: 4px 10px;
+  border: 1px solid #3a3128;
+  border-radius: 999px;
+  background: #241d16;
   font-size: 13px;
-  color: #d8c7a0;
+  color: #e8d9b5;
+}
+
+.talents__all {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.talents__all-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+
+.talents__all-item:nth-child(odd) {
+  background: #201a13;
+}
+
+.talents__all-name {
+  color: #e8d9b5;
+}
+
+.talents__all-meta {
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.talents__empty {
+  font-size: 13px;
+  color: #6f6250;
 }
 
 .saves,
 .settings,
-.talents {
+.talents,
+.history {
   width: min(420px, 100% - 32px);
   max-height: 80vh;
   padding: 0;
@@ -158,14 +334,16 @@
 
 .saves[open],
 .settings[open],
-.talents[open] {
+.talents[open],
+.history[open] {
   display: flex;
   flex-direction: column;
 }
 
 .saves::backdrop,
 .settings::backdrop,
-.talents::backdrop {
+.talents::backdrop,
+.history::backdrop {
   background: rgb(0 0 0 / 60%);
 }
 
