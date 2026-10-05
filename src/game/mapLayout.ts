@@ -57,13 +57,12 @@ const REFERENCE_LATITUDE = 33
 const KM_PER_LATITUDE_DEGREE = 110.57
 const KM_PER_LONGITUDE_DEGREE = 111.32 * Math.cos((REFERENCE_LATITUDE * Math.PI) / 180)
 const PIXELS_PER_KILOMETER = 0.5
-const PADDING = 32
 
-/** 把经纬度投影到世界坐标。 */
+/** 把经纬度投影到世界坐标；图幅即内容范围，四周不留制图留白。 */
 export function projectLonLat([lon, lat]: LonLat): MapPoint {
   return {
-    x: PADDING + (lon - BOUNDS.minLon) * KM_PER_LONGITUDE_DEGREE * PIXELS_PER_KILOMETER,
-    y: PADDING + (BOUNDS.maxLat - lat) * KM_PER_LATITUDE_DEGREE * PIXELS_PER_KILOMETER,
+    x: (lon - BOUNDS.minLon) * KM_PER_LONGITUDE_DEGREE * PIXELS_PER_KILOMETER,
+    y: (BOUNDS.maxLat - lat) * KM_PER_LATITUDE_DEGREE * PIXELS_PER_KILOMETER,
   }
 }
 
@@ -72,8 +71,8 @@ const CONTENT_WIDTH =
 const CONTENT_HEIGHT =
   (BOUNDS.maxLat - BOUNDS.minLat) * KM_PER_LATITUDE_DEGREE * PIXELS_PER_KILOMETER
 
-export const WORLD_WIDTH = Math.ceil(CONTENT_WIDTH + PADDING * 2)
-export const WORLD_HEIGHT = Math.ceil(CONTENT_HEIGHT + PADDING * 2)
+export const WORLD_WIDTH = Math.ceil(CONTENT_WIDTH)
+export const WORLD_HEIGHT = Math.ceil(CONTENT_HEIGHT)
 
 /** 查询战略点的屏幕区域；该点没有地理坐标时返回 null。 */
 export function siteRegion(siteId: SiteId): SiteRegion | null {
