@@ -31,7 +31,7 @@ export interface ProvinceShape {
   label: MapPoint
 }
 
-export const SITE_RADIUS = 13
+export const SITE_RADIUS = 11
 
 /** 名称标注在圆下方的间距。 */
 export const SITE_LABEL_OFFSET = 4

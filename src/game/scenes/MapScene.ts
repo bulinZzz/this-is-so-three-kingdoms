@@ -44,8 +44,6 @@ const WHEEL_ZOOM_STEP = 1.15
 
 const UNOWNED_COLOR = toColorNumber(UNOWNED_SITE_COLOR)
 const SITE_STROKE_COLOR = 0xf2e4c2
-/** 玩家所辖战略点在圆外多出一圈光晕，用以强调。 */
-const PLAYER_HALO_RADIUS = 6
 /** 州陆填充：暖色，与冷色海面在色相和明度上都拉开，海岸线才立得住。 */
 const PROVINCE_FILL_COLOR = 0x5a4930
 /**
@@ -84,17 +82,16 @@ function toColorNumber(hexColor: string): number {
 
 /**
  * 按战略点类型换形制：城市为圆、关隘为菱形、野地为淡底方框。
- * 颜色仍按归属，形制只表达类型。
+ * 颜色按归属，形制只表达类型；玩家据点不再另行强调，归属全由颜色表达。
  */
 function drawSiteMarker(
   graphics: Phaser.GameObjects.Graphics,
   type: SiteType,
   region: SiteRegion,
   color: number,
-  isPlayerSite: boolean,
 ): void {
-  const strokeWidth = isPlayerSite ? 2.5 : 1.5
-  const strokeAlpha = isPlayerSite ? 0.95 : 0.45
+  const strokeWidth = 1.5
+  const strokeAlpha = 0.45
 
   if (type === 'pass') {
     const half = region.radius * 1.15
@@ -344,20 +341,8 @@ export class MapScene extends Phaser.Scene {
 
       const ownerColor = site.owner === null ? undefined : colorOf.get(site.owner)
       const color = ownerColor ?? UNOWNED_COLOR
-      const isPlayerSite = site.owner !== null && site.owner === state.playerFaction
 
-      if (isPlayerSite) {
-        graphics.fillStyle(color, 0.4)
-        graphics.fillCircle(region.x, region.y, region.radius + PLAYER_HALO_RADIUS)
-      }
-
-      drawSiteMarker(graphics, site.type, region, color, isPlayerSite)
-
-      // 光晕本身与州陆色差有限，再压一道亮边，玩家据点才真的跳出来。
-      if (isPlayerSite) {
-        graphics.lineStyle(1.5, SITE_STROKE_COLOR, 0.85)
-        graphics.strokeCircle(region.x, region.y, region.radius + PLAYER_HALO_RADIUS)
-      }
+      drawSiteMarker(graphics, site.type, region, color)
 
       const label = this.add
         .text(region.x, region.y + region.radius + SITE_LABEL_OFFSET, site.name, {
