@@ -39,7 +39,7 @@ describe('createInitialState', () => {
     expect(fresh.currentDate.season).toBe('autumn')
   })
 
-  it('剧本没有地理数据时开局地理为空', () => {
+  it('剧本没有地理与人物数据时对应为空', () => {
     const scenario: Scenario = {
       id: 'bare',
       name: '无地理数据',
@@ -48,7 +48,10 @@ describe('createInitialState', () => {
       factions: SANGUO_208.factions,
     }
 
-    expect(createInitialState({ scenario }).geography).toEqual({ provinces: [], sites: [] })
+    const state = createInitialState({ scenario })
+
+    expect(state.geography).toEqual({ provinces: [], sites: [] })
+    expect(state.characters).toEqual([])
   })
 
   it('地理数据来自剧本，且不与剧本共享可变对象', () => {
@@ -75,6 +78,18 @@ describe('createInitialState', () => {
 
     expect(scenario.geography?.provinces[0].name).toBe('荆州')
     expect(scenario.geography?.sites[0].neighbors).toEqual([])
+  })
+
+  it('人物数据来自剧本，且不与剧本共享可变对象', () => {
+    const scenario: Scenario = {
+      ...SANGUO_208,
+      characters: [{ id: 'a', name: '甲', status: 'wild', factionId: null, provinceId: 'jing' }],
+    }
+
+    const state = createInitialState({ scenario })
+    state.characters[0].name = '改动'
+
+    expect(scenario.characters?.[0].name).toBe('甲')
   })
 
   it('初始随机状态由种子决定', () => {

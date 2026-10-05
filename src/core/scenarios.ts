@@ -1,3 +1,4 @@
+import { CHARACTERS_SANGUO } from './charactersSanguo'
 import { GEOGRAPHY_SANGUO } from './geographySanguo'
 import type { Scenario } from './model'
 
@@ -12,4 +13,5 @@ export const SANGUO_208: Scenario = {
     { id: 'sunquan', name: '孙权', color: '#b0413e' },
   ],
   geography: GEOGRAPHY_SANGUO,
+  characters: CHARACTERS_SANGUO,
 }

@@ -1,4 +1,5 @@
 import { ACTION_POINTS_PER_TURN } from './actions'
+import { cloneCharacters } from './characters'
 import { cloneGeography, EMPTY_GEOGRAPHY } from './geography'
 import type { GameState, Scenario } from './model'
 import { createRandom, createSeed } from './random'
@@ -20,6 +21,7 @@ export function createInitialState(options: NewGameOptions = {}): GameState {
     playerFaction: scenario.playerFaction,
     geography: cloneGeography(scenario.geography ?? EMPTY_GEOGRAPHY),
     factions: scenario.factions.map((faction) => ({ ...faction })),
+    characters: cloneCharacters(scenario.characters ?? []),
     randomState: createRandom(seed).getState(),
   }
 }

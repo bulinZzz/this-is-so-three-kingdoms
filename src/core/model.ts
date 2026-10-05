@@ -57,6 +57,25 @@ export interface Geography {
   sites: Site[]
 }
 
+export type CharacterId = string
+
+/** 武将状态：在野、在仕、退场。 */
+export type CharacterStatus = 'wild' | 'serving' | 'retired'
+
+/**
+ * 武将：初版只承载寻访所需的最少字段，战斗属性留待迭代 4。
+ * 不在三家之列的势力，其部属按在野处理。
+ */
+export interface Character {
+  id: CharacterId
+  name: string
+  status: CharacterStatus
+  /** 所属势力，未出仕时为 null。 */
+  factionId: FactionId | null
+  /** 所在州，决定可被哪一州寻访到。 */
+  provinceId: ProvinceId
+}
+
 /** 开局剧本：一组初始条件的集合，不同时间点的开局各是一份剧本。 */
 export interface Scenario {
   id: string
@@ -66,6 +85,8 @@ export interface Scenario {
   factions: Faction[]
   /** 剧本的地理数据，未提供时开局没有任何战略点。 */
   geography?: Geography
+  /** 剧本的人物数据，未提供时开局没有任何武将。 */
+  characters?: Character[]
 }
 
 /** 玩家可执行的行动。 */
@@ -90,6 +111,7 @@ export interface GameState {
   playerFaction: FactionId
   geography: Geography
   factions: Faction[]
+  characters: Character[]
   /** 随机数发生器的内部状态，随存档一起落盘。 */
   randomState: number
 }
