@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import type { Scenario } from '../src/core/model'
 import { SANGUO_208 } from '../src/core/scenarios'
@@ -11,6 +12,10 @@ describe('createInitialState', () => {
     expect(state.currentTurn).toBe(1)
     expect(state.factions.map((faction) => faction.name)).toEqual(['曹操', '刘备', '孙权'])
     expect(state.factions.some((faction) => faction.id === state.playerFaction)).toBe(true)
+  })
+
+  it('开局行动力为当季预算', () => {
+    expect(createInitialState().actionPoints).toBe(ACTION_POINTS_PER_TURN)
   })
 
   it('剧本从建安十三年秋开局', () => {

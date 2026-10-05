@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import { advanceTurn, resolveFactionOrder } from '../src/core/turn'
 
@@ -67,6 +68,24 @@ describe('advanceTurn', () => {
     advanceTurn(state)
 
     expect(state.factions.map((faction) => faction.id)).toEqual(before)
+  })
+
+  it('结束回合后行动力恢复为当季预算', () => {
+    const state = createInitialState({ seed: 208 })
+    state.actionPoints = 0
+
+    advanceTurn(state)
+
+    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
+  })
+
+  it('结束回合后本季行动记录清空', () => {
+    const state = createInitialState({ seed: 208 })
+    state.actionLog.push({ kind: 'seekTalent', targetId: null, outcome: '测试' })
+
+    advanceTurn(state)
+
+    expect(state.actionLog).toEqual([])
   })
 })
 
