@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { GameSession } from '../src/app/gameSession'
+import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
 import { MemoryStorage } from './memoryStorage'
+
+function servingCount(session: GameSession): number {
+  const state = session.getState()
+
+  return state.characters.filter(
+    (character) => character.status === 'serving' && character.factionId === state.playerFaction,
+  ).length
+}
 
 function createSession(): { store: LocalSaveStore; session: GameSession } {
   const store = new LocalSaveStore(new MemoryStorage())
@@ -116,5 +125,57 @@ describe('GameSession', () => {
 
     expect(session.loadSlot(5)).toBe(false)
     expect(session.getState().currentTurn).toBe(2)
+  })
+
+  it('寻访成功后扣行动力、招募武将并写入自动存档', () => {
+    const store = new LocalSaveStore(new MemoryStorage())
+    const session = new GameSession(store, { drawSeed: 1 })
+    const before = servingCount(session)
+
+    const result = session.seekTalent()
+
+    expect(result.ok).toBe(true)
+    expect(session.getState().actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
+    expect(servingCount(session)).toBe(before + 1)
+    expect(store.load(AUTO_SAVE_KEY)?.actionPoints).toBe(
+      ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent,
+    )
+  })
+
+  it('寻访成功后通知订阅者', () => {
+    const { session } = createSession()
+    const seen: number[] = []
+    session.subscribe((state) => seen.push(state.actionLog.length))
+
+    session.seekTalent()
+
+    expect(seen).toEqual([1])
+  })
+
+  it('行动力不足时寻访失败，状态不变', () => {
+    const { session } = createSession()
+    session.getState().actionPoints = 0
+
+    const result = session.seekTalent()
+
+    expect(result).toEqual({ ok: false, reason: '行动力不足' })
+    expect(session.getState().actionLog).toEqual([])
+  })
+
+  it('读档不回退抽卡源，再次寻访得到不同的人', () => {
+    const store = new LocalSaveStore(new MemoryStorage())
+    const session = new GameSession(store, { drawSeed: 1 })
+    session.saveToSlot(1)
+
+    const first = session.seekTalent()
+    session.loadSlot(1)
+    const second = session.seekTalent()
+
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) {
+      return
+    }
+
+    expect(second.record.outcome).not.toBe(first.record.outcome)
   })
 })

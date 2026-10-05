@@ -6,10 +6,13 @@ export const SETTINGS_KEY = 'this-is-so-three-kingdoms/settings'
 export interface Settings {
   /** 是否在地图上展示战略点之间的全部连线。 */
   showStrategicLinks: boolean
+  /** 开发者模式：展示全部武将所在的位置等调试信息。 */
+  developerMode: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   showStrategicLinks: false,
+  developerMode: false,
 }
 
 export type SettingsListener = (settings: Settings) => void
@@ -32,6 +35,10 @@ function toSettings(value: unknown): Settings {
       typeof candidate.showStrategicLinks === 'boolean'
         ? candidate.showStrategicLinks
         : DEFAULT_SETTINGS.showStrategicLinks,
+    developerMode:
+      typeof candidate.developerMode === 'boolean'
+        ? candidate.developerMode
+        : DEFAULT_SETTINGS.developerMode,
   }
 }
 

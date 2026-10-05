@@ -8,6 +8,18 @@ describe('SettingsStore', () => {
 
     expect(store.get()).toEqual(DEFAULT_SETTINGS)
     expect(store.get().showStrategicLinks).toBe(false)
+    expect(store.get().developerMode).toBe(false)
+  })
+
+  it('开发者模式可独立开关并持久化', () => {
+    const storage = new MemoryStorage()
+    const store = new SettingsStore(storage)
+
+    store.update({ developerMode: true })
+
+    expect(store.get().developerMode).toBe(true)
+    expect(store.get().showStrategicLinks).toBe(false)
+    expect(new SettingsStore(storage).get().developerMode).toBe(true)
   })
 
   it('更新后写入存储并可再次读回', () => {

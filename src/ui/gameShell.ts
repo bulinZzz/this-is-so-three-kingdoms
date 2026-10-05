@@ -1,6 +1,7 @@
 import type { GameSession } from '../app/gameSession'
 import type { SettingsStore } from '../app/settingsStore'
-import type { Faction, GameState, Season } from '../core/model'
+import { ACTION_POINTS_PER_TURN } from '../core/actions'
+import type { CharacterStatus, Faction, GameState, Season } from '../core/model'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
 import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
@@ -12,6 +13,7 @@ const SHELL_HTML = `
       <div class="shell__heading">
         <p class="shell__date"></p>
         <p class="shell__turn"></p>
+        <p class="shell__action-points"></p>
       </div>
       <div class="shell__menu">
         <button type="button" class="shell__link" data-action="open-saves">存档</button>
@@ -22,18 +24,42 @@ const SHELL_HTML = `
       <h2 class="shell__title">势力</h2>
       <ul class="shell__factions"></ul>
     </section>
+    <section class="shell__section">
+      <h2 class="shell__title">本季已执行</h2>
+      <ul class="shell__log"></ul>
+    </section>
     <section class="shell__actions">
       <button type="button" class="shell__button" data-action="end-turn">结束回合</button>
     </section>
     <p class="shell__status" role="status"></p>
+    <dialog class="talents">
+      <div class="saves__head">
+        <h2 class="saves__title">人才</h2>
+        <button type="button" class="saves__close" data-action="close-talents">关闭</button>
+      </div>
+      <div class="talents__body">
+        <button type="button" class="shell__button" data-action="seek-talent">寻访人才</button>
+        <p class="talents__status" role="status"></p>
+        <h3 class="shell__title">麾下</h3>
+        <ul class="talents__list talents__officers"></ul>
+        <section class="talents__dev" hidden>
+          <h3 class="shell__title">全部武将</h3>
+          <ul class="talents__list talents__all"></ul>
+        </section>
+      </div>
+    </dialog>
     <dialog class="settings">
       <div class="saves__head">
         <h2 class="saves__title">设置</h2>
         <button type="button" class="saves__close" data-action="close-settings">关闭</button>
       </div>
       <label class="settings__option">
-        <input type="checkbox" class="settings__checkbox" />
+        <input type="checkbox" class="settings__checkbox" data-setting="showStrategicLinks" />
         <span>展示战略点的连线</span>
+      </label>
+      <label class="settings__option">
+        <input type="checkbox" class="settings__checkbox" data-setting="developerMode" />
+        <span>开发者模式：显示全部武将所在州</span>
       </label>
     </dialog>
     <dialog class="saves">
@@ -44,6 +70,13 @@ const SHELL_HTML = `
       <ul class="saves__list"></ul>
     </dialog>
   </div>
+`
+
+/** 底部操作区：承载游戏内容入口，与顶部只放存档、设置的菜单分开。 */
+const ACTION_BAR_HTML = `
+  <nav class="action-bar">
+    <button type="button" class="action-bar__button" data-action="open-talents">人才</button>
+  </nav>
 `
 
 function requireElement<T extends Element>(scope: ParentNode, selector: string): T {
@@ -153,6 +186,68 @@ function renderFactions(list: Element, state: GameState): void {
   list.replaceChildren(...items, neutral)
 }
 
+function renderActionPoints(label: Element, state: GameState): void {
+  label.textContent = `行动力 ${state.actionPoints} / ${ACTION_POINTS_PER_TURN}`
+}
+
+function renderOfficers(list: Element, state: GameState): void {
+  const officers = state.characters.filter(
+    (character) => character.status === 'serving' && character.factionId === state.playerFaction,
+  )
+
+  list.replaceChildren(
+    ...officers.map((officer) => {
+      const item = document.createElement('li')
+      item.className = 'talents__item'
+      item.textContent = officer.name
+
+      return item
+    }),
+  )
+}
+
+const CHARACTER_STATUS_LABELS: Record<CharacterStatus, string> = {
+  wild: '在野',
+  serving: '在仕',
+  retired: '退场',
+}
+
+/** 开发者模式：列出全部武将及其所在州、状态与所属势力。 */
+function renderAllCharacters(list: Element, state: GameState): void {
+  const provinceNames = new Map(
+    state.geography.provinces.map((province) => [province.id, province.name]),
+  )
+  const factionNames = new Map(state.factions.map((faction) => [faction.id, faction.name]))
+
+  list.replaceChildren(
+    ...state.characters.map((character) => {
+      const where = provinceNames.get(character.provinceId) ?? character.provinceId
+      const owner =
+        character.factionId === null
+          ? ''
+          : ` · ${factionNames.get(character.factionId) ?? character.factionId}`
+
+      const item = document.createElement('li')
+      item.className = 'talents__item'
+      item.textContent = `${character.name} · ${where} · ${CHARACTER_STATUS_LABELS[character.status]}${owner}`
+
+      return item
+    }),
+  )
+}
+
+function renderActionLog(list: Element, state: GameState): void {
+  list.replaceChildren(
+    ...state.actionLog.map((record) => {
+      const item = document.createElement('li')
+      item.className = 'shell__log-item'
+      item.textContent = record.outcome
+
+      return item
+    }),
+  )
+}
+
 function createSlotItem(label: string, summary: SaveSummary | null): HTMLLIElement {
   const item = document.createElement('li')
   item.className = 'slot'
@@ -208,32 +303,69 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
   const root = requireElement<HTMLElement>(document, '#ui-root')
   root.innerHTML = SHELL_HTML
 
+  const actionBar = requireElement<HTMLElement>(document, '#action-bar')
+  actionBar.innerHTML = ACTION_BAR_HTML
+
   const dateLabel = requireElement<HTMLElement>(root, '.shell__date')
   const turnLabel = requireElement<HTMLElement>(root, '.shell__turn')
+  const actionPointsLabel = requireElement<HTMLElement>(root, '.shell__action-points')
   const factionList = requireElement<HTMLElement>(root, '.shell__factions')
+  const actionLogList = requireElement<HTMLElement>(root, '.shell__log')
   const slotList = requireElement<HTMLElement>(root, '.saves__list')
   const statusLabel = requireElement<HTMLElement>(root, '.shell__status')
   const endTurnButton = requireElement<HTMLButtonElement>(root, '[data-action="end-turn"]')
+  const seekTalentButton = requireElement<HTMLButtonElement>(root, '[data-action="seek-talent"]')
+  const openTalentsButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-talents"]')
+  const closeTalentsButton = requireElement<HTMLButtonElement>(root, '[data-action="close-talents"]')
+  const talentsDialog = requireElement<HTMLDialogElement>(root, '.talents')
+  const talentsStatus = requireElement<HTMLElement>(root, '.talents__status')
+  const officerList = requireElement<HTMLElement>(root, '.talents__officers')
+  const devSection = requireElement<HTMLElement>(root, '.talents__dev')
+  const allCharactersList = requireElement<HTMLElement>(root, '.talents__all')
   const openSettingsButton = requireElement<HTMLButtonElement>(root, '[data-action="open-settings"]')
   const openSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="open-saves"]')
   const closeSettingsButton = requireElement<HTMLButtonElement>(root, '[data-action="close-settings"]')
   const closeSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="close-saves"]')
   const settingsDialog = requireElement<HTMLDialogElement>(root, '.settings')
-  const settingsCheckbox = requireElement<HTMLInputElement>(root, '.settings__checkbox')
+  const linksCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="showStrategicLinks"]')
+  const developerCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="developerMode"]')
   const savesDialog = requireElement<HTMLDialogElement>(root, '.saves')
 
-  settingsCheckbox.checked = settings.get().showStrategicLinks
+  linksCheckbox.checked = settings.get().showStrategicLinks
+  developerCheckbox.checked = settings.get().developerMode
 
   const paint = (state: GameState): void => {
     dateLabel.textContent = formatDate(state)
     turnLabel.textContent = `第 ${state.currentTurn} 回合`
+    renderActionPoints(actionPointsLabel, state)
     renderFactions(factionList, state)
+    renderOfficers(officerList, state)
+    renderActionLog(actionLogList, state)
     renderSlots(slotList, session)
+
+    const developerMode = settings.get().developerMode
+    devSection.hidden = !developerMode
+    if (developerMode) {
+      renderAllCharacters(allCharactersList, state)
+    }
   }
 
   endTurnButton.addEventListener('click', () => {
     session.endTurn()
     statusLabel.textContent = `已结束回合，进度保存至 ${formatDate(session.getState())}`
+  })
+
+  openTalentsButton.addEventListener('click', () => {
+    talentsDialog.showModal()
+  })
+
+  closeTalentsButton.addEventListener('click', () => {
+    talentsDialog.close()
+  })
+
+  seekTalentButton.addEventListener('click', () => {
+    const result = session.seekTalent()
+    talentsStatus.textContent = result.ok ? result.record.outcome : result.reason
   })
 
   openSettingsButton.addEventListener('click', () => {
@@ -244,8 +376,13 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
     settingsDialog.close()
   })
 
-  settingsCheckbox.addEventListener('change', () => {
-    settings.update({ showStrategicLinks: settingsCheckbox.checked })
+  linksCheckbox.addEventListener('change', () => {
+    settings.update({ showStrategicLinks: linksCheckbox.checked })
+  })
+
+  developerCheckbox.addEventListener('change', () => {
+    settings.update({ developerMode: developerCheckbox.checked })
+    paint(session.getState())
   })
 
   openSavesButton.addEventListener('click', () => {
