@@ -15,6 +15,7 @@ import type {
   SiteType,
 } from '../core/model'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
+import { factionTroops } from '../core/military'
 import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
 import './shell.css'
@@ -26,6 +27,7 @@ const SHELL_HTML = `
         <p class="shell__date"></p>
         <p class="shell__turn"></p>
         <p class="shell__action-points"></p>
+        <p class="shell__resources"></p>
       </div>
       <div class="shell__menu">
         <button type="button" class="shell__link" data-action="open-saves">存档</button>
@@ -249,6 +251,15 @@ function renderFactions(list: Element, state: GameState): void {
 
 function renderActionPoints(label: Element, state: GameState): void {
   label.textContent = `行动力 ${state.actionPoints} / ${ACTION_POINTS_PER_TURN}`
+}
+
+/** 侧栏头部显示玩家势力的粮食与总兵力。 */
+function renderResources(label: Element, state: GameState): void {
+  const faction = state.factions.find((item) => item.id === state.playerFaction)
+  label.textContent =
+    faction === undefined
+      ? ''
+      : `粮食 ${faction.grain} · 兵力 ${factionTroops(state, state.playerFaction)}`
 }
 
 const SITE_TYPE_LABELS: Record<SiteType, string> = {
@@ -624,6 +635,7 @@ export function mountGameShell(
   const dateLabel = requireElement<HTMLElement>(root, '.shell__date')
   const turnLabel = requireElement<HTMLElement>(root, '.shell__turn')
   const actionPointsLabel = requireElement<HTMLElement>(root, '.shell__action-points')
+  const resourcesLabel = requireElement<HTMLElement>(root, '.shell__resources')
   const factionList = requireElement<HTMLElement>(root, '.shell__factions')
   const slotList = requireElement<HTMLElement>(root, '.saves__list')
   const statusLabel = requireElement<HTMLElement>(root, '.shell__status')
@@ -676,6 +688,7 @@ export function mountGameShell(
     dateLabel.textContent = formatDate(state)
     turnLabel.textContent = `第 ${state.currentTurn} 回合`
     renderActionPoints(actionPointsLabel, state)
+    renderResources(resourcesLabel, state)
     renderFactions(factionList, state)
     renderSitePanel(sitePanel, state, selection.get(), siteMessage)
     renderRecruitList(recruitList, state)

@@ -103,7 +103,8 @@
   color: #c8b48c;
 }
 
-.shell__action-points {
+.shell__action-points,
+.shell__resources {
   margin: 6px 0 0;
   font-size: 14px;
   color: #e8d9b5;
