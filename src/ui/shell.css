@@ -5,8 +5,20 @@
   height: 100%;
   min-height: 0;
   padding: 16px 20px;
+  overflow-y: auto;
   background: #1b1712;
   border-left: 1px solid #3a3128;
+}
+
+/*
+ * 各区块保持自身高度，不随侧栏变矮被压扁。
+ * 空间不足时由侧栏整体滚动，正文不再互相重叠。
+ */
+.shell__header,
+.shell__section,
+.shell__actions,
+.shell__status {
+  flex: none;
 }
 
 .shell__header {
@@ -97,41 +109,8 @@
   color: #e8d9b5;
 }
 
-.shell__history {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 200px;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  list-style: none;
-}
-
-.recent__item {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 13px;
-}
-
-.recent__faction {
-  flex: none;
-  color: #9a8b70;
-}
-
-.recent__action {
-  color: #e8d9b5;
-}
-
 .history__empty {
   font-size: 13px;
-  color: #6f6250;
-}
-
-.shell__history-more {
-  margin: 8px 0 0;
-  font-size: 11px;
   color: #6f6250;
 }
 
@@ -198,31 +177,73 @@
   overflow-y: auto;
 }
 
-.talents__seek {
+.site-panel__name {
+  margin: 0;
+  font-size: 17px;
+  color: #e8d9b5;
+}
+
+.site-panel__meta,
+.site-panel__owner {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.site-panel__officers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-panel__officer {
+  padding: 3px 9px;
+  border: 1px solid #3a3128;
+  border-radius: 999px;
+  background: #241d16;
+  font-size: 12px;
+  color: #e8d9b5;
+}
+
+.site-panel__empty {
+  font-size: 12px;
+  color: #6f6250;
+}
+
+.site-panel__seek {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 14px;
   border: 1px solid #7a6746;
   border-radius: 8px;
   background: linear-gradient(180deg, #33291c, #2a2219);
   color: #f0e2bd;
   font-family: inherit;
-  font-size: 15px;
+  font-size: 14px;
   cursor: pointer;
 }
 
-.talents__seek:hover {
+.site-panel__seek:hover {
   border-color: #8f7a53;
   background: linear-gradient(180deg, #3d3122, #322819);
 }
 
-.talents__seek:active {
+.site-panel__seek:active {
   transform: translateY(1px);
 }
 
-.talents__seek-cost {
+.site-panel__seek[hidden] {
+  display: none;
+}
+
+.site-panel__seek-cost {
   flex: none;
   padding: 2px 9px;
   border: 1px solid #574a36;
@@ -231,9 +252,9 @@
   color: #c8b48c;
 }
 
-.talents__status {
+.site-panel__status {
   min-height: 16px;
-  margin: -8px 0 0;
+  margin: 8px 0 0;
   font-size: 12px;
   color: #9a8b70;
 }

@@ -132,7 +132,7 @@ describe('GameSession', () => {
     const session = new GameSession(store, { drawSeed: 1 })
     const before = servingCount(session)
 
-    const result = session.seekTalent()
+    const result = session.seekTalent('jiangxia')
 
     expect(result.ok).toBe(true)
     expect(session.getState().actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
@@ -145,7 +145,7 @@ describe('GameSession', () => {
     const seen: number[] = []
     session.subscribe((state) => seen.push(state.history.length))
 
-    session.seekTalent()
+    session.seekTalent('jiangxia')
 
     expect(seen).toEqual([1])
   })
@@ -154,7 +154,7 @@ describe('GameSession', () => {
     const { session } = createSession()
     session.getState().actionPoints = 0
 
-    const result = session.seekTalent()
+    const result = session.seekTalent('jiangxia')
 
     expect(result).toEqual({ ok: false, reason: '行动力不足' })
     expect(session.getState().history).toEqual([])
@@ -165,9 +165,9 @@ describe('GameSession', () => {
     const session = new GameSession(store, { drawSeed: 1 })
     session.saveToSlot(1)
 
-    const first = session.seekTalent()
+    const first = session.seekTalent('jiangxia')
     session.loadSlot(1)
-    const second = session.seekTalent()
+    const second = session.seekTalent('jiangxia')
 
     expect(first.ok && second.ok).toBe(true)
     if (!first.ok || !second.ok) {

@@ -61,6 +61,7 @@ function scene(options: {
         stationedSiteId: 'a',
         troops: options.attackerTroops,
         morale: MORALE_FULL,
+        tier: null,
       },
       {
         id: 'defender',
@@ -77,6 +78,7 @@ function scene(options: {
         stationedSiteId: 'b',
         troops: options.defenderTroops,
         morale: MORALE_FULL,
+        tier: null,
       },
     ],
   }

@@ -36,6 +36,7 @@ function character(overrides: Partial<Character> = {}): Character {
     stationedSiteId: null,
     troops: 0,
     morale: 100,
+    tier: 'basic',
     ...overrides,
   }
 }
@@ -83,6 +84,12 @@ describe('validateCharacters', () => {
     expect(
       validateCharacters([character({ factionAffinity: 'unknown' })], FACTION_IDS, GEOGRAPHY),
     ).toContain('武将 a 的势力倾向不存在：unknown')
+  })
+
+  it('在野武将没有卡池层级会被指出', () => {
+    expect(validateCharacters([character({ tier: null })], FACTION_IDS, GEOGRAPHY)).toContain(
+      '在野武将 a 没有卡池层级',
+    )
   })
 
   it('在仕武将缺少势力会被指出', () => {

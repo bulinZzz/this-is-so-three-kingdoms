@@ -66,6 +66,9 @@ export type CharacterId = string
 /** 武将状态：在野、在仕、被俘、退场。 */
 export type CharacterStatus = 'wild' | 'serving' | 'captured' | 'retired'
 
+/** 人物卡池层级：基础、二级、三级。层级越高，越需要更高的州控制度才会放出。 */
+export type CharacterTier = 'basic' | 'second' | 'third'
+
 /**
  * 武将：能力、倾向与处境。
  * 野心、声望、性格与年龄留待迭代 7；兵种随部队留待迭代 8。
@@ -99,6 +102,8 @@ export interface Character {
   troops: number
   /** 士气，0–100，参与战力计算，可被单挑改变。 */
   morale: number
+  /** 在野者所属的寻访卡池层级；非在野者不参与寻访，为 null。 */
+  tier: CharacterTier | null
 }
 
 /** 开局剧本：一组初始条件的集合，不同时间点的开局各是一份剧本。 */

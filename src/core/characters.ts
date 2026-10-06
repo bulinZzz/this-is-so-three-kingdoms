@@ -71,6 +71,10 @@ export function validateCharacters(
       problems.push(`武将 ${character.id} 的势力倾向不存在：${character.factionAffinity}`)
     }
 
+    if (character.status === 'wild' && character.tier === null) {
+      problems.push(`在野武将 ${character.id} 没有卡池层级`)
+    }
+
     if (character.isMonarch) {
       if (character.status !== 'serving' || character.factionId === null) {
         problems.push(`非在仕武将 ${character.id} 不应是君主`)

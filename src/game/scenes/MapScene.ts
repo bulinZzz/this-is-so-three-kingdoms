@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import type { SettingsSource } from '../../app/settingsStore'
+import type { SelectionSource } from '../../app/selectionStore'
 import type { GameState, SiteId, SiteType } from '../../core/model'
 import { SITE_COORDINATES } from '../mapData'
 import {
@@ -74,6 +75,8 @@ const EDGE_COLOR = 0xd9c39a
 const EDGE_ALPHA = 0.3
 /** 悬停时，该战略点、其邻域与相连的边统一用这个强调色。 */
 const HIGHLIGHT_COLOR = 0xf6ecd4
+/** 指针移动超过此屏幕像素即视为拖动，不当作点击选中。 */
+const SELECT_DRAG_THRESHOLD = 4
 const LABEL_FONT = '"Noto Serif SC", "Songti SC", "SimSun", serif'
 
 function toColorNumber(hexColor: string): number {
@@ -131,7 +134,10 @@ export class MapScene extends Phaser.Scene {
   /** 玩家是否自己动过视野。动过之后，窗口缩放不再重新对准开局视野。 */
   private userAdjusted = false
   private dragging = false
+  /** 拖动是否超过阈值；不足则松手视为点击选中。 */
+  private dragMoved = false
   private readonly dragFrom = { x: 0, y: 0 }
+  private readonly downAt = { x: 0, y: 0 }
   private state: GameState | null = null
   private hoveredId: string | null = null
   private highlight: Phaser.GameObjects.Graphics | null = null
@@ -139,6 +145,7 @@ export class MapScene extends Phaser.Scene {
   constructor(
     private readonly source: MapStateSource,
     private readonly settings: SettingsSource,
+    private readonly selection: SelectionSource,
   ) {
     super('Map')
   }
@@ -148,6 +155,8 @@ export class MapScene extends Phaser.Scene {
     this.source.subscribe((state) => this.render(state))
     // 设置变化只影响连线是否绘制，用当前对局状态重画即可。
     this.settings.subscribe(() => this.render(this.source.getState()))
+    // 选中变化只需重画高亮层。
+    this.selection.subscribe(() => this.drawHighlight())
     this.setupCamera()
   }
 
@@ -157,8 +166,8 @@ export class MapScene extends Phaser.Scene {
     camera.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.beginDrag(pointer))
-    this.input.on('pointerup', () => this.endDrag())
-    this.input.on('pointerupoutside', () => this.endDrag())
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => this.endDrag(pointer))
+    this.input.on('pointerupoutside', () => this.endDrag(null))
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => this.onPointerMove(pointer))
     this.input.on('gameout', () => this.setHovered(null))
     this.input.on(
@@ -221,15 +230,25 @@ export class MapScene extends Phaser.Scene {
 
   private beginDrag(pointer: Phaser.Input.Pointer): void {
     this.dragging = true
+    this.dragMoved = false
     this.dragFrom.x = pointer.x
     this.dragFrom.y = pointer.y
+    this.downAt.x = pointer.x
+    this.downAt.y = pointer.y
   }
 
-  private endDrag(): void {
+  /** 松手时若指针几乎没动，视为点击：选中指针下的战略点，点空则取消选中。 */
+  private endDrag(pointer: Phaser.Input.Pointer | null): void {
     if (!this.dragging) {
       return
     }
     this.dragging = false
+
+    if (pointer === null || this.dragMoved) {
+      return
+    }
+
+    this.selection.select(this.siteAtPointer(pointer))
   }
 
   /** 拖动中不做悬停判定，免得平移时高亮乱跳。 */
@@ -284,6 +303,12 @@ export class MapScene extends Phaser.Scene {
       return
     }
     this.userAdjusted = true
+    if (
+      Phaser.Math.Distance.Between(pointer.x, pointer.y, this.downAt.x, this.downAt.y) >
+      SELECT_DRAG_THRESHOLD
+    ) {
+      this.dragMoved = true
+    }
     const camera = this.cameras.main
     const dx = (pointer.x - this.dragFrom.x) / camera.zoom
     const dy = (pointer.y - this.dragFrom.y) / camera.zoom
@@ -406,6 +431,16 @@ export class MapScene extends Phaser.Scene {
     }
 
     graphics.clear()
+
+    // 选中的据点在圆外留一圈常驻环，与悬停高亮区分开（环更外、更细）。
+    const selectedId = this.selection.get()
+    if (selectedId !== null) {
+      const selected = siteRegion(selectedId)
+      if (selected !== null) {
+        graphics.lineStyle(2, HIGHLIGHT_COLOR, 1)
+        graphics.strokeCircle(selected.x, selected.y, selected.radius + 6)
+      }
+    }
 
     const hoveredId = this.hoveredId
     if (hoveredId === null) {

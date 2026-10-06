@@ -99,6 +99,7 @@ describe('createInitialState', () => {
           stationedSiteId: null,
           troops: 0,
           morale: 100,
+          tier: null,
         },
       ],
     }

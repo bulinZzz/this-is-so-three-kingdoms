@@ -1,14 +1,21 @@
 import type { GameSession } from '../app/gameSession'
+import type { SelectionStore } from '../app/selectionStore'
 import type { SettingsStore } from '../app/settingsStore'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../core/actions'
-import type { CharacterStatus, Faction, FactionId, GameDate, GameState, Season } from '../core/model'
+import type {
+  CharacterStatus,
+  Faction,
+  FactionId,
+  GameDate,
+  GameState,
+  Season,
+  SiteId,
+  SiteType,
+} from '../core/model'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
 import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
 import './shell.css'
-
-/** 侧栏「近况」展示的最新条数。 */
-const RECENT_HISTORY_LIMIT = 8
 
 const SHELL_HTML = `
   <div class="shell">
@@ -27,10 +34,17 @@ const SHELL_HTML = `
       <h2 class="shell__title">势力</h2>
       <ul class="shell__factions"></ul>
     </section>
-    <section class="shell__section">
-      <h2 class="shell__title">近况</h2>
-      <ul class="shell__history"></ul>
-      <p class="shell__history-more" hidden>更早的记录见底部「历史」</p>
+    <section class="shell__section site-panel" hidden>
+      <h2 class="shell__title">据点</h2>
+      <p class="site-panel__name"></p>
+      <p class="site-panel__meta"></p>
+      <p class="site-panel__owner"></p>
+      <ul class="site-panel__officers"></ul>
+      <button type="button" class="site-panel__seek" data-action="seek-here" hidden>
+        <span>在此寻访</span>
+        <span class="site-panel__seek-cost"></span>
+      </button>
+      <p class="site-panel__status" role="status"></p>
     </section>
     <section class="shell__actions">
       <button type="button" class="shell__button" data-action="end-turn">结束回合</button>
@@ -42,11 +56,6 @@ const SHELL_HTML = `
         <button type="button" class="saves__close" data-action="close-talents">关闭</button>
       </div>
       <div class="talents__body">
-        <button type="button" class="talents__seek" data-action="seek-talent">
-          <span>寻访人才</span>
-          <span class="talents__seek-cost"></span>
-        </button>
-        <p class="talents__status" role="status"></p>
         <section class="talents__section">
           <h3 class="talents__section-title">麾下<span class="talents__count talents__officers-count"></span></h3>
           <ul class="talents__officers"></ul>
@@ -209,6 +218,51 @@ function renderActionPoints(label: Element, state: GameState): void {
   label.textContent = `行动力 ${state.actionPoints} / ${ACTION_POINTS_PER_TURN}`
 }
 
+const SITE_TYPE_LABELS: Record<SiteType, string> = {
+  city: '城市',
+  pass: '关隘',
+  field: '野地',
+}
+
+/** 侧栏据点面板：所选据点的名称、类型、归属与驻守武将，自有据点提供就地寻访入口。 */
+function renderSitePanel(
+  panel: HTMLElement,
+  state: GameState,
+  siteId: SiteId | null,
+  message: string,
+): void {
+  const site =
+    siteId === null ? undefined : state.geography.sites.find((item) => item.id === siteId)
+
+  if (site === undefined) {
+    panel.hidden = true
+    return
+  }
+
+  panel.hidden = false
+  requireElement<HTMLElement>(panel, '.site-panel__name').textContent = site.name
+  requireElement<HTMLElement>(panel, '.site-panel__meta').textContent = SITE_TYPE_LABELS[site.type]
+
+  const ownerName =
+    site.owner === null
+      ? '无归属'
+      : (state.factions.find((faction) => faction.id === site.owner)?.name ?? site.owner)
+  requireElement<HTMLElement>(panel, '.site-panel__owner').textContent = `归属：${ownerName}`
+
+  const officers = state.characters.filter(
+    (character) => character.status === 'serving' && character.stationedSiteId === site.id,
+  )
+  requireElement<HTMLElement>(panel, '.site-panel__officers').replaceChildren(
+    ...(officers.length === 0
+      ? [createListItem('site-panel__empty', '无驻守武将')]
+      : officers.map((officer) => createListItem('site-panel__officer', officer.name))),
+  )
+
+  requireElement<HTMLButtonElement>(panel, '.site-panel__seek').hidden =
+    site.owner !== state.playerFaction
+  requireElement<HTMLElement>(panel, '.site-panel__status').textContent = message
+}
+
 function createListItem(className: string, text: string): HTMLLIElement {
   const item = document.createElement('li')
   item.className = className
@@ -351,36 +405,6 @@ function renderHistory(list: Element, state: GameState): void {
   )
 }
 
-/** 侧栏近况：最新若干条，单行「势力 + 行动」，最新的在最下。 */
-function renderRecentHistory(list: Element, state: GameState): void {
-  const factionNames = new Map(state.factions.map((faction) => [faction.id, faction.name]))
-  const records = state.history.slice(-RECENT_HISTORY_LIMIT)
-
-  if (records.length === 0) {
-    list.replaceChildren(createListItem('history__empty', '暂无行动'))
-    return
-  }
-
-  list.replaceChildren(
-    ...records.map((record) => {
-      const item = document.createElement('li')
-      item.className = 'recent__item'
-
-      const who = document.createElement('span')
-      who.className = 'recent__faction'
-      who.textContent = factionNames.get(record.factionId) ?? record.factionId
-
-      const action = document.createElement('span')
-      action.className = 'recent__action'
-      action.textContent = record.outcome
-
-      item.append(who, action)
-
-      return item
-    }),
-  )
-}
-
 function createSlotItem(label: string, summary: SaveSummary | null): HTMLLIElement {
   const item = document.createElement('li')
   item.className = 'slot'
@@ -432,7 +456,11 @@ function renderSlots(list: Element, session: GameSession): void {
   list.replaceChildren(autoItem, ...slotItems)
 }
 
-export function mountGameShell(session: GameSession, settings: SettingsStore): void {
+export function mountGameShell(
+  session: GameSession,
+  settings: SettingsStore,
+  selection: SelectionStore,
+): void {
   const root = requireElement<HTMLElement>(document, '#ui-root')
   root.innerHTML = SHELL_HTML
 
@@ -443,12 +471,11 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
   const turnLabel = requireElement<HTMLElement>(root, '.shell__turn')
   const actionPointsLabel = requireElement<HTMLElement>(root, '.shell__action-points')
   const factionList = requireElement<HTMLElement>(root, '.shell__factions')
-  const recentHistoryList = requireElement<HTMLElement>(root, '.shell__history')
-  const recentHistoryMore = requireElement<HTMLElement>(root, '.shell__history-more')
   const slotList = requireElement<HTMLElement>(root, '.saves__list')
   const statusLabel = requireElement<HTMLElement>(root, '.shell__status')
   const endTurnButton = requireElement<HTMLButtonElement>(root, '[data-action="end-turn"]')
-  const seekTalentButton = requireElement<HTMLButtonElement>(root, '[data-action="seek-talent"]')
+  const sitePanel = requireElement<HTMLElement>(root, '.site-panel')
+  const siteSeekButton = requireElement<HTMLButtonElement>(root, '[data-action="seek-here"]')
   const openTalentsButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-talents"]')
   const closeTalentsButton = requireElement<HTMLButtonElement>(root, '[data-action="close-talents"]')
   const talentsDialog = requireElement<HTMLDialogElement>(root, '.talents')
@@ -456,7 +483,6 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
   const closeHistoryButton = requireElement<HTMLButtonElement>(root, '[data-action="close-history"]')
   const historyDialog = requireElement<HTMLDialogElement>(root, '.history')
   const historyList = requireElement<HTMLElement>(root, '.history__list')
-  const talentsStatus = requireElement<HTMLElement>(root, '.talents__status')
   const officerList = requireElement<HTMLElement>(root, '.talents__officers')
   const officerCount = requireElement<HTMLElement>(root, '.talents__officers-count')
   const devSection = requireElement<HTMLElement>(root, '.talents__dev')
@@ -474,17 +500,19 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
   linksCheckbox.checked = settings.get().showStrategicLinks
   developerCheckbox.checked = settings.get().developerMode
 
-  const seekCostLabel = requireElement<HTMLElement>(root, '.talents__seek-cost')
+  const seekCostLabel = requireElement<HTMLElement>(root, '.site-panel__seek-cost')
   seekCostLabel.textContent = `${ACTION_COSTS.seekTalent} 行动力`
+
+  /** 上一次就地寻访的反馈，切换据点时清空。 */
+  let siteMessage = ''
 
   const paint = (state: GameState): void => {
     dateLabel.textContent = formatDate(state)
     turnLabel.textContent = `第 ${state.currentTurn} 回合`
     renderActionPoints(actionPointsLabel, state)
     renderFactions(factionList, state)
+    renderSitePanel(sitePanel, state, selection.get(), siteMessage)
     officerCount.textContent = String(renderOfficers(officerList, state))
-    renderRecentHistory(recentHistoryList, state)
-    recentHistoryMore.hidden = state.history.length <= RECENT_HISTORY_LIMIT
     renderHistory(historyList, state)
     renderSlots(slotList, session)
 
@@ -517,9 +545,15 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
     historyDialog.close()
   })
 
-  seekTalentButton.addEventListener('click', () => {
-    const result = session.seekTalent()
-    talentsStatus.textContent = result.ok ? result.record.outcome : result.reason
+  siteSeekButton.addEventListener('click', () => {
+    const siteId = selection.get()
+    if (siteId === null) {
+      return
+    }
+
+    const result = session.seekTalent(siteId)
+    siteMessage = result.ok ? result.record.outcome : result.reason
+    paint(session.getState())
   })
 
   openSettingsButton.addEventListener('click', () => {
@@ -583,6 +617,11 @@ export function mountGameShell(session: GameSession, settings: SettingsStore): v
     }
 
     statusLabel.textContent = `存档 ${slot} 还没有内容`
+  })
+
+  selection.subscribe(() => {
+    siteMessage = ''
+    paint(session.getState())
   })
 
   session.subscribe(paint)

@@ -1,7 +1,7 @@
 import type { ActionResult } from '../core/actions'
 import { createInitialState } from '../core/createInitialState'
 import { LocalSaveStore } from '../core/localSaveStore'
-import type { GameState } from '../core/model'
+import type { GameState, SiteId } from '../core/model'
 import { createRandom, createSeed, type Random } from '../core/random'
 import { AUTO_SAVE_KEY, slotKey, type SaveStore, type SaveSummary } from '../core/saveStore'
 import { seekTalent as runSeekTalent } from '../core/seekTalent'
@@ -40,9 +40,9 @@ export class GameSession {
     this.notify()
   }
 
-  /** 执行人才寻访；成功后通知界面，失败时返回原因且不改变对局。自动存档只在回合开始时写入。 */
-  seekTalent(): ActionResult {
-    const result = runSeekTalent(this.state, this.drawRandom)
+  /** 在指定自有据点就地寻访；成功后通知界面，失败时返回原因且不改变对局。自动存档只在回合开始时写入。 */
+  seekTalent(siteId: SiteId): ActionResult {
+    const result = runSeekTalent(this.state, this.drawRandom, siteId)
 
     if (result.ok) {
       this.notify()
