@@ -16,9 +16,10 @@ npm run dev
 ## 其他命令
 
 ```bash
-npm run build    # 类型检查并构建到 dist/
-npm run preview  # 预览构建结果
-npm test         # 运行规则层测试
+npm run build       # 类型检查并构建到 dist/
+npm run preview     # 预览构建结果
+npm test            # 运行规则层测试
+npm run acceptance  # 无画面推演：按固定种子跑完整局，输出逐季日志与汇总，供调数值后复跑对照
 ```
 
 ## 文档

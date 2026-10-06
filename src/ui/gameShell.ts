@@ -3,6 +3,8 @@ import type { SelectionStore } from '../app/selectionStore'
 import type { SettingsStore } from '../app/settingsStore'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../core/actions'
 import type {
+  BattleReport,
+  BattleReportSide,
   Character,
   CharacterId,
   CharacterStatus,
@@ -15,10 +17,13 @@ import type {
   SiteType,
 } from '../core/model'
 import { attackCandidates, isAttackable, type AttackParty } from '../core/battle'
+import { grainYield } from '../core/economy'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
+import { SCENARIOS } from '../core/scenarios'
 import {
   factionTroops,
   hasActedThisTurn,
+  isFactionDestroyed,
   isTransferTarget,
   MAX_TRANSFER_PARTY,
   transferCandidates,
@@ -36,6 +41,7 @@ const SHELL_HTML = `
         <p class="shell__action-points"></p>
       </div>
       <div class="shell__menu">
+        <button type="button" class="shell__link" data-action="open-new-game">新游戏</button>
         <button type="button" class="shell__link" data-action="open-saves">存档</button>
         <button type="button" class="shell__link" data-action="open-settings">设置</button>
       </div>
@@ -74,7 +80,6 @@ const SHELL_HTML = `
         <button type="button" class="saves__close" data-action="close-roster">关闭</button>
       </div>
       <div class="roster__body">
-        <p class="roster__status" role="status"></p>
         <section class="roster__section">
           <h3 class="roster__section-title roster__officers-title" hidden>麾下<span class="roster__count roster__officers-count"></span></h3>
           <ul class="roster__officers"></ul>
@@ -84,6 +89,7 @@ const SHELL_HTML = `
           <ul class="roster__all"></ul>
         </section>
       </div>
+      <p class="roster__status" role="status"></p>
     </dialog>
     <dialog class="history">
       <div class="saves__head">
@@ -106,6 +112,10 @@ const SHELL_HTML = `
           <span class="domestic__label">粮食</span>
           <span class="domestic__value domestic__grain"></span>
         </div>
+        <div class="domestic__row">
+          <span class="domestic__label">每季粮产</span>
+          <span class="domestic__value domestic__grain-yield"></span>
+        </div>
       </div>
     </dialog>
     <dialog class="order">
@@ -118,6 +128,17 @@ const SHELL_HTML = `
         <p class="order__status" role="status"></p>
         <ul class="order__officers"></ul>
         <button type="button" class="order__submit" data-action="order-go"></button>
+      </div>
+    </dialog>
+    <dialog class="battle">
+      <div class="saves__head">
+        <h2 class="saves__title battle__title"></h2>
+        <button type="button" class="saves__close" data-action="close-battle">关闭</button>
+      </div>
+      <div class="battle__body">
+        <p class="battle__result"></p>
+        <div class="battle__attacker"></div>
+        <div class="battle__defender"></div>
       </div>
     </dialog>
     <dialog class="settings">
@@ -140,6 +161,16 @@ const SHELL_HTML = `
         <button type="button" class="saves__close" data-action="close-saves">关闭</button>
       </div>
       <ul class="saves__list"></ul>
+    </dialog>
+    <dialog class="new-game">
+      <div class="saves__head">
+        <h2 class="saves__title">新游戏</h2>
+        <button type="button" class="saves__close" data-action="close-new-game">关闭</button>
+      </div>
+      <div class="new-game__body">
+        <p class="new-game__hint">开始新游戏会覆盖当前自动存档；手动存档不受影响。</p>
+        <ul class="new-game__list"></ul>
+      </div>
     </dialog>
   </div>
 `
@@ -254,6 +285,13 @@ function renderFactions(list: Element, state: GameState): void {
       item.append(badge)
     }
 
+    if (isFactionDestroyed(state, faction.id)) {
+      const badge = document.createElement('span')
+      badge.className = 'shell__badge shell__badge--destroyed'
+      badge.textContent = '已覆灭'
+      item.append(badge)
+    }
+
     return item
   })
 
@@ -283,6 +321,9 @@ function renderDomestic(dialog: HTMLElement, state: GameState): void {
     factionTroops(state, state.playerFaction),
   )
   requireElement<HTMLElement>(dialog, '.domestic__grain').textContent = String(faction?.grain ?? 0)
+  requireElement<HTMLElement>(dialog, '.domestic__grain-yield').textContent = String(
+    grainYield(state, state.playerFaction),
+  )
 }
 
 const SITE_TYPE_LABELS: Record<SiteType, string> = {
@@ -297,11 +338,13 @@ function createOrderButton(
   action: string,
   data: Record<string, string>,
   cost: number,
+  disabled = false,
 ): HTMLButtonElement {
   const button = document.createElement('button')
   button.type = 'button'
   button.className = 'officer-action'
   button.dataset.action = action
+  button.disabled = disabled
   for (const [key, value] of Object.entries(data)) {
     button.dataset[key] = value
   }
@@ -641,13 +684,30 @@ function renderOfficers(list: Element, state: GameState): number {
   }
 
   list.replaceChildren(
-    ...officers.map((officer) =>
-      createOfficerCard(
+    ...officers.map((officer) => {
+      const acted = hasActedThisTurn(state, officer.id)
+
+      return createOfficerCard(
         officer,
-        [createOrderButton('征兵', 'recruit', { character: officer.id }, ACTION_COSTS.recruit)],
-        hasActedThisTurn(state, officer.id) ? ['已行动'] : [],
-      ),
-    ),
+        [
+          createOrderButton(
+            '征兵',
+            'recruit',
+            { character: officer.id },
+            ACTION_COSTS.recruit,
+            acted,
+          ),
+          createOrderButton(
+            '征粮',
+            'harvest-grain',
+            { character: officer.id },
+            ACTION_COSTS.harvestGrain,
+            acted,
+          ),
+        ],
+        acted ? ['已行动'] : [],
+      )
+    }),
   )
 
   return officers.length
@@ -771,6 +831,80 @@ function renderHistory(list: Element, state: GameState): void {
   )
 }
 
+/** 战报中一方的展示块：主将与参战者、兵力与战力、伤亡与剩余。 */
+function fillBattleSide(
+  container: HTMLElement,
+  label: string,
+  commanderRole: string,
+  side: BattleReportSide,
+): void {
+  const heading = document.createElement('p')
+  heading.className = 'battle__side-label'
+  heading.textContent = label
+
+  const commander = document.createElement('p')
+  commander.className = 'battle__commander'
+  commander.textContent = side.commander === '' ? '无将' : `${commanderRole} ${side.commander}`
+
+  const officers = document.createElement('p')
+  officers.className = 'battle__officers'
+  officers.textContent = side.officers.length === 0 ? '无参战武将' : `参战 ${side.officers.join('、')}`
+
+  const stats = document.createElement('ul')
+  stats.className = 'battle__stats'
+  stats.append(
+    createBattleStat('兵力', String(side.troops)),
+    createBattleStat('战力', String(side.power)),
+    createBattleStat('伤亡', String(side.casualties)),
+    createBattleStat('剩余', String(side.remaining)),
+  )
+
+  container.replaceChildren(heading, commander, officers, stats)
+}
+
+/** 战报中的一项数值：标签在上、数值在下。 */
+function createBattleStat(label: string, value: string): HTMLLIElement {
+  const item = document.createElement('li')
+  item.className = 'battle__stat'
+
+  const name = document.createElement('span')
+  name.className = 'battle__stat-label'
+  name.textContent = label
+
+  const number = document.createElement('span')
+  number.className = 'battle__stat-value'
+  number.textContent = value
+
+  item.append(name, number)
+
+  return item
+}
+
+/** 战报弹窗：标题随战果变化，正文并列攻守双方。 */
+function renderBattleDialog(dialog: HTMLDialogElement, report: BattleReport): void {
+  const title = report.undefended ? '不战而下' : report.attackerWins ? '战斗告捷' : '战斗失利'
+  const result = report.attackerWins
+    ? report.undefended
+      ? `接管 ${report.siteName}`
+      : `攻占 ${report.siteName}`
+    : `进攻 ${report.siteName} 失利`
+
+  requireElement<HTMLElement>(dialog, '.battle__title').textContent = title
+  requireElement<HTMLElement>(dialog, '.battle__result').textContent = result
+  fillBattleSide(
+    requireElement<HTMLElement>(dialog, '.battle__attacker'),
+    '攻方',
+    '主将',
+    report.attacker,
+  )
+  fillBattleSide(
+    requireElement<HTMLElement>(dialog, '.battle__defender'),
+    '守方',
+    '守将',
+    report.defender,
+  )
+}
+
 function createSlotItem(label: string, summary: SaveSummary | null): HTMLLIElement {
   const item = document.createElement('li')
   item.className = 'slot'
@@ -822,6 +956,40 @@ function renderSlots(list: Element, session: GameSession): void {
   list.replaceChildren(autoItem, ...slotItems)
 }
 
+/** 剧本列表：名称与规模，点「开始」即按该剧本重开一局。 */
+function renderScenarioList(list: Element): void {
+  list.replaceChildren(
+    ...SCENARIOS.map((scenario) => {
+      const item = document.createElement('li')
+      item.className = 'scenario'
+
+      const info = document.createElement('div')
+      info.className = 'scenario__info'
+
+      const name = document.createElement('span')
+      name.className = 'scenario__name'
+      name.textContent = scenario.name
+
+      const meta = document.createElement('span')
+      meta.className = 'scenario__meta'
+      meta.textContent = `${scenario.factions.length} 势力 · ${scenario.geography?.sites.length ?? 0} 战略点`
+
+      info.append(name, meta)
+
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'scenario__start'
+      button.dataset.action = 'start-scenario'
+      button.dataset.scenario = scenario.id
+      button.textContent = '开始'
+
+      item.append(info, button)
+
+      return item
+    }),
+  )
+}
+
 export function mountGameShell(
   session: GameSession,
   settings: SettingsStore,
@@ -867,11 +1035,17 @@ export function mountGameShell(
   const linksCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="showStrategicLinks"]')
   const developerCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="developerMode"]')
   const savesDialog = requireElement<HTMLDialogElement>(root, '.saves')
+  const openNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="open-new-game"]')
+  const closeNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="close-new-game"]')
+  const newGameDialog = requireElement<HTMLDialogElement>(root, '.new-game')
+  const newGameList = requireElement<HTMLElement>(root, '.new-game__list')
   const closeOrderButton = requireElement<HTMLButtonElement>(root, '[data-action="close-order"]')
   const orderDialog = requireElement<HTMLDialogElement>(root, '.order')
   const orderStatus = requireElement<HTMLElement>(root, '.order__status')
   const orderList = requireElement<HTMLElement>(root, '.order__officers')
   const orderGoButton = requireElement<HTMLButtonElement>(root, '[data-action="order-go"]')
+  const closeBattleButton = requireElement<HTMLButtonElement>(root, '[data-action="close-battle"]')
+  const battleDialog = requireElement<HTMLDialogElement>(root, '.battle')
 
   linksCheckbox.checked = settings.get().showStrategicLinks
   developerCheckbox.checked = settings.get().developerMode
@@ -912,11 +1086,15 @@ export function mountGameShell(
   }
 
   endTurnButton.addEventListener('click', () => {
+    recruitMessage = ''
     session.endTurn()
-    statusLabel.textContent = `新回合开始：${formatDate(session.getState())}，已自动保存`
+    const state = session.getState()
+    statusLabel.textContent = `新回合开始：${formatDate(state)}，粮产 +${grainYield(state, state.playerFaction)}，已自动保存`
   })
 
   openRosterButton.addEventListener('click', () => {
+    recruitMessage = ''
+    rosterStatus.textContent = ''
     rosterDialog.showModal()
   })
 
@@ -945,6 +1123,10 @@ export function mountGameShell(
     orderDialog.close()
   })
 
+  closeBattleButton.addEventListener('click', () => {
+    battleDialog.close()
+  })
+
   orderGoButton.addEventListener('click', () => {
     if (orderRequest === null) {
       return
@@ -960,6 +1142,10 @@ export function mountGameShell(
       siteMessage = result.record.outcome
       orderDialog.close()
       paint(session.getState())
+      if (result.record.battle !== undefined) {
+        renderBattleDialog(battleDialog, result.record.battle)
+        battleDialog.showModal()
+      }
       return
     }
 
@@ -1004,12 +1190,16 @@ export function mountGameShell(
   })
 
   officerList.addEventListener('click', (event) => {
-    const characterId = actionButtonOf(event)?.dataset.character
-    if (characterId === undefined) {
+    const button = actionButtonOf(event)
+    const characterId = button?.dataset.character
+    if (button === null || characterId === undefined) {
       return
     }
 
-    const result = session.recruit(characterId)
+    const result =
+      button.dataset.action === 'harvest-grain'
+        ? session.harvestGrain(characterId)
+        : session.recruit(characterId)
     recruitMessage = result.ok ? result.record.outcome : result.reason
     paint(session.getState())
   })
@@ -1106,6 +1296,35 @@ export function mountGameShell(
     }
 
     statusLabel.textContent = `存档 ${slot} 还没有内容`
+  })
+
+  openNewGameButton.addEventListener('click', () => {
+    renderScenarioList(newGameList)
+    newGameDialog.showModal()
+  })
+
+  closeNewGameButton.addEventListener('click', () => {
+    newGameDialog.close()
+  })
+
+  newGameList.addEventListener('click', (event) => {
+    const scenarioId = actionButtonOf(event)?.dataset.scenario
+    if (scenarioId === undefined) {
+      return
+    }
+
+    const scenario = SCENARIOS.find((item) => item.id === scenarioId)
+    if (scenario === undefined) {
+      return
+    }
+
+    session.newGame(scenario)
+    orderRequest = null
+    siteMessage = ''
+    recruitMessage = ''
+    selection.select(null)
+    newGameDialog.close()
+    statusLabel.textContent = `已开始新游戏：${scenario.name}`
   })
 
   selection.subscribe(() => {

@@ -1,15 +1,16 @@
-import type { ActionKind, ActionRecord, FactionId, GameState } from './model'
+import type { ActionKind, ActionRecord, BattleReport, FactionId, GameState } from './model'
 
 /** 每季的行动力预算。 */
 export const ACTION_POINTS_PER_TURN = 10
 
 /**
  * 各项行动的行动力消耗，集中定义。
- * 初值供迭代 5 按实测调整：寻访与进攻最贵，征其次，调动最轻。
+ * 初值供迭代 5 按实测调整：进攻与征兵最贵，征粮与寻访次之，调动最轻。
  */
 export const ACTION_COSTS: Record<ActionKind, number> = {
   seekTalent: 4,
-  recruit: 3,
+  recruit: 4,
+  harvestGrain: 3,
   transfer: 2,
   attack: 4,
 }
@@ -47,6 +48,8 @@ export interface ActionRequest {
 export interface ActionOutcome {
   targetId?: string | null
   outcome: string
+  /** 进攻的战报，写入记录供界面展示。 */
+  battle?: BattleReport
 }
 
 /** 行动的结局：成功时带回写入本季记录的条目，失败时带回原因。 */
@@ -68,13 +71,16 @@ export function runAction(state: GameState, request: ActionRequest): ActionResul
     return { ok: false, reason: '行动力不足' }
   }
 
-  const { targetId = null, outcome } = request.execute(state)
+  const { targetId = null, outcome, battle } = request.execute(state)
   const record: ActionRecord = {
     kind: request.kind,
     factionId: request.factionId ?? state.playerFaction,
     date: { ...state.currentDate },
     targetId,
     outcome,
+  }
+  if (battle !== undefined) {
+    record.battle = battle
   }
   state.history.push(record)
 

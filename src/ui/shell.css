@@ -103,6 +103,12 @@
   color: #c8b48c;
 }
 
+/* 已覆灭的势力：用暗红标出，与「我」的徽记区分开。 */
+.shell__badge--destroyed {
+  border-color: #6b3a35;
+  color: #c07068;
+}
+
 .shell__action-points {
   margin: 6px 0 0;
   font-size: 14px;
@@ -247,8 +253,7 @@
   overflow-y: auto;
 }
 
-.order__status,
-.roster__status {
+.order__status {
   margin: 0;
   min-height: 16px;
   font-size: 12px;
@@ -257,9 +262,25 @@
 
 /* 没有播报时不占位，避免弹窗顶部留出空白。 */
 .order__status:empty,
-.roster__status:empty,
 .site-panel__status:empty {
   display: none;
+}
+
+/*
+ * 武将弹窗的播报固定在底部，不随名单滚动，也不把名单挤下去。
+ * 高度写死为一行的固定值：空态与有字时同样高，居中弹窗不会因播报出现而重排。
+ */
+.roster__status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  margin: 0;
+  padding: 0 18px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12px;
+  color: #9a8b70;
 }
 
 .order__empty {
@@ -296,6 +317,78 @@
 
 .order__submit:hover {
   background: #362c20;
+}
+
+.battle__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 18px 18px;
+}
+
+.battle__result {
+  margin: 0;
+  font-size: 15px;
+  color: #e8d9b5;
+}
+
+.battle__attacker,
+.battle__defender {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #2a241c;
+  border-radius: 6px;
+  background: #201a13;
+}
+
+/* 守方以一条左边线区分攻守两方。 */
+.battle__defender {
+  border-left: 3px solid #6b5c42;
+}
+
+.battle__side-label {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: #9a8b70;
+}
+
+.battle__commander {
+  margin: 0;
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.battle__officers {
+  margin: 0;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.battle__stats {
+  display: flex;
+  gap: 18px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.battle__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.battle__stat-label {
+  font-size: 11px;
+  color: #6f6250;
+}
+
+.battle__stat-value {
+  font-size: 15px;
+  color: #e8d9b5;
 }
 
 .picker {
@@ -453,8 +546,14 @@
   cursor: pointer;
 }
 
-.officer-action:hover {
+.officer-action:hover:not(:disabled) {
   background: #362c20;
+}
+
+/* 本季已行动的武将不能征兵，按钮压暗且不再响应悬停。 */
+.officer-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .site-panel__order {
@@ -613,7 +712,9 @@
 .roster,
 .history,
 .domestic,
-.order {
+.order,
+.battle,
+.new-game {
   width: min(420px, 100% - 32px);
   max-height: 80vh;
   padding: 0;
@@ -633,7 +734,9 @@
 .roster[open],
 .history[open],
 .domestic[open],
-.order[open] {
+.order[open],
+.battle[open],
+.new-game[open] {
   display: flex;
   flex-direction: column;
 }
@@ -643,7 +746,9 @@
 .roster::backdrop,
 .history::backdrop,
 .domestic::backdrop,
-.order::backdrop {
+.order::backdrop,
+.battle::backdrop,
+.new-game::backdrop {
   background: rgb(0 0 0 / 60%);
 }
 
@@ -717,6 +822,72 @@
 .slot__button:hover,
 .saves__close:hover {
   background: #322819;
+}
+
+.new-game__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  overflow-y: auto;
+}
+
+.new-game__hint {
+  margin: 0;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.new-game__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scenario {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #2a241c;
+  border-radius: 6px;
+  background: #201a13;
+}
+
+.scenario__info {
+  min-width: 0;
+}
+
+.scenario__name {
+  display: block;
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.scenario__meta {
+  display: block;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.scenario__start {
+  flex: none;
+  padding: 4px 14px;
+  border: 1px solid #6b5c42;
+  border-radius: 6px;
+  background: #2a2219;
+  color: #e8d9b5;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.scenario__start:hover {
+  background: #362c20;
 }
 
 .settings__option {

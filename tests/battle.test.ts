@@ -5,7 +5,7 @@ import {
   attackCandidates,
   battlePower,
   duel,
-  effectiveDefenderTroops,
+  garrisonAt,
   isAttackable,
   MORALE_FULL,
   partySide,
@@ -13,6 +13,7 @@ import {
 import { createInitialState } from '../src/core/createInitialState'
 import { hasActedThisTurn, markActed } from '../src/core/military'
 import type { GameState, Scenario } from '../src/core/model'
+import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 
 function characterOf(state: GameState, id: string) {
   const character = state.characters.find((item) => item.id === id)
@@ -38,6 +39,8 @@ function scene(options: {
   attackerIntellect?: number
   defenderIntellect?: number
   twoWay?: boolean
+  seed?: number
+  defenderIsMonarch?: boolean
 }): GameState {
   const scenario: Scenario = {
     id: 'battle-test',
@@ -104,7 +107,7 @@ function scene(options: {
         politics: 50,
         factionAffinity: 'caocao',
         loyalty: 90,
-        isMonarch: false,
+        isMonarch: options.defenderIsMonarch ?? false,
         stationedSiteId: 'b',
         troops: options.defenderTroops,
         morale: MORALE_FULL,
@@ -113,7 +116,7 @@ function scene(options: {
     ],
   }
 
-  return createInitialState({ scenario, seed: 208 })
+  return createInitialState({ scenario, seed: options.seed ?? 208 })
 }
 
 describe('战力计算', () => {
@@ -133,19 +136,28 @@ describe('战力计算', () => {
   })
 })
 
-describe('守军兵力', () => {
+describe('守军迎战编成', () => {
   it('无主战略点没有守军', () => {
-    expect(effectiveDefenderTroops(createInitialState({ seed: 208 }), 'chibi')).toBe(0)
+    expect(garrisonAt(createInitialState({ seed: 208 }), 'chibi').side.troops).toBe(0)
   })
 
-  it('已行动的守军只计半数', () => {
+  it('至多三人迎战，取兵力最多的三名，主将取其中统率最高者', () => {
+    const state = createInitialState({ seed: 208 })
+    const garrison = garrisonAt(state, 'jiangxia')
+
+    // 江夏统兵最多的三人：关羽 8000、张飞 6000、刘备 5000。
+    expect(garrison.members.map((item) => item.name)).toEqual(['关羽', '张飞', '刘备'])
+    expect(garrison.side.troops).toBe(19000)
+  })
+
+  it('已行动的守军只计半数兵力', () => {
     const state = createInitialState({ seed: 208 })
 
-    expect(effectiveDefenderTroops(state, 'xiangyang')).toBe(3000)
+    expect(garrisonAt(state, 'xiangyang').side.troops).toBe(3000)
 
     markActed(state, 'caimao')
 
-    expect(effectiveDefenderTroops(state, 'xiangyang')).toBe(1500)
+    expect(garrisonAt(state, 'xiangyang').side.troops).toBe(1500)
   })
 })
 
@@ -163,7 +175,7 @@ describe('进攻', () => {
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.attack)
   })
 
-  it('攻占有主战略点，守将撤往相邻的自有战略点', () => {
+  it('攻占有主战略点，守军或撤往相邻的自有战略点，或战死退场', () => {
     const state = createInitialState({ seed: 208 })
 
     const result = attack(state, { commander: 'guanyu' }, 'xiangyang')
@@ -173,8 +185,13 @@ describe('进攻', () => {
     expect(characterOf(state, 'guanyu').stationedSiteId).toBe('xiangyang')
 
     const caimao = characterOf(state, 'caimao')
-    expect(caimao.status).toBe('serving')
-    expect(['fancheng', 'changbanpo']).toContain(caimao.stationedSiteId)
+    if (caimao.status === 'serving') {
+      expect(['fancheng', 'changbanpo']).toContain(caimao.stationedSiteId)
+    } else {
+      expect(caimao.status).toBe('retired')
+      expect(caimao.stationedSiteId).toBeNull()
+      expect(caimao.troops).toBe(0)
+    }
   })
 
   it('固定种子下同一场战斗结果稳定', () => {
@@ -204,23 +221,68 @@ describe('进攻', () => {
     expect(siteOf(state, 'b').owner).toBe('caocao')
   })
 
-  it('守将无路可退时被俘', () => {
-    const state = scene({ attackerTroops: 20000, defenderTroops: 1000 })
+  it('本势力再无城池可投时，守军或在野或退场', () => {
+    const statuses = new Set<string>()
 
-    attack(state, { commander: 'attacker' }, 'b')
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const state = scene({ attackerTroops: 20000, defenderTroops: 1000, seed })
+      attack(state, { commander: 'attacker' }, 'b')
+      statuses.add(characterOf(state, 'defender').status)
+    }
 
-    const defender = characterOf(state, 'defender')
-    expect(defender.status).toBe('captured')
-    expect(defender.stationedSiteId).toBeNull()
-    expect(defender.troops).toBe(0)
+    expect(statuses.has('wild')).toBe(true)
+    expect(statuses.has('retired')).toBe(true)
+  })
+
+  it('势力覆灭时君主不再必逃亡，与其他守军一样判骰', () => {
+    const statuses = new Set<string>()
+
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const state = scene({
+        attackerTroops: 20000,
+        defenderTroops: 1000,
+        seed,
+        defenderIsMonarch: true,
+      })
+      attack(state, { commander: 'attacker' }, 'b')
+      statuses.add(characterOf(state, 'defender').status)
+    }
+
+    expect(statuses.has('wild')).toBe(true)
+    expect(statuses.has('retired')).toBe(true)
+  })
+
+  it('君主必定逃亡，不会战死或被俘', () => {
+    const state = createInitialState({ scenario: SANGUO_ACCEPTANCE, seed: 208 })
+    characterOf(state, 'guanyu').troops = 60000
+
+    attack(state, { commander: 'guanyu' }, 'xiangyang')
+
+    const caocao = characterOf(state, 'caocao')
+    expect(caocao.status).toBe('serving')
+    expect(['fancheng', 'changbanpo']).toContain(caocao.stationedSiteId)
+  })
+
+  it('有退路时也不是必然逃亡，仍可能战死', () => {
+    const statuses = new Set<string>()
+
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+      const state = createInitialState({ seed })
+      attack(state, { commander: 'guanyu' }, 'xiangyang')
+      statuses.add(characterOf(state, 'caimao').status)
+    }
+
+    expect(statuses.has('serving')).toBe(true)
+    expect(statuses.has('retired')).toBe(true)
   })
 
   it('编成中的兵力合计，单将打不动、加副将可得手', () => {
-    const solo = scene({ attackerTroops: 6000, defenderTroops: 6000 })
+    // 兵力取到单将即便掷到上限也打不动、两将即便掷到下限也稳赢，免得结论依赖随机。
+    const solo = scene({ attackerTroops: 5800, defenderTroops: 6000 })
     attack(solo, { commander: 'attacker' }, 'b')
     expect(siteOf(solo, 'b').owner).toBe('caocao')
 
-    const joint = scene({ attackerTroops: 6000, defenderTroops: 6000, secondAttackerTroops: 6000 })
+    const joint = scene({ attackerTroops: 5800, defenderTroops: 6000, secondAttackerTroops: 6000 })
     const result = attack(joint, { commander: 'attacker', deputy: 'attacker2' }, 'b')
 
     expect(result.ok).toBe(true)
@@ -231,13 +293,14 @@ describe('进攻', () => {
     expect(hasActedThisTurn(joint, 'attacker2')).toBe(true)
   })
 
-  it('兵力为三人之和，智谋取军师，士气取主将', () => {
+  it('兵力为三人之和，智谋取三人中最高，士气取主将', () => {
     const state = createInitialState({ seed: 208 })
     characterOf(state, 'guanyu').morale = 60
 
+    // 关羽智谋 75、张飞 40，取最高 75；带军师诸葛亮时取 100。
     expect(partySide(state, { commander: 'guanyu', deputy: 'zhangfei' })).toEqual({
       troops: 14000,
-      intellect: 0,
+      intellect: 75,
       morale: 60,
     })
     expect(

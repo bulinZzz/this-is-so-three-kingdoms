@@ -2,8 +2,8 @@ import type { ActionResult } from '../core/actions'
 import { attack as runAttack, type AttackParty } from '../core/battle'
 import { createInitialState } from '../core/createInitialState'
 import { LocalSaveStore } from '../core/localSaveStore'
-import { recruit as runRecruit, transfer as runTransfer } from '../core/military'
-import type { CharacterId, GameState, SiteId } from '../core/model'
+import { harvestGrain as runHarvestGrain, recruit as runRecruit, transfer as runTransfer } from '../core/military'
+import type { CharacterId, GameState, Scenario, SiteId } from '../core/model'
 import { createRandom, createSeed, type Random } from '../core/random'
 import { AUTO_SAVE_KEY, slotKey, type SaveStore, type SaveSummary } from '../core/saveStore'
 import { seekTalent as runSeekTalent } from '../core/seekTalent'
@@ -21,7 +21,7 @@ export class GameSession {
   private state: GameState
   private readonly listeners = new Set<StateListener>()
   /** 玩家发起抽取所用的随机源，会话级、不随存档保存。 */
-  private readonly drawRandom: Random
+  private drawRandom: Random
 
   constructor(
     private readonly saveStore: SaveStore = new LocalSaveStore(),
@@ -33,6 +33,14 @@ export class GameSession {
 
   getState(): GameState {
     return this.state
+  }
+
+  /** 用指定剧本重开一局：重置对局并写入自动存档，覆盖当前进度；手动槽位不受影响。 */
+  newGame(scenario: Scenario): void {
+    this.state = createInitialState({ scenario })
+    this.drawRandom = createRandom(createSeed())
+    this.saveStore.save(AUTO_SAVE_KEY, this.state)
+    this.notify()
   }
 
   /** 结束本回合；进入下一回合时写入自动存档。 */
@@ -50,6 +58,11 @@ export class GameSession {
   /** 在武将驻地征兵；成功后通知界面。 */
   recruit(characterId: CharacterId): ActionResult {
     return this.apply(runRecruit(this.state, characterId))
+  }
+
+  /** 派部属征粮；成功后通知界面。 */
+  harvestGrain(characterId: CharacterId): ActionResult {
+    return this.apply(runHarvestGrain(this.state, characterId))
   }
 
   /** 把一批部属调到相邻的自有战略点；成功后通知界面。 */

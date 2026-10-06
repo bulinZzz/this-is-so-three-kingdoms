@@ -3,6 +3,8 @@ import { GameSession } from '../src/app/gameSession'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import { LocalSaveStore } from '../src/core/localSaveStore'
+import { RECRUIT_TROOPS_PER_COMMAND, recruitGrainCost } from '../src/core/military'
+import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
 import { MemoryStorage } from './memoryStorage'
 
@@ -35,6 +37,20 @@ describe('GameSession', () => {
     store.save(AUTO_SAVE_KEY, saved)
 
     expect(new GameSession(store).getState().currentTurn).toBe(7)
+  })
+
+  it('按剧本重开一局，重置对局、清空历史并覆盖自动存档', () => {
+    const { store, session } = createSession()
+    session.endTurn()
+
+    session.newGame(SANGUO_ACCEPTANCE)
+
+    const state = session.getState()
+    expect(state.currentTurn).toBe(1)
+    expect(state.history).toEqual([])
+    expect(state.factions.map((faction) => faction.id)).toEqual(['liubei', 'caocao', 'sunquan'])
+    expect(state.geography.sites).toHaveLength(10)
+    expect(store.load(AUTO_SAVE_KEY)?.geography.sites).toHaveLength(10)
   })
 
   it('结束回合推进时间并写入自动存档', () => {
@@ -182,16 +198,37 @@ describe('GameSession 作战接口', () => {
   it('征兵后目标武将兵力增加、势力粮食减少', () => {
     const { session } = createSession()
     const state = session.getState()
+    const guanyu = state.characters.find((character) => character.id === 'guanyu')
+    if (guanyu === undefined) {
+      throw new Error('武将不存在：guanyu')
+    }
     const grainBefore = state.factions.find((faction) => faction.id === state.playerFaction)?.grain ?? 0
+    const baseline = guanyu.command * RECRUIT_TROOPS_PER_COMMAND
 
     const result = session.recruit('guanyu')
 
     expect(result.ok).toBe(true)
-    expect(state.characters.find((character) => character.id === 'guanyu')?.troops).toBe(10000)
+    expect(guanyu.troops).toBeGreaterThanOrEqual(8000 + Math.round(baseline * 0.75))
+    expect(guanyu.troops).toBeLessThanOrEqual(8000 + Math.round(baseline * 1.25))
     expect(state.factions.find((faction) => faction.id === state.playerFaction)?.grain).toBe(
-      grainBefore - 2000,
+      grainBefore - recruitGrainCost(guanyu),
     )
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
+  })
+
+  it('征粮后势力粮食增加、该武将本季已行动', () => {
+    const { session } = createSession()
+    const state = session.getState()
+    const grainBefore = state.factions.find((faction) => faction.id === state.playerFaction)?.grain ?? 0
+
+    const result = session.harvestGrain('zhugeliang')
+
+    expect(result.ok).toBe(true)
+    expect(state.factions.find((faction) => faction.id === state.playerFaction)?.grain).toBeGreaterThan(
+      grainBefore,
+    )
+    expect(state.actedCharacterIds).toContain('zhugeliang')
+    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.harvestGrain)
   })
 
   it('调动把武将及其部队移到相邻的自有战略点', () => {

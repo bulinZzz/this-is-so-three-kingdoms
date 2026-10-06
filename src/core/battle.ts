@@ -1,7 +1,7 @@
 import { runAction, type ActionResult } from './actions'
 import { resolveProvinceOwners } from './geography'
 import { hasActedThisTurn, markActed, officerBlockedReason, stationAdjacentTo } from './military'
-import type { Character, CharacterId, GameState, Site, SiteId } from './model'
+import type { BattleReport, Character, CharacterId, GameState, Site, SiteId } from './model'
 import { createRandom, type Random } from './random'
 
 /** 士气满值。 */
@@ -21,6 +21,8 @@ const LOSER_CASUALTY_RATE = 0.6
 const WINNER_CASUALTY_RATE = 0.2
 /** 已行动的守军在防守时只计的兵力比例。 */
 const ACTED_DEFENDER_RATIO = 0.5
+/** 迎战守军的至多人数，与攻方编成同宽。 */
+const GARRISON_SIZE = 3
 /** 单挑的士气增减。 */
 const DUEL_MORALE_DELTA = 10
 /** 单挑判定时叠加在武力上的随机幅度。 */
@@ -74,46 +76,114 @@ function defendersAt(state: GameState, site: Site): Character[] {
   )
 }
 
-/** 某战略点守军的有效兵力：已行动的守将只计半数。无主战略点没有守军。 */
-export function effectiveDefenderTroops(state: GameState, siteId: SiteId): number {
-  const site = state.geography.sites.find((item) => item.id === siteId)
-  if (site === undefined) {
-    return 0
-  }
-
-  return defendersAt(state, site).reduce(
-    (total, character) =>
-      total +
-      character.troops * (hasActedThisTurn(state, character.id) ? ACTED_DEFENDER_RATIO : 1),
-    0,
-  )
+/** 守军的迎战编成：至多三名武将，与攻方同构。 */
+export interface Garrison {
+  /** 迎战的三名武将，按兵力由多到少；无守军时为空。 */
+  members: Character[]
+  /** 迎战兵力的战力要素；兵力为三人之和，已行动者只计半数。 */
+  side: BattleSide
 }
 
-/** 战略点失守后，原守军撤往相邻的自有战略点；无路可退者被俘。 */
-function retreatOrCapture(
+/**
+ * 某战略点的迎战守军：从守军中取兵力最多的三人，其中统率最高者为主将、智谋最高者为军师。
+ * 败军退守会让一处战略点的守军越堆越多，只三人迎战才不会让最后一城无止境地变强；
+ * 与攻方同为至多三人，双方兵力增长的口径才对等。无主或无人驻守时兵力为零。
+ */
+export function garrisonAt(state: GameState, siteId: SiteId): Garrison {
+  const site = state.geography.sites.find((item) => item.id === siteId)
+  const members =
+    site === undefined
+      ? []
+      : defendersAt(state, site)
+          .sort((a, b) => b.troops - a.troops)
+          .slice(0, GARRISON_SIZE)
+
+  if (members.length === 0) {
+    return { members, side: { troops: 0, intellect: 0, morale: MORALE_FULL } }
+  }
+
+  const commander = members.reduce((best, item) => (item.command > best.command ? item : best))
+  const strategist = members.reduce((best, item) => (item.intellect > best.intellect ? item : best))
+
+  return {
+    members,
+    side: {
+      troops: members.reduce(
+        (total, member) =>
+          total + member.troops * (hasActedThisTurn(state, member.id) ? ACTED_DEFENDER_RATIO : 1),
+        0,
+      ),
+      intellect: strategist.intellect,
+      morale: commander.morale,
+    },
+  }
+}
+
+/** 战略点失守后，守军每名武将的去向。 */
+export type DefenderFate = 'flee' | 'die' | 'capture'
+
+/** 去向权重：偏向逃亡，战死与被俘各占四分之一。具体行为留待迭代 7 细化。 */
+const FLEE_CHANCE = 0.5
+const DIE_CHANCE = 0.25
+
+/** 按权重抽取一种去向。 */
+function rollFate(random: Random): DefenderFate {
+  const roll = random.next()
+  if (roll < FLEE_CHANCE) {
+    return 'flee'
+  }
+
+  return roll < FLEE_CHANCE + DIE_CHANCE ? 'die' : 'capture'
+}
+
+/** 逃亡的去处：优先相邻的自有战略点；本势力在别处还有城池时也可远走，都没有则无处可逃。 */
+function fleeRefuges(state: GameState, defender: Character, target: Site): Site[] {
+  const friendly = state.geography.sites.filter(
+    (site) => site.id !== target.id && site.owner === defender.factionId,
+  )
+  const adjacent = friendly.filter((site) => target.neighbors.includes(site.id))
+
+  return adjacent.length > 0 ? adjacent : friendly
+}
+
+/**
+ * 战略点失守后结算每名守军的去向：逃亡、战死、被俘三者按权重判定，任何战略点都一样，
+ * 势力覆灭的那一战也不例外。君主只在本势力尚未覆灭时必定逃亡。
+ * 逃亡者撤往自有的战略点；本势力再无城池可投（此战即覆灭）时，逃亡者流落为在野，将来可以复起。
+ * 被俘的处置（招降、释放、处决）尚未实现，暂与战死一样退场，留待迭代 9。
+ */
+function resolveDefenders(
   state: GameState,
   defenders: readonly Character[],
   target: Site,
   random: Random,
 ): void {
   for (const defender of defenders) {
-    const refuges = state.geography.sites.filter(
-      (site) =>
-        site.id !== target.id &&
-        site.owner === defender.factionId &&
-        target.neighbors.includes(site.id),
-    )
+    const refuges = fleeRefuges(state, defender, target)
+    const doomed = refuges.length === 0
+    const fate: DefenderFate = defender.isMonarch && !doomed ? 'flee' : rollFate(random)
 
-    if (refuges.length === 0) {
-      defender.status = 'captured'
+    if (fate === 'flee') {
+      if (!doomed) {
+        defender.stationedSiteId = refuges[Math.floor(random.next() * refuges.length)].id
+        continue
+      }
+
+      // 势力已覆灭，逃亡者流落为在野，若干年后还可以被寻访、复起。
+      defender.status = 'wild'
       defender.factionId = null
       defender.stationedSiteId = null
       defender.troops = 0
+      // 卡池层级暂给最基础一档，按能力与身份细分留待迭代 7。
+      defender.tier = 'basic'
       continue
     }
 
-    const refuge = refuges[Math.floor(random.next() * refuges.length)]
-    defender.stationedSiteId = refuge.id
+    // 战死，或被俘——被俘的处置尚未实现，暂同样退场。
+    defender.status = 'retired'
+    defender.factionId = null
+    defender.stationedSiteId = null
+    defender.troops = 0
   }
 }
 
@@ -160,23 +230,26 @@ function partyIds(party: AttackParty): CharacterId[] {
   )
 }
 
-/** 一支编成的战力要素：兵力为主将、副将与军师之和，智谋取军师（未设军师则无加成），士气取主将。 */
+/**
+ * 一支编成的战力要素：兵力为主将、副将与军师之和，士气取主将，
+ * 智谋取三人中最高者——与守军的口径一致，不因没指定军师而吃亏。
+ */
 export function partySide(state: GameState, party: AttackParty): BattleSide {
   const members = partyIds(party)
     .map((id) => state.characters.find((item) => item.id === id))
     .filter((item): item is Character => item !== undefined)
-  const strategist = state.characters.find((item) => item.id === party.strategist)
+  const commander = state.characters.find((item) => item.id === party.commander)
 
   return {
     troops: members.reduce((total, member) => total + member.troops, 0),
-    intellect: strategist?.intellect ?? 0,
-    morale: state.characters.find((item) => item.id === party.commander)?.morale ?? MORALE_FULL,
+    intellect: members.reduce((best, member) => Math.max(best, member.intellect), 0),
+    morale: commander?.morale ?? MORALE_FULL,
   }
 }
 
 /**
  * 合攻相邻的一个他方或无主战略点，自动结算。
- * 主将、副将与军师的兵力合计为投入兵力，智谋加成取自军师（未设军师则无加成），
+ * 主将、副将与军师的兵力合计为投入兵力，智谋加成取三人中最高者，
  * 士气取主将，守方再乘防守补正。胜则战略点归攻方、参战部队一同前移进驻，
  * 败则各自退回原驻地并受损。随机数取自随存档落盘的模拟流。
  */
@@ -234,30 +307,65 @@ export function attack(state: GameState, party: AttackParty, targetSiteId: SiteI
       const generalNames = members.map((member) => member.name).join('、')
 
       const defenders = defendersAt(current, target)
-      const defenderCommander = defenders.reduce<Character | null>(
-        (best, item) => (best === null || item.command > best.command ? item : best),
-        null,
-      )
-      const defenderPower =
-        battlePower(
-          {
-            troops: effectiveDefenderTroops(current, target.id),
-            intellect: defenderCommander?.intellect ?? 0,
-            morale: defenderCommander?.morale ?? MORALE_FULL,
-          },
-          { defending: true },
-        ) * variance(random)
+      const garrison = garrisonAt(current, target.id)
+      const defenderPower = battlePower(garrison.side, { defending: true }) * variance(random)
       const attackerPower = battlePower(side) * variance(random)
 
       const attackerWins = defenderPower <= 0 || attackerPower > defenderPower
       const undefended = defenderPower <= 0
+
+      /*
+       * 战报在改动兵力之前算出：伤亡按各方损失比例，不随后续的撤退、被俘而变，
+       * 剩余兵力也只反映战损，不含败退无路被俘者。
+       */
+      const attackerLossRate = attackerWins
+        ? undefended
+          ? 0
+          : WINNER_CASUALTY_RATE
+        : LOSER_CASUALTY_RATE
+      const defenderLossRate = attackerWins ? LOSER_CASUALTY_RATE : WINNER_CASUALTY_RATE
+      const losses = (troops: number, rate: number): number => troops - applyLoss(troops, rate)
+      const attackerCasualties = members.reduce(
+        (total, member) => total + losses(member.troops, attackerLossRate),
+        0,
+      )
+      const defenderCommander = garrison.members.reduce<Character | null>(
+        (best, item) => (best === null || item.command > best.command ? item : best),
+        null,
+      )
+      const defenderTroops = garrison.members.reduce((total, item) => total + item.troops, 0)
+      const defenderCasualties = garrison.members.reduce(
+        (total, item) => total + losses(item.troops, defenderLossRate),
+        0,
+      )
+      const report: BattleReport = {
+        siteName: target.name,
+        undefended,
+        attackerWins,
+        attacker: {
+          commander: commander.name,
+          officers: members.map((member) => member.name),
+          troops: side.troops,
+          power: Math.round(attackerPower),
+          casualties: attackerCasualties,
+          remaining: side.troops - attackerCasualties,
+        },
+        defender: {
+          commander: defenderCommander?.name ?? '',
+          officers: garrison.members.map((item) => item.name),
+          troops: defenderTroops,
+          power: Math.round(defenderPower),
+          casualties: defenderCasualties,
+          remaining: defenderTroops - defenderCasualties,
+        },
+      }
 
       if (attackerWins) {
         if (!undefended) {
           for (const member of members) {
             member.troops = applyLoss(member.troops, WINNER_CASUALTY_RATE)
           }
-          for (const defender of defenders) {
+          for (const defender of garrison.members) {
             defender.troops = applyLoss(defender.troops, LOSER_CASUALTY_RATE)
           }
         }
@@ -265,13 +373,13 @@ export function attack(state: GameState, party: AttackParty, targetSiteId: SiteI
         for (const member of members) {
           member.stationedSiteId = target.id
         }
-        retreatOrCapture(current, defenders, target, random)
+        resolveDefenders(current, defenders, target, random)
         resolveProvinceOwners(current.geography)
       } else {
         for (const member of members) {
           member.troops = applyLoss(member.troops, LOSER_CASUALTY_RATE)
         }
-        for (const defender of defenders) {
+        for (const defender of garrison.members) {
           defender.troops = applyLoss(defender.troops, WINNER_CASUALTY_RATE)
         }
       }
@@ -286,6 +394,7 @@ export function attack(state: GameState, party: AttackParty, targetSiteId: SiteI
         outcome: attackerWins
           ? `${generalNames} 攻占 ${target.name}`
           : `${generalNames} 进攻 ${target.name} 失利`,
+        battle: report,
       }
     },
   })

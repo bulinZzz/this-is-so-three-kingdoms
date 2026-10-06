@@ -122,7 +122,35 @@ export interface Scenario {
 }
 
 /** 玩家可执行的行动。 */
-export type ActionKind = 'seekTalent' | 'recruit' | 'transfer' | 'attack'
+export type ActionKind = 'seekTalent' | 'recruit' | 'harvestGrain' | 'transfer' | 'attack'
+
+/** 战报中一方的要点。 */
+export interface BattleReportSide {
+  /** 主将姓名；守方无将时为空串。 */
+  commander: string
+  /** 参战武将姓名，按主将、副将、军师排列；无将时为空。 */
+  officers: string[]
+  /** 投入兵力。守方不含防守补正，仍是实际驻守的兵力。 */
+  troops: number
+  /** 战力，含随机浮动与防守补正，供双方对比。 */
+  power: number
+  /** 伤亡兵力。 */
+  casualties: number
+  /** 战后剩余兵力；不含因败退无路被俘者。 */
+  remaining: number
+}
+
+/** 一场战斗的战报；规则层结算时产出，表现层只读。 */
+export interface BattleReport {
+  /** 目标战略点名。 */
+  siteName: string
+  /** 目标是否无守军。 */
+  undefended: boolean
+  /** 攻方是否获胜。 */
+  attackerWins: boolean
+  attacker: BattleReportSide
+  defender: BattleReportSide
+}
 
 /** 一条行动记录：行动类型、势力、时间、目标与结果。 */
 export interface ActionRecord {
@@ -135,6 +163,8 @@ export interface ActionRecord {
   targetId: string | null
   /** 行动结果的描述，供界面展示。 */
   outcome: string
+  /** 进攻的战报；其余行动没有。 */
+  battle?: BattleReport
 }
 
 export interface GameState {

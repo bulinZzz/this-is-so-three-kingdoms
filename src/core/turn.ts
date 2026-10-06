@@ -1,9 +1,15 @@
 import { ACTION_POINTS_PER_TURN } from './actions'
+import { collectGrain } from './economy'
+import { growTroops } from './military'
 import type { FactionId, GameState, Season } from './model'
 
 const SEASONS: readonly Season[] = ['spring', 'summer', 'autumn', 'winter']
 
-/** 结束当前回合，进入下一个季节，冬季之后跨入下一年的春季；当季行动力恢复为预算，武将的行动次数一并重置。行动历史跨回合保留。 */
+/**
+ * 结束当前回合，进入下一个季节，冬季之后跨入下一年的春季；当季行动力恢复为预算，
+ * 武将的行动次数一并重置，各势力按自有战略点收取粮产、在仕武将按统率自然增长兵力。
+ * 行动历史跨回合保留。
+ */
 export function advanceTurn(state: GameState): void {
   state.currentTurn += 1
   state.actionPoints = ACTION_POINTS_PER_TURN
@@ -13,10 +19,12 @@ export function advanceTurn(state: GameState): void {
   if (index === SEASONS.length - 1) {
     state.currentDate.season = SEASONS[0]
     state.currentDate.year += 1
-    return
+  } else {
+    state.currentDate.season = SEASONS[index + 1]
   }
 
-  state.currentDate.season = SEASONS[index + 1]
+  collectGrain(state)
+  growTroops(state)
 }
 
 /** 本回合各势力的行动顺序：玩家势力先行动，其余按势力列表顺序。 */

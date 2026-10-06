@@ -3,10 +3,15 @@ import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import {
   factionTroops,
+  GRAIN_HARVEST_PER_POLITICS,
+  GRAIN_HARVEST_PER_SITE,
+  harvestGrain,
+  harvestGrainBaseline,
   hasActedThisTurn,
-  RECRUIT_GRAIN_COST,
+  isFactionDestroyed,
+  RECRUIT_TROOPS_PER_COMMAND,
   recruit,
-  TROOPS_PER_RECRUIT,
+  recruitGrainCost,
   transfer,
 } from '../src/core/military'
 import type { FactionId, GameState } from '../src/core/model'
@@ -37,10 +42,11 @@ function caocaoTurn(): GameState {
 }
 
 describe('征兵', () => {
-  it('在驻地补兵，兵力增加、粮食减少、扣行动力并写记录', () => {
+  it('在驻地补兵，兵力按统率浮动、粮食按统率基准扣除，扣行动力并写记录', () => {
     const state = createInitialState({ seed: 208 })
     const guanyu = characterOf(state, 'guanyu')
     const grainBefore = factionOf(state, 'liubei').grain
+    const baseline = guanyu.command * RECRUIT_TROOPS_PER_COMMAND
 
     const result = recruit(state, 'guanyu')
 
@@ -49,15 +55,17 @@ describe('征兵', () => {
       expect(result.record.kind).toBe('recruit')
       expect(result.record.targetId).toBe('jiangxia')
     }
-    expect(guanyu.troops).toBe(8000 + TROOPS_PER_RECRUIT)
-    expect(factionOf(state, 'liubei').grain).toBe(grainBefore - RECRUIT_GRAIN_COST)
+    expect(guanyu.troops).toBeGreaterThanOrEqual(8000 + Math.round(baseline * 0.75))
+    expect(guanyu.troops).toBeLessThanOrEqual(8000 + Math.round(baseline * 1.25))
+    expect(factionOf(state, 'liubei').grain).toBe(grainBefore - recruitGrainCost(guanyu))
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
     expect(state.history).toHaveLength(1)
   })
 
   it('粮食不足时拒绝，不扣行动力也不改兵力', () => {
     const state = createInitialState({ seed: 208 })
-    factionOf(state, 'liubei').grain = RECRUIT_GRAIN_COST - 1
+    const guanyu = characterOf(state, 'guanyu')
+    factionOf(state, 'liubei').grain = recruitGrainCost(guanyu) - 1
 
     const result = recruit(state, 'guanyu')
 
@@ -74,12 +82,66 @@ describe('征兵', () => {
     expect(recruit(state, 'unknown')).toEqual({ ok: false, reason: '武将不存在' })
   })
 
-  it('征兵不占用调动与进攻的每回合行动次数', () => {
+  it('征兵占用该武将本季的行动，同一武将一季只能征兵一次', () => {
     const state = createInitialState({ seed: 208 })
 
-    recruit(state, 'guanyu')
+    expect(recruit(state, 'guanyu').ok).toBe(true)
+    expect(hasActedThisTurn(state, 'guanyu')).toBe(true)
+    expect(recruit(state, 'guanyu')).toEqual({ ok: false, reason: '关羽 本回合已行动' })
+  })
+})
 
-    expect(hasActedThisTurn(state, 'guanyu')).toBe(false)
+describe('征粮', () => {
+  it('派部属征粮：粮食入库、占用该武将本季行动、扣行动力并写记录', () => {
+    const state = createInitialState({ seed: 208 })
+    const zhugeliang = characterOf(state, 'zhugeliang')
+    const grainBefore = factionOf(state, 'liubei').grain
+    const sites = state.geography.sites.filter((site) => site.owner === 'liubei').length
+    const baseline = harvestGrainBaseline(state, zhugeliang)
+
+    const result = harvestGrain(state, 'zhugeliang')
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.record.kind).toBe('harvestGrain')
+      expect(result.record.targetId).toBe('jiangxia')
+    }
+    expect(baseline).toBe(
+      zhugeliang.politics * GRAIN_HARVEST_PER_POLITICS + sites * GRAIN_HARVEST_PER_SITE,
+    )
+    expect(factionOf(state, 'liubei').grain).toBeGreaterThanOrEqual(
+      grainBefore + Math.round(baseline * 0.75),
+    )
+    expect(factionOf(state, 'liubei').grain).toBeLessThanOrEqual(
+      grainBefore + Math.round(baseline * 1.25),
+    )
+    expect(hasActedThisTurn(state, 'zhugeliang')).toBe(true)
+    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.harvestGrain)
+  })
+
+  it('产量随自有战略点数增长', () => {
+    const state = createInitialState({ seed: 208 })
+    const zhugeliang = characterOf(state, 'zhugeliang')
+    const before = harvestGrainBaseline(state, zhugeliang)
+
+    const extra = state.geography.sites.find((site) => site.owner === 'caocao')
+    if (extra === undefined) {
+      throw new Error('没有可改归属的战略点')
+    }
+    extra.owner = 'liubei'
+
+    expect(harvestGrainBaseline(state, zhugeliang)).toBe(before + GRAIN_HARVEST_PER_SITE)
+  })
+
+  it('已行动的武将不能再征粮，他势力武将也不可征粮', () => {
+    const state = createInitialState({ seed: 208 })
+
+    expect(harvestGrain(state, 'zhugeliang').ok).toBe(true)
+    expect(harvestGrain(state, 'zhugeliang')).toEqual({
+      ok: false,
+      reason: '诸葛亮 本回合已行动',
+    })
+    expect(harvestGrain(state, 'zhangliao')).toEqual({ ok: false, reason: '该武将不在此势力' })
   })
 })
 
@@ -181,5 +243,38 @@ describe('势力兵力', () => {
     expect(factionTroops(state, 'liubei')).toBe(
       liubei.reduce((total, character) => total + character.troops, 0),
     )
+  })
+})
+
+describe('势力覆灭', () => {
+  it('尚有地盘与部属时未覆灭', () => {
+    const state = createInitialState({ seed: 208 })
+
+    expect(isFactionDestroyed(state, 'liubei')).toBe(false)
+  })
+
+  it('失去全部战略点即视为覆灭', () => {
+    const state = createInitialState({ seed: 208 })
+    for (const site of state.geography.sites) {
+      if (site.owner === 'liubei') {
+        site.owner = null
+      }
+    }
+
+    expect(isFactionDestroyed(state, 'liubei')).toBe(true)
+  })
+
+  it('麾下不再有任何在仕武将也视为覆灭', () => {
+    const state = createInitialState({ seed: 208 })
+    for (const character of state.characters) {
+      if (character.factionId === 'sunquan') {
+        character.status = 'retired'
+        character.factionId = null
+        character.stationedSiteId = null
+        character.troops = 0
+      }
+    }
+
+    expect(isFactionDestroyed(state, 'sunquan')).toBe(true)
   })
 })
