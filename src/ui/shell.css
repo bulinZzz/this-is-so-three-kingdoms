@@ -192,25 +192,83 @@
 
 .site-panel__officers {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 8px;
   margin: 10px 0 0;
   padding: 0;
   list-style: none;
 }
 
-.site-panel__officer {
-  padding: 3px 9px;
-  border: 1px solid #3a3128;
-  border-radius: 999px;
-  background: #241d16;
-  font-size: 12px;
-  color: #e8d9b5;
-}
-
 .site-panel__empty {
   font-size: 12px;
   color: #6f6250;
+}
+
+.order__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px 18px 18px;
+  overflow-y: auto;
+}
+
+.order__status {
+  margin: 0;
+  min-height: 16px;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.order__officers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.officer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #2a241c;
+  border-radius: 6px;
+  background: #201a13;
+}
+
+.officer-card__name {
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.officer-card__meta {
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.officer-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.officer-action {
+  padding: 3px 10px;
+  border: 1px solid #6b5c42;
+  border-radius: 999px;
+  background: #2a2219;
+  color: #e8d9b5;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.officer-action:hover {
+  background: #362c20;
 }
 
 .site-panel__seek {
@@ -343,7 +401,8 @@
 .saves,
 .settings,
 .talents,
-.history {
+.history,
+.order {
   width: min(420px, 100% - 32px);
   max-height: 80vh;
   padding: 0;
@@ -356,7 +415,8 @@
 .saves[open],
 .settings[open],
 .talents[open],
-.history[open] {
+.history[open],
+.order[open] {
   display: flex;
   flex-direction: column;
 }
@@ -364,7 +424,8 @@
 .saves::backdrop,
 .settings::backdrop,
 .talents::backdrop,
-.history::backdrop {
+.history::backdrop,
+.order::backdrop {
   background: rgb(0 0 0 / 60%);
 }
 

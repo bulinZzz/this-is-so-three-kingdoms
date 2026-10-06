@@ -177,3 +177,61 @@ describe('GameSession', () => {
     expect(second.record.outcome).not.toBe(first.record.outcome)
   })
 })
+
+describe('GameSession 作战接口', () => {
+  it('征兵后目标武将兵力增加、势力粮食减少', () => {
+    const { session } = createSession()
+    const state = session.getState()
+    const grainBefore = state.factions.find((faction) => faction.id === state.playerFaction)?.grain ?? 0
+
+    const result = session.recruit('guanyu')
+
+    expect(result.ok).toBe(true)
+    expect(state.characters.find((character) => character.id === 'guanyu')?.troops).toBe(10000)
+    expect(state.factions.find((faction) => faction.id === state.playerFaction)?.grain).toBe(
+      grainBefore - 2000,
+    )
+    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
+  })
+
+  it('调动把武将及其部队移到相邻的自有据点', () => {
+    const { session } = createSession()
+    const state = session.getState()
+    state.playerFaction = 'caocao'
+
+    const result = session.transfer('xiahoudun', 'hulao')
+
+    expect(result.ok).toBe(true)
+    expect(
+      state.characters.find((character) => character.id === 'xiahoudun')?.stationedSiteId,
+    ).toBe('hulao')
+  })
+
+  it('进攻占领无主据点后归属改变并通知界面', () => {
+    const { session } = createSession()
+    const state = session.getState()
+    let notified = 0
+    session.subscribe(() => {
+      notified += 1
+    })
+
+    const result = session.attack('guanyu', 'chibi')
+
+    expect(result.ok).toBe(true)
+    expect(state.geography.sites.find((site) => site.id === 'chibi')?.owner).toBe('liubei')
+    expect(notified).toBe(1)
+  })
+
+  it('行动失败时不通知界面', () => {
+    const { session } = createSession()
+    let notified = 0
+    session.subscribe(() => {
+      notified += 1
+    })
+
+    const result = session.transfer('guanyu', 'chibi')
+
+    expect(result.ok).toBe(false)
+    expect(notified).toBe(0)
+  })
+})

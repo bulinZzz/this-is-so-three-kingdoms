@@ -3,12 +3,14 @@ import type { SelectionStore } from '../app/selectionStore'
 import type { SettingsStore } from '../app/settingsStore'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../core/actions'
 import type {
+  Character,
   CharacterStatus,
   Faction,
   FactionId,
   GameDate,
   GameState,
   Season,
+  Site,
   SiteId,
   SiteType,
 } from '../core/model'
@@ -73,6 +75,26 @@ const SHELL_HTML = `
       </div>
       <ul class="history__list"></ul>
     </dialog>
+    <dialog class="order recruit">
+      <div class="saves__head">
+        <h2 class="saves__title">征兵</h2>
+        <button type="button" class="saves__close" data-action="close-recruit">关闭</button>
+      </div>
+      <div class="order__body">
+        <p class="order__status recruit__status" role="status"></p>
+        <ul class="order__officers recruit__list"></ul>
+      </div>
+    </dialog>
+    <dialog class="order attack">
+      <div class="saves__head">
+        <h2 class="saves__title">进攻</h2>
+        <button type="button" class="saves__close" data-action="close-attack">关闭</button>
+      </div>
+      <div class="order__body">
+        <p class="order__status attack__status" role="status"></p>
+        <ul class="order__officers attack__list"></ul>
+      </div>
+    </dialog>
     <dialog class="settings">
       <div class="saves__head">
         <h2 class="saves__title">设置</h2>
@@ -101,6 +123,8 @@ const SHELL_HTML = `
 const ACTION_BAR_HTML = `
   <nav class="action-bar">
     <button type="button" class="action-bar__button" data-action="open-talents">人才</button>
+    <button type="button" class="action-bar__button" data-action="open-recruit">征兵</button>
+    <button type="button" class="action-bar__button" data-action="open-attack">进攻</button>
     <button type="button" class="action-bar__button" data-action="open-history">历史</button>
   </nav>
 `
@@ -112,6 +136,15 @@ function requireElement<T extends Element>(scope: ParentNode, selector: string):
   }
 
   return element
+}
+
+/** 事件目标所属的行动按钮；不是行动按钮时返回 null。 */
+function actionButtonOf(event: Event): HTMLButtonElement | null {
+  if (!(event.target instanceof Element)) {
+    return null
+  }
+
+  return event.target.closest<HTMLButtonElement>('button[data-action]')
 }
 
 const SEASON_CHARACTERS: Record<Season, string> = {
@@ -224,7 +257,57 @@ const SITE_TYPE_LABELS: Record<SiteType, string> = {
   field: '野地',
 }
 
-/** 侧栏据点面板：所选据点的名称、类型、归属与驻守武将，自有据点提供就地寻访入口。 */
+/** 造一个带 data 属性的行动按钮，供各面板的事件代理读取参数。 */
+function createOrderButton(
+  label: string,
+  action: string,
+  data: Record<string, string>,
+): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'officer-action'
+  button.dataset.action = action
+  for (const [key, value] of Object.entries(data)) {
+    button.dataset[key] = value
+  }
+  button.textContent = label
+
+  return button
+}
+
+/** 武将卡片：姓名、兵力与三项能力，供选将时比较。可选带一排行动按钮。 */
+function createOfficerCard(character: Character, actions: readonly HTMLButtonElement[]): HTMLLIElement {
+  const item = document.createElement('li')
+  item.className = 'officer-card'
+
+  const name = document.createElement('span')
+  name.className = 'officer-card__name'
+  name.textContent = character.name
+
+  const meta = document.createElement('span')
+  meta.className = 'officer-card__meta'
+  meta.textContent = `兵 ${character.troops} · 武 ${character.might} · 统 ${character.command} · 智 ${character.intellect}`
+
+  item.append(name, meta)
+
+  if (actions.length > 0) {
+    const row = document.createElement('div')
+    row.className = 'officer-card__actions'
+    row.append(...actions)
+    item.append(row)
+  }
+
+  return item
+}
+
+/** 某据点相邻的自有据点，供调动选择目的地。 */
+function ownNeighbors(state: GameState, site: Site): Site[] {
+  return site.neighbors
+    .map((id) => state.geography.sites.find((item) => item.id === id))
+    .filter((item): item is Site => item !== undefined && item.owner === state.playerFaction)
+}
+
+/** 侧栏据点面板：所选据点的名称、类型、归属与驻守武将，自有据点提供就地寻访与调动。 */
 function renderSitePanel(
   panel: HTMLElement,
   state: GameState,
@@ -249,18 +332,89 @@ function renderSitePanel(
       : (state.factions.find((faction) => faction.id === site.owner)?.name ?? site.owner)
   requireElement<HTMLElement>(panel, '.site-panel__owner').textContent = `归属：${ownerName}`
 
+  const isOwn = site.owner === state.playerFaction
+  const refuges = isOwn ? ownNeighbors(state, site) : []
   const officers = state.characters.filter(
     (character) => character.status === 'serving' && character.stationedSiteId === site.id,
   )
+
   requireElement<HTMLElement>(panel, '.site-panel__officers').replaceChildren(
     ...(officers.length === 0
       ? [createListItem('site-panel__empty', '无驻守武将')]
-      : officers.map((officer) => createListItem('site-panel__officer', officer.name))),
+      : officers.map((officer) =>
+          createOfficerCard(
+            officer,
+            refuges.map((refuge) =>
+              createOrderButton(`移驻 ${refuge.name}`, 'transfer', {
+                character: officer.id,
+                site: refuge.id,
+              }),
+            ),
+          ),
+        )),
   )
 
-  requireElement<HTMLButtonElement>(panel, '.site-panel__seek').hidden =
-    site.owner !== state.playerFaction
+  requireElement<HTMLButtonElement>(panel, '.site-panel__seek').hidden = !isOwn
   requireElement<HTMLElement>(panel, '.site-panel__status').textContent = message
+}
+
+/** 征兵面板：列出玩家可征兵的部属，各在其驻地就地补兵。 */
+function renderRecruitList(list: Element, state: GameState): void {
+  const officers = state.characters.filter(
+    (character) =>
+      character.status === 'serving' &&
+      character.factionId === state.playerFaction &&
+      character.stationedSiteId !== null,
+  )
+
+  if (officers.length === 0) {
+    list.replaceChildren(createListItem('site-panel__empty', '暂无可征兵的武将'))
+    return
+  }
+
+  list.replaceChildren(
+    ...officers.map((officer) =>
+      createOfficerCard(officer, [createOrderButton('征兵', 'recruit', { character: officer.id })]),
+    ),
+  )
+}
+
+/** 进攻面板：列出可出战的部属，及其驻地相邻的他方或无主据点。 */
+function renderAttackList(list: Element, state: GameState): void {
+  const officers = state.characters.filter(
+    (character) =>
+      character.status === 'serving' &&
+      character.factionId === state.playerFaction &&
+      character.stationedSiteId !== null &&
+      character.troops > 0,
+  )
+
+  if (officers.length === 0) {
+    list.replaceChildren(createListItem('site-panel__empty', '暂无可出战的武将'))
+    return
+  }
+
+  list.replaceChildren(
+    ...officers.map((officer) => {
+      const station = state.geography.sites.find((item) => item.id === officer.stationedSiteId)
+      const targets =
+        station === undefined
+          ? []
+          : station.neighbors
+              .map((id) => state.geography.sites.find((item) => item.id === id))
+              .filter((item): item is Site => item !== undefined && item.owner !== state.playerFaction)
+
+      return createOfficerCard(
+        officer,
+        targets.map((target) =>
+          createOrderButton(`攻 ${target.name}`, 'attack', {
+            character: officer.id,
+            site: target.id,
+          }),
+        ),
+      )
+    }),
+  )
 }
 
 function createListItem(className: string, text: string): HTMLLIElement {
@@ -496,6 +650,16 @@ export function mountGameShell(
   const linksCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="showStrategicLinks"]')
   const developerCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="developerMode"]')
   const savesDialog = requireElement<HTMLDialogElement>(root, '.saves')
+  const openRecruitButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-recruit"]')
+  const closeRecruitButton = requireElement<HTMLButtonElement>(root, '[data-action="close-recruit"]')
+  const recruitDialog = requireElement<HTMLDialogElement>(root, '.recruit')
+  const recruitList = requireElement<HTMLElement>(root, '.recruit__list')
+  const recruitStatus = requireElement<HTMLElement>(root, '.recruit__status')
+  const openAttackButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-attack"]')
+  const closeAttackButton = requireElement<HTMLButtonElement>(root, '[data-action="close-attack"]')
+  const attackDialog = requireElement<HTMLDialogElement>(root, '.attack')
+  const attackList = requireElement<HTMLElement>(root, '.attack__list')
+  const attackStatus = requireElement<HTMLElement>(root, '.attack__status')
 
   linksCheckbox.checked = settings.get().showStrategicLinks
   developerCheckbox.checked = settings.get().developerMode
@@ -503,8 +667,10 @@ export function mountGameShell(
   const seekCostLabel = requireElement<HTMLElement>(root, '.site-panel__seek-cost')
   seekCostLabel.textContent = `${ACTION_COSTS.seekTalent} 行动力`
 
-  /** 上一次就地寻访的反馈，切换据点时清空。 */
+  /** 各面板的上一次行动反馈。 */
   let siteMessage = ''
+  let recruitMessage = ''
+  let attackMessage = ''
 
   const paint = (state: GameState): void => {
     dateLabel.textContent = formatDate(state)
@@ -512,6 +678,10 @@ export function mountGameShell(
     renderActionPoints(actionPointsLabel, state)
     renderFactions(factionList, state)
     renderSitePanel(sitePanel, state, selection.get(), siteMessage)
+    renderRecruitList(recruitList, state)
+    recruitStatus.textContent = recruitMessage
+    renderAttackList(attackList, state)
+    attackStatus.textContent = attackMessage
     officerCount.textContent = String(renderOfficers(officerList, state))
     renderHistory(historyList, state)
     renderSlots(slotList, session)
@@ -545,6 +715,46 @@ export function mountGameShell(
     historyDialog.close()
   })
 
+  openRecruitButton.addEventListener('click', () => {
+    recruitDialog.showModal()
+  })
+
+  closeRecruitButton.addEventListener('click', () => {
+    recruitDialog.close()
+  })
+
+  openAttackButton.addEventListener('click', () => {
+    attackDialog.showModal()
+  })
+
+  closeAttackButton.addEventListener('click', () => {
+    attackDialog.close()
+  })
+
+  recruitList.addEventListener('click', (event) => {
+    const characterId = actionButtonOf(event)?.dataset.character
+    if (characterId === undefined) {
+      return
+    }
+
+    const result = session.recruit(characterId)
+    recruitMessage = result.ok ? result.record.outcome : result.reason
+    paint(session.getState())
+  })
+
+  attackList.addEventListener('click', (event) => {
+    const button = actionButtonOf(event)
+    const characterId = button?.dataset.character
+    const targetSiteId = button?.dataset.site
+    if (characterId === undefined || targetSiteId === undefined) {
+      return
+    }
+
+    const result = session.attack(characterId, targetSiteId)
+    attackMessage = result.ok ? result.record.outcome : result.reason
+    paint(session.getState())
+  })
+
   siteSeekButton.addEventListener('click', () => {
     const siteId = selection.get()
     if (siteId === null) {
@@ -552,6 +762,19 @@ export function mountGameShell(
     }
 
     const result = session.seekTalent(siteId)
+    siteMessage = result.ok ? result.record.outcome : result.reason
+    paint(session.getState())
+  })
+
+  sitePanel.addEventListener('click', (event) => {
+    const button = actionButtonOf(event)
+    const characterId = button?.dataset.character
+    const targetSiteId = button?.dataset.site
+    if (button?.dataset.action !== 'transfer' || characterId === undefined || targetSiteId === undefined) {
+      return
+    }
+
+    const result = session.transfer(characterId, targetSiteId)
     siteMessage = result.ok ? result.record.outcome : result.reason
     paint(session.getState())
   })

@@ -1,7 +1,9 @@
 import type { ActionResult } from '../core/actions'
+import { attack as runAttack } from '../core/battle'
 import { createInitialState } from '../core/createInitialState'
 import { LocalSaveStore } from '../core/localSaveStore'
-import type { GameState, SiteId } from '../core/model'
+import { recruit as runRecruit, transfer as runTransfer } from '../core/military'
+import type { CharacterId, GameState, SiteId } from '../core/model'
 import { createRandom, createSeed, type Random } from '../core/random'
 import { AUTO_SAVE_KEY, slotKey, type SaveStore, type SaveSummary } from '../core/saveStore'
 import { seekTalent as runSeekTalent } from '../core/seekTalent'
@@ -42,13 +44,22 @@ export class GameSession {
 
   /** 在指定自有据点就地寻访；成功后通知界面，失败时返回原因且不改变对局。自动存档只在回合开始时写入。 */
   seekTalent(siteId: SiteId): ActionResult {
-    const result = runSeekTalent(this.state, this.drawRandom, siteId)
+    return this.apply(runSeekTalent(this.state, this.drawRandom, siteId))
+  }
 
-    if (result.ok) {
-      this.notify()
-    }
+  /** 在武将驻地征兵；成功后通知界面。 */
+  recruit(characterId: CharacterId): ActionResult {
+    return this.apply(runRecruit(this.state, characterId))
+  }
 
-    return result
+  /** 把武将及其部队调到相邻的自有据点；成功后通知界面。 */
+  transfer(characterId: CharacterId, targetSiteId: SiteId): ActionResult {
+    return this.apply(runTransfer(this.state, characterId, targetSiteId))
+  }
+
+  /** 派武将进攻相邻的他方或无主据点；成功后通知界面，地图随领土变化刷新。 */
+  attack(characterId: CharacterId, targetSiteId: SiteId): ActionResult {
+    return this.apply(runAttack(this.state, characterId, targetSiteId))
   }
 
   /** 读取自动存档；没有可用存档时返回 false，当前对局保持不变。 */
@@ -78,6 +89,15 @@ export class GameSession {
 
   subscribe(listener: StateListener): void {
     this.listeners.add(listener)
+  }
+
+  /** 行动成功后通知界面；失败时不改动对局。 */
+  private apply(result: ActionResult): ActionResult {
+    if (result.ok) {
+      this.notify()
+    }
+
+    return result
   }
 
   private applySave(key: string): boolean {
