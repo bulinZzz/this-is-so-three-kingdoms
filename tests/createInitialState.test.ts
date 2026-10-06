@@ -93,6 +93,7 @@ describe('createInitialState', () => {
           might: 50,
           command: 50,
           intellect: 50,
+          politics: 50,
           factionAffinity: null,
           loyalty: 0,
           isMonarch: false,

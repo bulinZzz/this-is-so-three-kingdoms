@@ -142,7 +142,7 @@ describe('cloneGeography', () => {
   })
 })
 
-/** 构造只有一州的地理，州内据点按给定归属排列。 */
+/** 构造只有一州的地理，州内战略点按给定归属排列。 */
 function geographyWith(
   provinceOwner: string | null,
   siteOwners: ReadonlyArray<string | null>,
@@ -151,7 +151,7 @@ function geographyWith(
     provinces: [{ id: 'jing', name: '荆州', owner: provinceOwner }],
     sites: siteOwners.map((owner, index) => ({
       id: `site-${index}`,
-      name: `据点${index}`,
+      name: `战略点${index}`,
       type: 'city',
       provinceId: 'jing',
       owner,
@@ -193,7 +193,7 @@ describe('resolveProvinceOwners', () => {
     expect(geography.provinces[0].owner).toBe('liubei')
   })
 
-  it('州内没有任何势力据点时归属为空', () => {
+  it('州内没有任何势力战略点时归属为空', () => {
     const geography = geographyWith('caocao', [null, null])
 
     resolveProvinceOwners(geography)

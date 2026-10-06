@@ -32,7 +32,7 @@ describe('三国人物数据', () => {
     }
   })
 
-  it('在仕武将驻守各自势力的自有据点', () => {
+  it('在仕武将驻守各自势力的自有战略点', () => {
     const siteOwner = new Map(GEOGRAPHY_SANGUO.sites.map((site) => [site.id, site.owner]))
 
     for (const character of CHARACTERS_SANGUO.filter((item) => item.status === 'serving')) {

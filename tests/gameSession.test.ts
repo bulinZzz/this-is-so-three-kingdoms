@@ -194,12 +194,12 @@ describe('GameSession 作战接口', () => {
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
   })
 
-  it('调动把武将及其部队移到相邻的自有据点', () => {
+  it('调动把武将及其部队移到相邻的自有战略点', () => {
     const { session } = createSession()
     const state = session.getState()
     state.playerFaction = 'caocao'
 
-    const result = session.transfer('xiahoudun', 'hulao')
+    const result = session.transfer(['xiahoudun'], 'hulao')
 
     expect(result.ok).toBe(true)
     expect(
@@ -207,7 +207,7 @@ describe('GameSession 作战接口', () => {
     ).toBe('hulao')
   })
 
-  it('进攻占领无主据点后归属改变并通知界面', () => {
+  it('进攻占领无主战略点后归属改变并通知界面', () => {
     const { session } = createSession()
     const state = session.getState()
     let notified = 0
@@ -215,7 +215,7 @@ describe('GameSession 作战接口', () => {
       notified += 1
     })
 
-    const result = session.attack('guanyu', 'chibi')
+    const result = session.attack({ commander: 'guanyu' }, 'chibi')
 
     expect(result.ok).toBe(true)
     expect(state.geography.sites.find((site) => site.id === 'chibi')?.owner).toBe('liubei')
@@ -229,7 +229,7 @@ describe('GameSession 作战接口', () => {
       notified += 1
     })
 
-    const result = session.transfer('guanyu', 'chibi')
+    const result = session.transfer(['guanyu'], 'chibi')
 
     expect(result.ok).toBe(false)
     expect(notified).toBe(0)

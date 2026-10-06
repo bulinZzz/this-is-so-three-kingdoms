@@ -28,7 +28,7 @@ function characterOf(state: GameState, id: string) {
   return character
 }
 
-/** 以曹操为主角，其据点相邻关系丰富，便于验证调动。 */
+/** 以曹操为主角，其战略点相邻关系丰富，便于验证调动。 */
 function caocaoTurn(): GameState {
   const state = createInitialState({ seed: 208 })
   state.playerFaction = 'caocao'
@@ -84,11 +84,11 @@ describe('征兵', () => {
 })
 
 describe('调动', () => {
-  it('把武将及其部队调到相邻的自有据点', () => {
+  it('把武将及其部队调到相邻的自有战略点', () => {
     const state = caocaoTurn()
     const xiahoudun = characterOf(state, 'xiahoudun')
 
-    const result = transfer(state, 'xiahoudun', 'hulao')
+    const result = transfer(state, ['xiahoudun'], 'hulao')
 
     expect(result.ok).toBe(true)
     if (result.ok) {
@@ -101,12 +101,33 @@ describe('调动', () => {
     expect(hasActedThisTurn(state, 'xiahoudun')).toBe(true)
   })
 
-  it('目标非自有据点时拒绝', () => {
+  it('一次可调多人，按人数消耗行动力', () => {
     const state = caocaoTurn()
 
-    expect(transfer(state, 'xiahoudun', 'tongguan')).toEqual({
+    const result = transfer(state, ['xiahoudun', 'xiahouyuan'], 'hulao')
+
+    expect(result.ok).toBe(true)
+    expect(characterOf(state, 'xiahoudun').stationedSiteId).toBe('hulao')
+    expect(characterOf(state, 'xiahouyuan').stationedSiteId).toBe('hulao')
+    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.transfer * 2)
+  })
+
+  it('超过三人时拒绝', () => {
+    const state = caocaoTurn()
+
+    expect(transfer(state, ['xiahoudun', 'xiahouyuan', 'jiaxu', 'caocao'], 'hulao')).toEqual({
       ok: false,
-      reason: '目标不是自有据点',
+      reason: '一次至多调动 3 名武将',
+    })
+    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
+  })
+
+  it('目标非自有战略点时拒绝', () => {
+    const state = caocaoTurn()
+
+    expect(transfer(state, ['xiahoudun'], 'tongguan')).toEqual({
+      ok: false,
+      reason: '目标不是自有战略点',
     })
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
   })
@@ -114,32 +135,32 @@ describe('调动', () => {
   it('目标与驻地不相邻时拒绝', () => {
     const state = caocaoTurn()
 
-    expect(transfer(state, 'xiahoudun', 'chenliu')).toEqual({
+    expect(transfer(state, ['xiahoudun'], 'chenliu')).toEqual({
       ok: false,
-      reason: '目标与驻地不相邻',
+      reason: '夏侯惇 的驻地与目标不相邻',
     })
   })
 
   it('同一武将每回合至多调动一次，结束回合后恢复', () => {
     const state = caocaoTurn()
 
-    expect(transfer(state, 'xiahoudun', 'hulao').ok).toBe(true)
-    expect(transfer(state, 'xiahoudun', 'luoyang')).toEqual({
+    expect(transfer(state, ['xiahoudun'], 'hulao').ok).toBe(true)
+    expect(transfer(state, ['xiahoudun'], 'luoyang')).toEqual({
       ok: false,
-      reason: '该武将本回合已行动',
+      reason: '夏侯惇 本回合已行动',
     })
 
     advanceTurn(state)
 
     expect(hasActedThisTurn(state, 'xiahoudun')).toBe(false)
-    expect(transfer(state, 'xiahoudun', 'luoyang').ok).toBe(true)
+    expect(transfer(state, ['xiahoudun'], 'luoyang').ok).toBe(true)
   })
 
   it('行动力不足时拒绝，状态不变', () => {
     const state = caocaoTurn()
     state.actionPoints = 0
 
-    expect(transfer(state, 'xiahoudun', 'hulao')).toEqual({ ok: false, reason: '行动力不足' })
+    expect(transfer(state, ['xiahoudun'], 'hulao')).toEqual({ ok: false, reason: '行动力不足' })
     expect(characterOf(state, 'xiahoudun').stationedSiteId).toBe('luoyang')
   })
 })

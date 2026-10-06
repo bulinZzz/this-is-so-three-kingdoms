@@ -103,8 +103,7 @@
   color: #c8b48c;
 }
 
-.shell__action-points,
-.shell__resources {
+.shell__action-points {
   margin: 6px 0 0;
   font-size: 14px;
   color: #e8d9b5;
@@ -168,7 +167,7 @@
   color: #e8d9b5;
 }
 
-.talents__body {
+.roster__body {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -176,6 +175,30 @@
   min-height: 0;
   padding: 16px 18px 18px;
   overflow-y: auto;
+}
+
+.domestic__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px 18px;
+}
+
+.domestic__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.domestic__label {
+  font-size: 13px;
+  color: #9a8b70;
+}
+
+.domestic__value {
+  font-size: 16px;
+  color: #e8d9b5;
 }
 
 .site-panel__name {
@@ -193,11 +216,20 @@
 
 .site-panel__officers {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px;
   margin: 10px 0 0;
   padding: 0;
   list-style: none;
+}
+
+.site-panel__officer {
+  padding: 3px 9px;
+  border: 1px solid #3a3128;
+  border-radius: 999px;
+  background: #241d16;
+  font-size: 12px;
+  color: #e8d9b5;
 }
 
 .site-panel__empty {
@@ -215,11 +247,24 @@
   overflow-y: auto;
 }
 
-.order__status {
+.order__status,
+.roster__status {
   margin: 0;
   min-height: 16px;
   font-size: 12px;
   color: #9a8b70;
+}
+
+/* 没有播报时不占位，避免弹窗顶部留出空白。 */
+.order__status:empty,
+.roster__status:empty,
+.site-panel__status:empty {
+  display: none;
+}
+
+.order__empty {
+  font-size: 13px;
+  color: #6f6250;
 }
 
 .order__officers {
@@ -229,6 +274,129 @@
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.order__target {
+  margin: 0;
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.order__submit {
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid #6b5c42;
+  border-radius: 6px;
+  background: #2a2219;
+  color: #e8d9b5;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.order__submit:hover {
+  background: #362c20;
+}
+
+.picker {
+  padding: 8px 10px;
+  border: 1px solid #3a3128;
+  border-radius: 6px;
+  background: #241d16;
+}
+
+.picker__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.picker__checkbox {
+  flex: none;
+  accent-color: #8a7448;
+}
+
+.picker__name {
+  flex: none;
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.picker__meta {
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.picker--disabled {
+  opacity: 0.55;
+}
+
+.picker--disabled .picker__label {
+  cursor: not-allowed;
+}
+
+.picker__status {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 1px solid #574a36;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #c8b48c;
+}
+
+/* 进攻选人：一行内比较各武将，右侧点选主将、副将、军师。 */
+.picker--order {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.picker--order .picker__name {
+  flex: none;
+  width: 3.5em;
+}
+
+.picker--order .picker__meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.picker--order .picker__status {
+  margin-left: 0;
+}
+
+.picker__roles {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.picker__role {
+  padding: 3px 8px;
+  border: 1px solid #3a3128;
+  border-radius: 5px;
+  background: #1b1712;
+  color: #9a8b70;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.picker__role:hover:not(:disabled) {
+  border-color: #6b5c42;
+  color: #e8d9b5;
+}
+
+.picker__role--active {
+  border-color: #8a7448;
+  background: #3a2f20;
+  color: #f0e2bd;
+}
+
+.picker__role:disabled {
+  cursor: not-allowed;
 }
 
 .officer-card {
@@ -241,9 +409,23 @@
   background: #201a13;
 }
 
+.officer-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .officer-card__name {
   font-size: 14px;
   color: #e8d9b5;
+}
+
+.officer-card__flag {
+  padding: 1px 8px;
+  border: 1px solid #574a36;
+  border-radius: 999px;
+  font-size: 11px;
+  color: #c8b48c;
 }
 
 .officer-card__meta {
@@ -258,6 +440,9 @@
 }
 
 .officer-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 3px 10px;
   border: 1px solid #6b5c42;
   border-radius: 999px;
@@ -270,6 +455,32 @@
 
 .officer-action:hover {
   background: #362c20;
+}
+
+.site-panel__order {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid #7a6746;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #33291c, #2a2219);
+  color: #f0e2bd;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.site-panel__order:hover {
+  border-color: #8f7a53;
+  background: linear-gradient(180deg, #3d3122, #322819);
+}
+
+.site-panel__order[hidden] {
+  display: none;
 }
 
 .site-panel__seek {
@@ -302,13 +513,19 @@
   display: none;
 }
 
-.site-panel__seek-cost {
+/* 行动力消耗：寻访、进攻、调动与征兵都以同一枚角标标注。 */
+.action-cost {
   flex: none;
   padding: 2px 9px;
   border: 1px solid #574a36;
   border-radius: 999px;
   font-size: 11px;
   color: #c8b48c;
+}
+
+/* 征兵按钮本身是细边药丸，角标收一点内边距以免顶到边缘。 */
+.officer-action .action-cost {
+  padding: 1px 8px;
 }
 
 .site-panel__status {
@@ -318,17 +535,18 @@
   color: #9a8b70;
 }
 
-.talents__section {
+.roster__section {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.talents__dev[hidden] {
+.roster__dev[hidden],
+.roster__officers-title[hidden] {
   display: none;
 }
 
-.talents__section-title {
+.roster__section-title {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -339,31 +557,22 @@
   color: #9a8b70;
 }
 
-.talents__count {
+.roster__count {
   font-size: 11px;
   letter-spacing: 0;
   color: #9a8b70;
 }
 
-.talents__officers {
+.roster__officers {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.talents__officer {
-  padding: 4px 10px;
-  border: 1px solid #3a3128;
-  border-radius: 999px;
-  background: #241d16;
-  font-size: 13px;
-  color: #e8d9b5;
-}
-
-.talents__all {
+.roster__all {
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -372,7 +581,7 @@
   list-style: none;
 }
 
-.talents__all-item {
+.roster__all-item {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -381,28 +590,29 @@
   font-size: 13px;
 }
 
-.talents__all-item:nth-child(odd) {
+.roster__all-item:nth-child(odd) {
   background: #201a13;
 }
 
-.talents__all-name {
+.roster__all-name {
   color: #e8d9b5;
 }
 
-.talents__all-meta {
+.roster__all-meta {
   font-size: 12px;
   color: #9a8b70;
 }
 
-.talents__empty {
+.roster__empty {
   font-size: 13px;
   color: #6f6250;
 }
 
 .saves,
 .settings,
-.talents,
+.roster,
 .history,
+.domestic,
 .order {
   width: min(420px, 100% - 32px);
   max-height: 80vh;
@@ -413,10 +623,16 @@
   color: #e8d9b5;
 }
 
+/* 选将列表带有兵力与能力摘要，比其余弹窗更宽。 */
+.order {
+  width: min(520px, 100% - 32px);
+}
+
 .saves[open],
 .settings[open],
-.talents[open],
+.roster[open],
 .history[open],
+.domestic[open],
 .order[open] {
   display: flex;
   flex-direction: column;
@@ -424,8 +640,9 @@
 
 .saves::backdrop,
 .settings::backdrop,
-.talents::backdrop,
+.roster::backdrop,
 .history::backdrop,
+.domestic::backdrop,
 .order::backdrop {
   background: rgb(0 0 0 / 60%);
 }

@@ -8,7 +8,7 @@ const CONTROL_RANK: Record<ControlLevel, number> = { none: 0, basic: 1, second: 
 
 /**
  * 玩家对某州的控制程度。
- * 占该州至少一个据点为基础，成为该州归属势力为二级，占该州全部据点为三级。
+ * 占该州至少一个战略点为基础，成为该州归属势力为二级，占该州全部战略点为三级。
  */
 export function provinceControl(state: GameState, provinceId: ProvinceId): ControlLevel {
   const sites = state.geography.sites.filter((site) => site.provinceId === provinceId)

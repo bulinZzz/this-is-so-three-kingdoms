@@ -4,9 +4,9 @@ import type { KeyValueStorage } from '../core/localSaveStore'
 export const SETTINGS_KEY = 'this-is-so-three-kingdoms/settings'
 
 export interface Settings {
-  /** 是否在地图上展示战略点之间的全部连线。 */
+  /** 是否在地图上显示战略点之间的全部连线。 */
   showStrategicLinks: boolean
-  /** 开发者模式：展示全部武将所在的位置等调试信息。 */
+  /** 开发者模式：显示全部武将所在的位置等调试信息。 */
   developerMode: boolean
 }
 

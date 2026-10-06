@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
-import { attack, battlePower, duel, effectiveDefenderTroops, MORALE_FULL } from '../src/core/battle'
+import {
+  attack,
+  attackCandidates,
+  battlePower,
+  duel,
+  effectiveDefenderTroops,
+  isAttackable,
+  MORALE_FULL,
+  partySide,
+} from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
 import { hasActedThisTurn, markActed } from '../src/core/military'
 import type { GameState, Scenario } from '../src/core/model'
@@ -16,15 +25,16 @@ function characterOf(state: GameState, id: string) {
 function siteOf(state: GameState, id: string) {
   const site = state.geography.sites.find((item) => item.id === id)
   if (site === undefined) {
-    throw new Error(`据点不存在：${id}`)
+    throw new Error(`战略点不存在：${id}`)
   }
   return site
 }
 
-/** 两个据点、两家势力的最小对局，便于精确控制攻守兵力与能力。 */
+/** 两个战略点、两家势力的最小对局，便于精确控制攻守兵力与能力。 */
 function scene(options: {
   attackerTroops: number
   defenderTroops: number
+  secondAttackerTroops?: number
   attackerIntellect?: number
   defenderIntellect?: number
   twoWay?: boolean
@@ -55,11 +65,30 @@ function scene(options: {
         might: 80,
         command: 80,
         intellect: options.attackerIntellect ?? 50,
+        politics: 50,
         factionAffinity: 'liubei',
         loyalty: 90,
         isMonarch: false,
         stationedSiteId: 'a',
         troops: options.attackerTroops,
+        morale: MORALE_FULL,
+        tier: null,
+      },
+      {
+        id: 'attacker2',
+        name: '副将',
+        status: 'serving',
+        factionId: 'liubei',
+        provinceId: 'jing',
+        might: 80,
+        command: 80,
+        intellect: 50,
+        politics: 50,
+        factionAffinity: 'liubei',
+        loyalty: 90,
+        isMonarch: false,
+        stationedSiteId: 'a',
+        troops: options.secondAttackerTroops ?? 0,
         morale: MORALE_FULL,
         tier: null,
       },
@@ -72,6 +101,7 @@ function scene(options: {
         might: 80,
         command: 80,
         intellect: options.defenderIntellect ?? 50,
+        politics: 50,
         factionAffinity: 'caocao',
         loyalty: 90,
         isMonarch: false,
@@ -104,7 +134,7 @@ describe('战力计算', () => {
 })
 
 describe('守军兵力', () => {
-  it('无主据点没有守军', () => {
+  it('无主战略点没有守军', () => {
     expect(effectiveDefenderTroops(createInitialState({ seed: 208 }), 'chibi')).toBe(0)
   })
 
@@ -120,10 +150,10 @@ describe('守军兵力', () => {
 })
 
 describe('进攻', () => {
-  it('无主据点直接占领，攻方无损、部队前移', () => {
+  it('无主战略点直接占领，攻方无损、部队前移', () => {
     const state = createInitialState({ seed: 208 })
 
-    const result = attack(state, 'guanyu', 'chibi')
+    const result = attack(state, { commander: 'guanyu' }, 'chibi')
 
     expect(result.ok).toBe(true)
     expect(siteOf(state, 'chibi').owner).toBe('liubei')
@@ -133,10 +163,10 @@ describe('进攻', () => {
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.attack)
   })
 
-  it('攻占有主据点，守将撤往相邻的自有据点', () => {
+  it('攻占有主战略点，守将撤往相邻的自有战略点', () => {
     const state = createInitialState({ seed: 208 })
 
-    const result = attack(state, 'guanyu', 'xiangyang')
+    const result = attack(state, { commander: 'guanyu' }, 'xiangyang')
 
     expect(result.ok).toBe(true)
     expect(siteOf(state, 'xiangyang').owner).toBe('liubei')
@@ -150,7 +180,7 @@ describe('进攻', () => {
   it('固定种子下同一场战斗结果稳定', () => {
     const fight = () => {
       const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
-      const result = attack(state, 'attacker', 'b')
+      const result = attack(state, { commander: 'attacker' }, 'b')
 
       return {
         ok: result.ok,
@@ -164,10 +194,10 @@ describe('进攻', () => {
     expect(fight()).toEqual(fight())
   })
 
-  it('败则退回原驻地并受损，据点归属不变', () => {
+  it('败则退回原驻地并受损，战略点归属不变', () => {
     const state = scene({ attackerTroops: 1000, defenderTroops: 10000 })
 
-    attack(state, 'attacker', 'b')
+    attack(state, { commander: 'attacker' }, 'b')
 
     expect(characterOf(state, 'attacker').stationedSiteId).toBe('a')
     expect(characterOf(state, 'attacker').troops).toBeLessThan(1000)
@@ -177,7 +207,7 @@ describe('进攻', () => {
   it('守将无路可退时被俘', () => {
     const state = scene({ attackerTroops: 20000, defenderTroops: 1000 })
 
-    attack(state, 'attacker', 'b')
+    attack(state, { commander: 'attacker' }, 'b')
 
     const defender = characterOf(state, 'defender')
     expect(defender.status).toBe('captured')
@@ -185,13 +215,86 @@ describe('进攻', () => {
     expect(defender.troops).toBe(0)
   })
 
+  it('编成中的兵力合计，单将打不动、加副将可得手', () => {
+    const solo = scene({ attackerTroops: 6000, defenderTroops: 6000 })
+    attack(solo, { commander: 'attacker' }, 'b')
+    expect(siteOf(solo, 'b').owner).toBe('caocao')
+
+    const joint = scene({ attackerTroops: 6000, defenderTroops: 6000, secondAttackerTroops: 6000 })
+    const result = attack(joint, { commander: 'attacker', deputy: 'attacker2' }, 'b')
+
+    expect(result.ok).toBe(true)
+    expect(siteOf(joint, 'b').owner).toBe('liubei')
+    expect(characterOf(joint, 'attacker').stationedSiteId).toBe('b')
+    expect(characterOf(joint, 'attacker2').stationedSiteId).toBe('b')
+    expect(hasActedThisTurn(joint, 'attacker')).toBe(true)
+    expect(hasActedThisTurn(joint, 'attacker2')).toBe(true)
+  })
+
+  it('兵力为三人之和，智谋取军师，士气取主将', () => {
+    const state = createInitialState({ seed: 208 })
+    characterOf(state, 'guanyu').morale = 60
+
+    expect(partySide(state, { commander: 'guanyu', deputy: 'zhangfei' })).toEqual({
+      troops: 14000,
+      intellect: 0,
+      morale: 60,
+    })
+    expect(
+      partySide(state, { commander: 'guanyu', deputy: 'zhangfei', strategist: 'zhugeliang' }),
+    ).toEqual({ troops: 16000, intellect: 100, morale: 60 })
+  })
+
+  it('编成不合规时拒绝', () => {
+    const state = createInitialState({ seed: 208 })
+
+    expect(attack(state, { commander: '' }, 'chibi')).toEqual({ ok: false, reason: '必须指定主将' })
+    expect(attack(state, { commander: 'caimao' }, 'chibi')).toEqual({
+      ok: false,
+      reason: '该武将不在此势力',
+    })
+    expect(attack(state, { commander: 'guanyu', deputy: 'guanyu' }, 'chibi')).toEqual({
+      ok: false,
+      reason: '主将、副将与军师不能是同一人',
+    })
+
+    expect(attack(state, { commander: 'guanyu' }, 'chibi').ok).toBe(true)
+    expect(attack(state, { commander: 'guanyu', deputy: 'zhangfei' }, 'chaisang')).toEqual({
+      ok: false,
+      reason: '关羽 本回合已行动',
+    })
+  })
+
+  it('与自有领地接壤的他方或无主战略点都可作为进攻目标', () => {
+    const state = createInitialState({ seed: 208 })
+
+    expect(isAttackable(state, 'chibi')).toBe(true)
+    expect(isAttackable(state, 'jiangxia')).toBe(false)
+    expect(isAttackable(state, 'xudu')).toBe(false)
+
+    markActed(state, 'guanyu')
+
+    expect(isAttackable(state, 'chibi')).toBe(true)
+  })
+
+  it('候选部属含本季已行动者，由界面标出不可选', () => {
+    const state = createInitialState({ seed: 208 })
+
+    expect(attackCandidates(state, 'chibi').map((item) => item.id)).toContain('guanyu')
+    expect(attackCandidates(state, 'jiangxia')).toEqual([])
+
+    markActed(state, 'guanyu')
+
+    expect(attackCandidates(state, 'chibi').map((item) => item.id)).toContain('guanyu')
+  })
+
   it('同一武将每回合只能进攻一次', () => {
     const state = createInitialState({ seed: 208 })
 
-    expect(attack(state, 'guanyu', 'chibi').ok).toBe(true)
-    expect(attack(state, 'guanyu', 'chaisang')).toEqual({
+    expect(attack(state, { commander: 'guanyu' }, 'chibi').ok).toBe(true)
+    expect(attack(state, { commander: 'guanyu' }, 'chaisang')).toEqual({
       ok: false,
-      reason: '该武将本回合已行动',
+      reason: '关羽 本回合已行动',
     })
   })
 
@@ -199,7 +302,7 @@ describe('进攻', () => {
     const state = createInitialState({ seed: 208 })
     const before = state.geography.sites.map((site) => ({ id: site.id, neighbors: [...site.neighbors] }))
 
-    attack(state, 'guanyu', 'chibi')
+    attack(state, { commander: 'guanyu' }, 'chibi')
 
     const after = state.geography.sites.map((site) => ({ id: site.id, neighbors: [...site.neighbors] }))
     expect(after).toEqual(before)

@@ -16,6 +16,7 @@ function wild(id: string, name: string, tier: CharacterTier): Character {
     might: 50,
     command: 50,
     intellect: 50,
+    politics: 50,
     factionAffinity: null,
     loyalty: 0,
     isMonarch: false,
@@ -26,7 +27,7 @@ function wild(id: string, name: string, tier: CharacterTier): Character {
   }
 }
 
-/** 玩家在州 p 占 owned 个据点（共 3 个），用于检验控制分级与卡池。 */
+/** 玩家在州 p 占 owned 个战略点（共 3 个），用于检验控制分级与卡池。 */
 function poolScene(owned: 1 | 2 | 3): GameState {
   const scenario: Scenario = {
     id: 'pool-test',
@@ -98,7 +99,7 @@ describe('provinceControl', () => {
     expect(provinceControl(poolScene(3), 'p')).toBe('third')
   })
 
-  it('玩家未占任何据点的州为无', () => {
+  it('玩家未占任何战略点的州为无', () => {
     expect(provinceControl(createInitialState({ seed: 208 }), 'yi')).toBe('none')
   })
 })

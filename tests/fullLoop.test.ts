@@ -45,6 +45,7 @@ function wild(id: string, name: string, tier: 'basic' | 'second'): Character {
     might: 50,
     command: 50,
     intellect: 50,
+    politics: 50,
     factionAffinity: null,
     loyalty: 0,
     isMonarch: false,
@@ -55,7 +56,7 @@ function wild(id: string, name: string, tier: 'basic' | 'second'): Character {
   }
 }
 
-/** 一个州三个据点：玩家占一角，攻下敌据点即可成为该州归属势力。 */
+/** 一个州三个战略点：玩家占一角，攻下敌战略点即可成为该州归属势力。 */
 function loopScenario(): Scenario {
   return {
     id: 'full-loop',
@@ -84,6 +85,7 @@ function loopScenario(): Scenario {
         might: 90,
         command: 90,
         intellect: 60,
+        politics: 50,
         factionAffinity: 'liubei',
         loyalty: 90,
         isMonarch: false,
@@ -101,6 +103,7 @@ function loopScenario(): Scenario {
         might: 60,
         command: 60,
         intellect: 50,
+        politics: 50,
         factionAffinity: 'caocao',
         loyalty: 90,
         isMonarch: false,
@@ -133,7 +136,7 @@ describe('完整循环（无画面）', () => {
 
     session.endTurn()
 
-    expect(session.attack('guanyu', 'chibi').ok).toBe(true)
+    expect(session.attack({ commander: 'guanyu' }, 'chibi').ok).toBe(true)
 
     expect(siteOwner(state, 'chibi')).toBe('liubei')
     expect(characterOf(state, 'guanyu').stationedSiteId).toBe('chibi')
@@ -147,7 +150,7 @@ describe('完整循环（无画面）', () => {
       session.seekTalent('jiangxia')
       session.recruit('guanyu')
       session.endTurn()
-      session.attack('guanyu', 'chibi')
+      session.attack({ commander: 'guanyu' }, 'chibi')
       session.endTurn()
       session.seekTalent('chibi')
 
@@ -168,7 +171,7 @@ describe('完整循环（无画面）', () => {
       const reloaded = new GameSession(store, { drawSeed: 9 })
       expect(reloaded.loadSlot(1)).toBe(true)
       reloaded.endTurn()
-      reloaded.attack('guanyu', 'chibi')
+      reloaded.attack({ commander: 'guanyu' }, 'chibi')
       reloaded.seekTalent('chibi')
 
       return reloaded.getState()
@@ -189,7 +192,7 @@ describe('州归属与卡池联动（无画面）', () => {
     expect(characterOf(state, 'second-1').status).toBe('wild')
 
     // 攻下乙城，成为该州归属势力。
-    expect(session.attack('attacker', 'b').ok).toBe(true)
+    expect(session.attack({ commander: 'attacker' }, 'b').ok).toBe(true)
     expect(state.geography.provinces.find((province) => province.id === 'p')?.owner).toBe('liubei')
 
     // 二级池随之开放，继续寻访可寻得二级客。

@@ -83,7 +83,7 @@ export function validateGeography(
 
 /**
  * 重算各州归属：占该州战略点最多者为归属势力。
- * 与他方并列时不改判，原归属势力得以保持；州内没有任何势力据点时归属为空。
+ * 与他方并列时不改判，原归属势力得以保持；州内没有任何势力战略点时归属为空。
  * 归属取决于此前的归属，结果与过程相关，不能只由当前版图推出。
  */
 export function resolveProvinceOwners(geography: Geography): void {
@@ -100,7 +100,7 @@ export function resolveProvinceOwners(geography: Geography): void {
   }
 }
 
-/** 取据点最多者为归属；并列时保留原归属势力，无从保留则为无归属。 */
+/** 取战略点最多者为归属；并列时保留原归属势力，无从保留则为无归属。 */
 function pickOwner(counts: Map<FactionId, number>, current: FactionId | null): FactionId | null {
   if (counts.size === 0) {
     return null

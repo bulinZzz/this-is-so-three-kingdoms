@@ -17,7 +17,7 @@ describe('SelectionStore', () => {
     expect(seen).toEqual(['jiangxia'])
   })
 
-  it('重复选中同一据点不再通知', () => {
+  it('重复选中同一战略点不再通知', () => {
     const store = new SelectionStore()
     let count = 0
     store.subscribe(() => {

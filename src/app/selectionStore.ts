@@ -2,7 +2,7 @@ import type { SiteId } from '../core/model'
 
 export type SelectionListener = (siteId: SiteId | null) => void
 
-/** 地图与侧栏共用的当前据点选择。 */
+/** 地图与侧栏共用的当前战略点选择。 */
 export interface SelectionSource {
   get(): SiteId | null
   select(siteId: SiteId | null): void

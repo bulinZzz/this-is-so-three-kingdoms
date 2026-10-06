@@ -19,13 +19,13 @@ export function canAfford(state: GameState, kind: ActionKind): boolean {
   return state.actionPoints >= ACTION_COSTS[kind]
 }
 
-/** 扣除某项行动的行动力；不足时不改动状态并返回 false。 */
-export function spendActionPoints(state: GameState, kind: ActionKind): boolean {
-  if (!canAfford(state, kind)) {
+/** 扣除行动力；不足时不改动状态并返回 false。省略消耗时取该行动的标准消耗。 */
+export function spendActionPoints(state: GameState, kind: ActionKind, cost = ACTION_COSTS[kind]): boolean {
+  if (state.actionPoints < cost) {
     return false
   }
 
-  state.actionPoints -= ACTION_COSTS[kind]
+  state.actionPoints -= cost
 
   return true
 }
@@ -35,6 +35,8 @@ export interface ActionRequest {
   kind: ActionKind
   /** 发起行动的势力，缺省为玩家势力。 */
   factionId?: FactionId
+  /** 行动力消耗，缺省取该行动的标准消耗；一次处理多名武将是按其人数累加。 */
+  cost?: number
   /** 前置条件校验，不满足时返回原因；满足时返回 null。 */
   precondition?: (state: GameState) => string | null
   /** 执行规则，此时行动力已扣除；返回行动的目标与结果。 */
@@ -62,7 +64,7 @@ export function runAction(state: GameState, request: ActionRequest): ActionResul
     return { ok: false, reason: blocked }
   }
 
-  if (!spendActionPoints(state, request.kind)) {
+  if (!spendActionPoints(state, request.kind, request.cost)) {
     return { ok: false, reason: '行动力不足' }
   }
 

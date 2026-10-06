@@ -87,6 +87,8 @@ export interface Character {
   command: number
   /** 智谋，参与战斗结算。 */
   intellect: number
+  /** 内政，影响征兵、征粮等经营行为；当前为静态字段。 */
+  politics: number
   /**
    * 势力倾向：最倾向的势力，无倾向时为 null。
    * 初版只记一个主要倾向，多重倾向与其数值计算留待迭代 7。
@@ -96,7 +98,7 @@ export interface Character {
   loyalty: number
   /** 是否为所在势力的君主，每个势力有且只有一人。 */
   isMonarch: boolean
-  /** 驻守的自有据点，供部队定位与调动；未出仕者为 null。 */
+  /** 驻守的自有战略点，供部队定位与调动；未出仕者为 null。 */
   stationedSiteId: SiteId | null
   /** 所统率部队的兵力；未出仕者为 0。 */
   troops: number

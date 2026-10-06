@@ -85,7 +85,7 @@ function toColorNumber(hexColor: string): number {
 
 /**
  * 按战略点类型换形制：城市为圆、关隘为菱形、野地为淡底方框。
- * 颜色按归属，形制只表达类型；玩家据点不再另行强调，归属全由颜色表达。
+ * 颜色按归属，形制只表达类型；玩家战略点不再另行强调，归属全由颜色表达。
  */
 function drawSiteMarker(
   graphics: Phaser.GameObjects.Graphics,
@@ -432,7 +432,7 @@ export class MapScene extends Phaser.Scene {
 
     graphics.clear()
 
-    // 选中的据点在圆外留一圈常驻环，与悬停高亮区分开（环更外、更细）。
+    // 选中的战略点在圆外留一圈常驻环，与悬停高亮区分开（环更外、更细）。
     const selectedId = this.selection.get()
     if (selectedId !== null) {
       const selected = siteRegion(selectedId)

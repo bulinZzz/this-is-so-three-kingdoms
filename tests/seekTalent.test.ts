@@ -4,7 +4,7 @@ import { CHARACTER_LIMIT, countServing } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import type { Character, GameState } from '../src/core/model'
 import { createRandom } from '../src/core/random'
-import { seekTalent } from '../src/core/seekTalent'
+import { seekTalent, RECRUIT_INITIAL_TROOPS } from '../src/core/seekTalent'
 
 function servingOf(state: GameState): Character[] {
   return state.characters.filter(
@@ -13,7 +13,7 @@ function servingOf(state: GameState): Character[] {
 }
 
 describe('seekTalent', () => {
-  it('在自有据点就地招募一人入仕，并扣行动力、写记录', () => {
+  it('在自有战略点就地招募一人入仕，并扣行动力、写记录', () => {
     const state = createInitialState({ seed: 208 })
     const before = servingOf(state).length
 
@@ -31,7 +31,7 @@ describe('seekTalent', () => {
     expect(state.history).toEqual([result.record])
   })
 
-  it('招到的武将驻守该据点', () => {
+  it('招到的武将驻守该战略点', () => {
     const state = createInitialState({ seed: 208 })
     const before = new Set(servingOf(state).map((character) => character.id))
 
@@ -41,7 +41,17 @@ describe('seekTalent', () => {
     expect(recruited?.stationedSiteId).toBe('jiangxia')
   })
 
-  it('只招募该据点所在州的在野之人', () => {
+  it('招募入仕者自带初始兵力', () => {
+    const state = createInitialState({ seed: 208 })
+    const before = new Set(servingOf(state).map((character) => character.id))
+
+    seekTalent(state, createRandom(7), 'jiangxia')
+
+    const recruited = servingOf(state).find((character) => !before.has(character.id))
+    expect(recruited?.troops).toBe(RECRUIT_INITIAL_TROOPS)
+  })
+
+  it('只招募该战略点所在州的在野之人', () => {
     const state = createInitialState({ seed: 208 })
     const before = new Set(servingOf(state).map((character) => character.id))
 
@@ -56,22 +66,22 @@ describe('seekTalent', () => {
     expect(recruited?.provinceId).toBe('jing')
   })
 
-  it('非自有据点无处寻访，不扣行动力', () => {
+  it('非自有战略点无处寻访，不扣行动力', () => {
     const state = createInitialState({ seed: 208 })
 
     const result = seekTalent(state, createRandom(1), 'xiangyang')
 
-    expect(result).toEqual({ ok: false, reason: '此处不是自有据点' })
+    expect(result).toEqual({ ok: false, reason: '此处不是自有战略点' })
     expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
     expect(state.history).toEqual([])
   })
 
-  it('据点不存在时拒绝', () => {
+  it('战略点不存在时拒绝', () => {
     const state = createInitialState({ seed: 208 })
 
     expect(seekTalent(state, createRandom(1), 'unknown')).toEqual({
       ok: false,
-      reason: '据点不存在',
+      reason: '战略点不存在',
     })
   })
 
@@ -114,6 +124,7 @@ describe('seekTalent', () => {
         might: 50,
         command: 50,
         intellect: 50,
+        politics: 50,
         factionAffinity: null,
         loyalty: 0,
         isMonarch: false,

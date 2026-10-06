@@ -55,6 +55,7 @@ export function validateCharacters(
       ['武力', character.might],
       ['统率', character.command],
       ['智谋', character.intellect],
+      ['内政', character.politics],
       ['忠诚', character.loyalty],
       ['士气', character.morale],
     ] as const) {

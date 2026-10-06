@@ -1,5 +1,5 @@
 import type { ActionResult } from '../core/actions'
-import { attack as runAttack } from '../core/battle'
+import { attack as runAttack, type AttackParty } from '../core/battle'
 import { createInitialState } from '../core/createInitialState'
 import { LocalSaveStore } from '../core/localSaveStore'
 import { recruit as runRecruit, transfer as runTransfer } from '../core/military'
@@ -42,7 +42,7 @@ export class GameSession {
     this.notify()
   }
 
-  /** 在指定自有据点就地寻访；成功后通知界面，失败时返回原因且不改变对局。自动存档只在回合开始时写入。 */
+  /** 在指定自有战略点就地寻访；成功后通知界面，失败时返回原因且不改变对局。自动存档只在回合开始时写入。 */
   seekTalent(siteId: SiteId): ActionResult {
     return this.apply(runSeekTalent(this.state, this.drawRandom, siteId))
   }
@@ -52,14 +52,14 @@ export class GameSession {
     return this.apply(runRecruit(this.state, characterId))
   }
 
-  /** 把武将及其部队调到相邻的自有据点；成功后通知界面。 */
-  transfer(characterId: CharacterId, targetSiteId: SiteId): ActionResult {
-    return this.apply(runTransfer(this.state, characterId, targetSiteId))
+  /** 把一批部属调到相邻的自有战略点；成功后通知界面。 */
+  transfer(characterIds: readonly CharacterId[], targetSiteId: SiteId): ActionResult {
+    return this.apply(runTransfer(this.state, characterIds, targetSiteId))
   }
 
-  /** 派武将进攻相邻的他方或无主据点；成功后通知界面，地图随领土变化刷新。 */
-  attack(characterId: CharacterId, targetSiteId: SiteId): ActionResult {
-    return this.apply(runAttack(this.state, characterId, targetSiteId))
+  /** 派主将、副将与军师合攻相邻的他方或无主战略点；成功后通知界面，地图随领土变化刷新。 */
+  attack(party: AttackParty, targetSiteId: SiteId): ActionResult {
+    return this.apply(runAttack(this.state, party, targetSiteId))
   }
 
   /** 读取自动存档；没有可用存档时返回 false，当前对局保持不变。 */
