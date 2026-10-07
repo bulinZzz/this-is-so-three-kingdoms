@@ -16,8 +16,8 @@ const MORALE_POWER_FLOOR = 0.5
 const DEFENSE_BONUS = 1.2
 /** 战力随机波动幅度，双方各在 1±此值 之间。 */
 const POWER_VARIANCE = 0.1
-/** 败方与胜方的伤亡率。 */
-const LOSER_CASUALTY_RATE = 0.6
+/** 败方与胜方的伤亡率。败方不宜过重：一次攻城失利若打残主力，整局会一蹶不振。 */
+const LOSER_CASUALTY_RATE = 0.4
 const WINNER_CASUALTY_RATE = 0.2
 /** 已行动的守军在防守时只计的兵力比例。 */
 const ACTED_DEFENDER_RATIO = 0.5
@@ -315,15 +315,21 @@ export function attack(state: GameState, party: AttackParty, targetSiteId: SiteI
       const undefended = defenderPower <= 0
 
       /*
-       * 战报在改动兵力之前算出：伤亡按各方损失比例，不随后续的撤退、被俘而变，
+       * 伤亡率在改动兵力之前算出：战报里的伤亡不随后续的撤退、被俘而变，
        * 剩余兵力也只反映战损，不含败退无路被俘者。
+       * 胜方伤亡随双方战力比缩放：碾压局几乎不流血，势均力敌才损两成；败方固定四成。
+       * 战力取上一步已含随机浮动的实际值。
        */
+      const winnerLossRate = (winnerPower: number, loserPower: number): number =>
+        WINNER_CASUALTY_RATE * Math.min(1, loserPower / winnerPower)
       const attackerLossRate = attackerWins
         ? undefended
           ? 0
-          : WINNER_CASUALTY_RATE
+          : winnerLossRate(attackerPower, defenderPower)
         : LOSER_CASUALTY_RATE
-      const defenderLossRate = attackerWins ? LOSER_CASUALTY_RATE : WINNER_CASUALTY_RATE
+      const defenderLossRate = attackerWins
+        ? LOSER_CASUALTY_RATE
+        : winnerLossRate(defenderPower, attackerPower)
       const losses = (troops: number, rate: number): number => troops - applyLoss(troops, rate)
       const attackerCasualties = members.reduce(
         (total, member) => total + losses(member.troops, attackerLossRate),
@@ -363,10 +369,10 @@ export function attack(state: GameState, party: AttackParty, targetSiteId: SiteI
       if (attackerWins) {
         if (!undefended) {
           for (const member of members) {
-            member.troops = applyLoss(member.troops, WINNER_CASUALTY_RATE)
+            member.troops = applyLoss(member.troops, attackerLossRate)
           }
           for (const defender of garrison.members) {
-            defender.troops = applyLoss(defender.troops, LOSER_CASUALTY_RATE)
+            defender.troops = applyLoss(defender.troops, defenderLossRate)
           }
         }
         target.owner = current.playerFaction
@@ -377,10 +383,10 @@ export function attack(state: GameState, party: AttackParty, targetSiteId: SiteI
         resolveProvinceOwners(current.geography)
       } else {
         for (const member of members) {
-          member.troops = applyLoss(member.troops, LOSER_CASUALTY_RATE)
+          member.troops = applyLoss(member.troops, attackerLossRate)
         }
         for (const defender of garrison.members) {
-          defender.troops = applyLoss(defender.troops, WINNER_CASUALTY_RATE)
+          defender.troops = applyLoss(defender.troops, defenderLossRate)
         }
       }
 

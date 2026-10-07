@@ -337,10 +337,8 @@ function runPlaythrough(): Playthrough {
       }
     }
 
-    for (let round = 0; round < 3; round += 1) {
-      if (state.actionPoints < ACTION_COSTS.harvestGrain) {
-        break
-      }
+    // 余下的行动力全交给征粮，直到用尽或无人可派，免得日志里的行动力使用率虚低。
+    while (state.actionPoints >= ACTION_COSTS.harvestGrain) {
       const harvester = state.characters
         .filter(
           (item) =>

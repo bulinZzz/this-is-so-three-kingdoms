@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GameSession } from '../src/app/gameSession'
+import { ACTION_COSTS } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import type { Character, GameState, Scenario } from '../src/core/model'
@@ -132,7 +133,8 @@ describe('完整循环（无画面）', () => {
 
     expect(session.seekTalent('jiangxia').ok).toBe(true)
     expect(session.recruit('guanyu').ok).toBe(true)
-    expect(state.actionPoints).toBeLessThan(4)
+    // 一季 10 点：寻访与征兵之后，正好剩下一次进攻的行动力。
+    expect(state.actionPoints).toBe(ACTION_COSTS.attack)
 
     session.endTurn()
 

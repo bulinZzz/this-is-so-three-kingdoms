@@ -27,6 +27,7 @@ import {
   isTransferTarget,
   MAX_TRANSFER_PARTY,
   transferCandidates,
+  troopLimit,
 } from '../core/military'
 import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
@@ -361,9 +362,9 @@ function createOrderButton(
   return button
 }
 
-/** 武将的兵力与能力摘要，供各处卡片统一显示。 */
+/** 武将的兵力（连同带兵上限）与能力摘要，供各处卡片统一显示。 */
 function officerMetaText(character: Character): string {
-  return `兵 ${character.troops} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
+  return `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
 }
 
 /** 武将卡片：姓名、兵力与四项能力，供选将时比较。可附标记与一排行动按钮。 */

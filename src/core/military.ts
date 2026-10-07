@@ -6,6 +6,8 @@ import { createRandom, type Random } from './random'
 export const TROOPS_GROWTH_PER_COMMAND = 2
 /** 征兵产量的基准：每点统率征得的兵力。 */
 export const RECRUIT_TROOPS_PER_COMMAND = 10
+/** 带兵上限的基准：每点统率可带的兵力。兵力堆在一人身上会撞顶，多带一将才有意义。 */
+export const TROOPS_LIMIT_PER_COMMAND = 150
 /** 征粮产量的基准：每点内政征得的粮食。 */
 export const GRAIN_HARVEST_PER_POLITICS = 10
 /** 征粮产量的地盘加成：每处自有战略点带来的粮食。 */
@@ -20,6 +22,11 @@ export const MAX_TRANSFER_PARTY = 3
 /** 在基准上下按固定幅度浮动的一个整数量。 */
 function rollAmount(base: number, random: Random): number {
   return Math.round(base * (1 - AMOUNT_VARIANCE + random.next() * 2 * AMOUNT_VARIANCE))
+}
+
+/** 该武将的带兵上限，由统率决定。 */
+export function troopLimit(character: Character): number {
+  return character.command * TROOPS_LIMIT_PER_COMMAND
 }
 
 /** 某势力当前的总兵力，为其在仕武将所统率部队之和。 */
@@ -69,8 +76,8 @@ export function recruitGrainCost(character: Character): number {
 }
 
 /**
- * 在武将驻地就地补充兵力：消耗粮食与行动力，粮不足或该武将本季已行动时拒绝且不扣行动力。
- * 兵力按统兵者的统率浮动，粮食按统率基准固定消耗；征兵占用该武将本季的行动。
+ * 在武将驻地就地补充兵力：消耗粮食与行动力，粮不足、已达带兵上限或该武将本季已行动时拒绝且不扣行动力。
+ * 兵力按统兵者的统率浮动，补到带兵上限为止；粮食按统率基准固定消耗；征兵占用该武将本季的行动。
  */
 export function recruit(state: GameState, characterId: CharacterId): ActionResult {
   const character = state.characters.find((item) => item.id === characterId) ?? null
@@ -86,6 +93,9 @@ export function recruit(state: GameState, characterId: CharacterId): ActionResul
       if (character !== null && hasActedThisTurn(current, character.id)) {
         return `${character.name} 本回合已行动`
       }
+      if (character !== null && character.troops >= troopLimit(character)) {
+        return `${character.name} 已达带兵上限`
+      }
       const faction = current.factions.find((item) => item.id === current.playerFaction)
       if (faction === undefined || faction.grain < cost) {
         return '粮食不足'
@@ -99,7 +109,10 @@ export function recruit(state: GameState, characterId: CharacterId): ActionResul
       }
 
       const random = createRandom(current.randomState)
-      const gained = rollAmount(character.command * RECRUIT_TROOPS_PER_COMMAND, random)
+      const gained = Math.min(
+        rollAmount(character.command * RECRUIT_TROOPS_PER_COMMAND, random),
+        troopLimit(character) - character.troops,
+      )
       current.randomState = random.getState()
 
       character.troops += gained
@@ -165,7 +178,7 @@ export function harvestGrain(state: GameState, characterId: CharacterId): Action
 }
 
 /**
- * 每季结算兵力自然增长：各势力在仕武将按统率获得一笔带浮动的补充。
+ * 每季结算兵力自然增长：各势力在仕武将按统率获得一笔带浮动的补充，补到带兵上限为止。
  * 增量只与统率有关、与当前兵力无关，各方并行增长，差距不随回合放大。
  */
 export function growTroops(state: GameState): void {
@@ -176,7 +189,10 @@ export function growTroops(state: GameState): void {
       continue
     }
 
-    character.troops += rollAmount(character.command * TROOPS_GROWTH_PER_COMMAND, random)
+    character.troops = Math.min(
+      character.troops + rollAmount(character.command * TROOPS_GROWTH_PER_COMMAND, random),
+      troopLimit(character),
+    )
   }
 
   state.randomState = random.getState()

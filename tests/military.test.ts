@@ -13,6 +13,7 @@ import {
   recruit,
   recruitGrainCost,
   transfer,
+  troopLimit,
 } from '../src/core/military'
 import type { FactionId, GameState } from '../src/core/model'
 import { advanceTurn } from '../src/core/turn'
@@ -88,6 +89,20 @@ describe('征兵', () => {
     expect(recruit(state, 'guanyu').ok).toBe(true)
     expect(hasActedThisTurn(state, 'guanyu')).toBe(true)
     expect(recruit(state, 'guanyu')).toEqual({ ok: false, reason: '关羽 本回合已行动' })
+  })
+
+  it('补到统率所限的带兵上限为止，满员后不再能征兵', () => {
+    const state = createInitialState({ seed: 208 })
+    const guanyu = characterOf(state, 'guanyu')
+    const limit = troopLimit(guanyu)
+    guanyu.troops = limit - 1
+
+    expect(recruit(state, 'guanyu').ok).toBe(true)
+    expect(guanyu.troops).toBe(limit)
+
+    advanceTurn(state)
+
+    expect(recruit(state, 'guanyu')).toEqual({ ok: false, reason: '关羽 已达带兵上限' })
   })
 })
 

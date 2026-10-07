@@ -5,12 +5,13 @@ export const ACTION_POINTS_PER_TURN = 10
 
 /**
  * 各项行动的行动力消耗，集中定义。
- * 初值供迭代 5 按实测调整：进攻与征兵最贵，征粮与寻访次之，调动最轻。
+ * 初值供迭代 5 按实测调整：进攻最贵；寻访与征兵次之；征粮与调动最轻。
+ * 一季 10 点，寻访 + 进攻 + 征兵正好 10，即「三件事」为一个满季。
  */
 export const ACTION_COSTS: Record<ActionKind, number> = {
-  seekTalent: 4,
-  recruit: 4,
-  harvestGrain: 3,
+  seekTalent: 3,
+  recruit: 3,
+  harvestGrain: 2,
   transfer: 2,
   attack: 4,
 }

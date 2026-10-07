@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import { grainYield } from '../src/core/economy'
-import { TROOPS_GROWTH_PER_COMMAND } from '../src/core/military'
+import { TROOPS_GROWTH_PER_COMMAND, troopLimit } from '../src/core/military'
 import { advanceTurn, resolveFactionOrder } from '../src/core/turn'
 
 describe('advanceTurn', () => {
@@ -107,8 +107,12 @@ describe('advanceTurn', () => {
       const gained = character.troops - (before.get(character.id) ?? 0)
       const baseline = character.command * TROOPS_GROWTH_PER_COMMAND
 
-      expect(gained).toBeGreaterThanOrEqual(Math.round(baseline * 0.75))
+      // 增至带兵上限即止；未达上限者按基准上下浮动。
       expect(gained).toBeLessThanOrEqual(Math.round(baseline * 1.25))
+      expect(character.troops).toBeLessThanOrEqual(troopLimit(character))
+      if (character.troops < troopLimit(character)) {
+        expect(gained).toBeGreaterThanOrEqual(Math.round(baseline * 0.75))
+      }
     }
   })
 
