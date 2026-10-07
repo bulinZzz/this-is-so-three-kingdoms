@@ -180,8 +180,8 @@ const SHELL_HTML = `
 /** 底部操作区：承载游戏内容入口，与顶部只放存档、设置的菜单分开。 */
 const ACTION_BAR_HTML = `
   <nav class="action-bar">
-    <button type="button" class="action-bar__button" data-action="open-domestic">内政</button>
     <button type="button" class="action-bar__button" data-action="open-roster">武将</button>
+    <button type="button" class="action-bar__button" data-action="open-domestic">内政</button>
     <button type="button" class="action-bar__button" data-action="open-history">历史</button>
   </nav>
 `
