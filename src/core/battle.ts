@@ -19,7 +19,7 @@ const DEFENSE_BONUS = 1.2
 /** 战力随机波动幅度，双方各在 1±此值 之间。 */
 const POWER_VARIANCE = 0.1
 /** 败方与胜方的伤亡率。败方不宜过重：一次攻城失利若打残主力，整局会一蹶不振。 */
-const LOSER_CASUALTY_RATE = 0.4
+const LOSER_CASUALTY_RATE = 0.3
 const WINNER_CASUALTY_RATE = 0.2
 /** 已行动的守军在防守时只计的兵力比例。 */
 const ACTED_DEFENDER_RATIO = 0.5
@@ -124,9 +124,9 @@ export function garrisonAt(state: GameState, siteId: SiteId): Garrison {
 /** 战略点失守后，守军每名武将的去向。 */
 export type DefenderFate = 'flee' | 'die' | 'capture'
 
-/** 去向权重：绝大多数逃亡，战死与被俘各占少数。具体行为留待迭代 7 细化。 */
+/** 去向权重：多数逃亡，少数被俘，战死最少。具体行为留待迭代 7 细化。 */
 const FLEE_CHANCE = 0.75
-const DIE_CHANCE = 0.15
+const DIE_CHANCE = 0.1
 
 /** 按权重抽取一种去向。 */
 function rollFate(random: Random): DefenderFate {
