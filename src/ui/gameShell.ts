@@ -160,7 +160,7 @@ const SHELL_HTML = `
     </dialog>
     <dialog class="prison">
       <div class="saves__head">
-        <h2 class="saves__title">俘虏营</h2>
+        <h2 class="saves__title">降将</h2>
         <button type="button" class="saves__close" data-action="close-prison">关闭</button>
       </div>
       <p class="prison__status"></p>
@@ -205,7 +205,7 @@ const ACTION_BAR_HTML = `
   <nav class="action-bar">
     <button type="button" class="action-bar__button" data-action="open-roster">武将</button>
     <button type="button" class="action-bar__button" data-action="open-domestic">内政</button>
-    <button type="button" class="action-bar__button" data-action="open-prison">俘虏营</button>
+    <button type="button" class="action-bar__button" data-action="open-prison">降将</button>
     <button type="button" class="action-bar__button" data-action="open-history">历史</button>
   </nav>
 `
