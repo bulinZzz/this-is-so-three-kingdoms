@@ -59,7 +59,7 @@ describe('征兵', () => {
     expect(guanyu.troops).toBeGreaterThanOrEqual(8000 + Math.round(baseline * 0.75))
     expect(guanyu.troops).toBeLessThanOrEqual(8000 + Math.round(baseline * 1.25))
     expect(factionOf(state, 'liubei').grain).toBe(grainBefore - recruitGrainCost(guanyu))
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
     expect(state.history).toHaveLength(1)
   })
 
@@ -72,7 +72,7 @@ describe('征兵', () => {
 
     expect(result).toEqual({ ok: false, reason: '粮食不足' })
     expect(characterOf(state, 'guanyu').troops).toBe(8000)
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
     expect(state.history).toEqual([])
   })
 
@@ -131,7 +131,7 @@ describe('征粮', () => {
       grainBefore + Math.round(baseline * 1.25),
     )
     expect(hasActedThisTurn(state, 'zhugeliang')).toBe(true)
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.harvestGrain)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.harvestGrain)
   })
 
   it('产量随自有战略点数增长', () => {
@@ -174,7 +174,7 @@ describe('调动', () => {
     }
     expect(xiahoudun.stationedSiteId).toBe('hulao')
     expect(xiahoudun.troops).toBe(8000)
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.transfer)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.transfer)
     expect(hasActedThisTurn(state, 'xiahoudun')).toBe(true)
   })
 
@@ -186,7 +186,7 @@ describe('调动', () => {
     expect(result.ok).toBe(true)
     expect(characterOf(state, 'xiahoudun').stationedSiteId).toBe('hulao')
     expect(characterOf(state, 'xiahouyuan').stationedSiteId).toBe('hulao')
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.transfer * 2)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.transfer * 2)
   })
 
   it('超过三人时拒绝', () => {
@@ -196,7 +196,7 @@ describe('调动', () => {
       ok: false,
       reason: '一次至多调动 3 名武将',
     })
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
   })
 
   it('目标非自有战略点时拒绝', () => {
@@ -206,7 +206,7 @@ describe('调动', () => {
       ok: false,
       reason: '目标不是自有战略点',
     })
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
   })
 
   it('目标与驻地不相邻时拒绝', () => {
@@ -235,7 +235,7 @@ describe('调动', () => {
 
   it('行动力不足时拒绝，状态不变', () => {
     const state = caocaoTurn()
-    state.actionPoints = 0
+    state.actionPoints[state.playerFaction] = 0
 
     expect(transfer(state, ['xiahoudun'], 'hulao')).toEqual({ ok: false, reason: '行动力不足' })
     expect(characterOf(state, 'xiahoudun').stationedSiteId).toBe('luoyang')

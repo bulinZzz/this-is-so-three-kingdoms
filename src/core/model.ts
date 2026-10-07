@@ -25,6 +25,15 @@ export interface Faction {
   grain: number
 }
 
+/** 势力之间的关系：同盟或敌对；未声明的势力对为中立。 */
+export type RelationKind = 'ally' | 'hostile'
+
+/** 一对势力之间的关系，顺序不计。 */
+export interface FactionRelation {
+  factions: [FactionId, FactionId]
+  kind: RelationKind
+}
+
 export type ProvinceId = string
 
 /** 州：地理分组，并记录归属势力。 */
@@ -119,6 +128,8 @@ export interface Scenario {
   geography?: Geography
   /** 剧本的人物数据，未提供时开局没有任何武将。 */
   characters?: Character[]
+  /** 势力间的初始关系；未声明的势力对为中立。 */
+  relations?: FactionRelation[]
 }
 
 /** 玩家可执行的行动。 */
@@ -170,12 +181,14 @@ export interface ActionRecord {
 export interface GameState {
   currentDate: GameDate
   currentTurn: number
-  /** 当季剩余行动力，结束回合时恢复为当季预算。 */
-  actionPoints: number
+  /** 各势力当季剩余行动力，按势力分别存放；结束回合时恢复为当季预算。 */
+  actionPoints: Record<FactionId, number>
   /** 本回合已执行调动或进攻的武将，结束回合时清空。 */
   actedCharacterIds: CharacterId[]
   /** 全局行动历史，按发生顺序追加，回合推进不清空。 */
   history: ActionRecord[]
+  /** 势力间的关系；未列出的势力对为中立。 */
+  relations: FactionRelation[]
   playerFaction: FactionId
   geography: Geography
   factions: Faction[]

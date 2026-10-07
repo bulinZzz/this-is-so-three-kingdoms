@@ -172,7 +172,7 @@ describe('进攻', () => {
     expect(characterOf(state, 'guanyu').stationedSiteId).toBe('chibi')
     expect(characterOf(state, 'guanyu').troops).toBe(8000)
     expect(hasActedThisTurn(state, 'guanyu')).toBe(true)
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.attack)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.attack)
   })
 
   it('攻占有主战略点，守军或撤往相邻的自有战略点，或战死退场', () => {
@@ -322,7 +322,7 @@ describe('进攻', () => {
     })
 
     expect(attack(state, { commander: 'guanyu' }, 'chibi').ok).toBe(true)
-    expect(attack(state, { commander: 'guanyu', deputy: 'zhangfei' }, 'chaisang')).toEqual({
+    expect(attack(state, { commander: 'guanyu', deputy: 'zhangfei' }, 'xiangyang')).toEqual({
       ok: false,
       reason: '关羽 本回合已行动',
     })
@@ -355,7 +355,7 @@ describe('进攻', () => {
     const state = createInitialState({ seed: 208 })
 
     expect(attack(state, { commander: 'guanyu' }, 'chibi').ok).toBe(true)
-    expect(attack(state, { commander: 'guanyu' }, 'chaisang')).toEqual({
+    expect(attack(state, { commander: 'guanyu' }, 'xiangyang')).toEqual({
       ok: false,
       reason: '关羽 本回合已行动',
     })

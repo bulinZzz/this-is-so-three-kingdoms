@@ -76,7 +76,7 @@ function recruitAll(state: GameState): string[] {
   const recruited: string[] = []
 
   while (true) {
-    state.actionPoints = ACTION_POINTS_PER_TURN
+    state.actionPoints[state.playerFaction] = ACTION_POINTS_PER_TURN
     if (!seekTalent(state, random, 'a').ok) {
       break
     }

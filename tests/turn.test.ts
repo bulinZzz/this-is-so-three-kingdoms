@@ -74,11 +74,11 @@ describe('advanceTurn', () => {
 
   it('结束回合后行动力恢复为当季预算', () => {
     const state = createInitialState({ seed: 208 })
-    state.actionPoints = 0
+    state.actionPoints[state.playerFaction] = 0
 
     advanceTurn(state)
 
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
   })
 
   it('结束回合按自有战略点收取粮产', () => {

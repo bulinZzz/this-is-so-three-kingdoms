@@ -25,7 +25,7 @@ import type { Character, FactionId, GameState, Season, Site, SiteId, SiteType } 
 import { createRandom } from '../src/core/random'
 import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 import { seekTalent } from '../src/core/seekTalent'
-import { advanceTurn } from '../src/core/turn'
+import { endTurn } from '../src/core/turn'
 
 /**
  * 迭代 5 的核心玩法推演：用无画面的规则层把「荆扬一隅」跑满若干季，
@@ -34,6 +34,7 @@ import { advanceTurn } from '../src/core/turn'
  * 推演用一个规则驱动的「玩家」代理，策略如下：
  *   寻访（前期攒人）→ 进攻（安全边际内挑价值最高者）→ 征兵（交给统率最高者）→ 征粮（交给内政最高者）
  *   → 调兵（朝最弱目标集结）。
+ * 其他势力由 factionAi 自主行动，走与实机相同的回合收尾流程。
  * 它不代表最优打法，只用来观察数值松紧与局势走向；判断「好不好玩」仍要看实玩。
  */
 
@@ -205,15 +206,15 @@ function runPlaythrough(): Playthrough {
   const destroyedAt = new Map<FactionId, number>()
 
   for (let season = 0; season < SEASONS; season += 1) {
-    const before = state.actionPoints
+    const player = state.playerFaction
+    const before = state.actionPoints[player]
     apBudget += before
     const actions: string[] = []
     let attacked = 0
-    const player = state.playerFaction
 
     if (
       !seekExhausted &&
-      state.actionPoints >= ACTION_COSTS.seekTalent &&
+      state.actionPoints[player] >= ACTION_COSTS.seekTalent &&
       servingCount(state, player) < 8
     ) {
       const result = seekTalent(state, drawRandom, 'jiangxia')
@@ -225,7 +226,7 @@ function runPlaythrough(): Playthrough {
     }
 
     for (let round = 0; round < 3; round += 1) {
-      if (state.actionPoints < ACTION_COSTS.attack) {
+      if (state.actionPoints[player] < ACTION_COSTS.attack) {
         break
       }
 
@@ -272,11 +273,11 @@ function runPlaythrough(): Playthrough {
 
     // 打不动就先行军：没在目标门口的闲置部属，朝主攻目标挪一步（只在自有领地内走）。
     // 排在征兵与征粮之前，免得行动力被后两者吃光、主力永远凑不齐。
-    if (attacked === 0 && state.actionPoints >= ACTION_COSTS.transfer) {
+    if (attacked === 0 && state.actionPoints[player] >= ACTION_COSTS.transfer) {
       const primary = pickPrimaryTarget(state)
       const affordable = Math.min(
         MAX_TRANSFER_PARTY,
-        Math.floor(state.actionPoints / ACTION_COSTS.transfer),
+        Math.floor(state.actionPoints[player] / ACTION_COSTS.transfer),
       )
 
       const heading =
@@ -318,7 +319,7 @@ function runPlaythrough(): Playthrough {
     // 一季至多征兵一次，余下的行动力交给征粮，两种行动都会跑到。
     const grainNow = state.factions.find((item) => item.id === player)?.grain ?? 0
     const recruiter =
-      state.actionPoints < ACTION_COSTS.recruit
+      state.actionPoints[player] < ACTION_COSTS.recruit
         ? undefined
         : state.characters
             .filter(
@@ -338,7 +339,7 @@ function runPlaythrough(): Playthrough {
     }
 
     // 余下的行动力全交给征粮，直到用尽或无人可派，免得日志里的行动力使用率虚低。
-    while (state.actionPoints >= ACTION_COSTS.harvestGrain) {
+    while (state.actionPoints[player] >= ACTION_COSTS.harvestGrain) {
       const harvester = state.characters
         .filter(
           (item) =>
@@ -358,17 +359,20 @@ function runPlaythrough(): Playthrough {
       actions.push(result.record.outcome)
     }
 
-    apSpent += before - state.actionPoints
+    apSpent += before - state.actionPoints[player]
     const faction = state.factions.find((item) => item.id === player)
     lines.push(
-      `第 ${state.currentTurn} 季　${dateLabel(state)}　行动力 ${before}→${state.actionPoints}　` +
+      `第 ${state.currentTurn} 季　${dateLabel(state)}　行动力 ${before}→${state.actionPoints[player]}　` +
         `兵力 ${factionTroops(state, player)}　粮 ${faction?.grain ?? 0}　${factionLine(state)}`,
     )
     lines.push(`　　${actions.length === 0 ? '（无行动）' : actions.join('；')}`)
 
+    endTurn(state)
+
+    // 覆灭可能发生在玩家或他方手中，进入新一季后再判定，记在刚结束的那一季。
     for (const other of state.factions) {
       if (other.id !== player && isFactionDestroyed(state, other.id) && !destroyedAt.has(other.id)) {
-        destroyedAt.set(other.id, state.currentTurn)
+        destroyedAt.set(other.id, state.currentTurn - 1)
       }
     }
 
@@ -378,8 +382,6 @@ function runPlaythrough(): Playthrough {
     ) {
       break
     }
-
-    advanceTurn(state)
   }
 
   lines.push(`　　终局版图　${territoryLine(state)}`)

@@ -109,6 +109,17 @@
   color: #c07068;
 }
 
+/* 与玩家的关系：同盟取青绿，敌对取朱红，中立不标。 */
+.shell__badge--ally {
+  border-color: #47694f;
+  color: #7fb894;
+}
+
+.shell__badge--hostile {
+  border-color: #7a4038;
+  color: #d08573;
+}
+
 .shell__action-points {
   margin: 6px 0 0;
   font-size: 14px;

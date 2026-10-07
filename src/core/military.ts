@@ -56,12 +56,16 @@ export function markActed(state: GameState, characterId: CharacterId): void {
   state.actedCharacterIds.push(characterId)
 }
 
-/** 该武将是否为玩家可在其驻地行动的部属；不满足时返回原因。 */
-export function officerBlockedReason(state: GameState, character: Character | null): string | null {
+/** 该武将是否为指定势力可在其驻地行动的部属；不满足时返回原因。缺省按玩家势力评判。 */
+export function officerBlockedReason(
+  state: GameState,
+  character: Character | null,
+  factionId: FactionId = state.playerFaction,
+): string | null {
   if (character === null) {
     return '武将不存在'
   }
-  if (character.status !== 'serving' || character.factionId !== state.playerFaction) {
+  if (character.status !== 'serving' || character.factionId !== factionId) {
     return '该武将不在此势力'
   }
   if (character.stationedSiteId === null) {
@@ -79,14 +83,19 @@ export function recruitGrainCost(character: Character): number {
  * 在武将驻地就地补充兵力：消耗粮食与行动力，粮不足、已达带兵上限或该武将本季已行动时拒绝且不扣行动力。
  * 兵力按统兵者的统率浮动，补到带兵上限为止；粮食按统率基准固定消耗；征兵占用该武将本季的行动。
  */
-export function recruit(state: GameState, characterId: CharacterId): ActionResult {
+export function recruit(
+  state: GameState,
+  characterId: CharacterId,
+  factionId: FactionId = state.playerFaction,
+): ActionResult {
   const character = state.characters.find((item) => item.id === characterId) ?? null
   const cost = character === null ? 0 : recruitGrainCost(character)
 
   return runAction(state, {
     kind: 'recruit',
+    factionId,
     precondition: (current) => {
-      const blocked = officerBlockedReason(current, character)
+      const blocked = officerBlockedReason(current, character, factionId)
       if (blocked !== null) {
         return blocked
       }
@@ -96,14 +105,14 @@ export function recruit(state: GameState, characterId: CharacterId): ActionResul
       if (character !== null && character.troops >= troopLimit(character)) {
         return `${character.name} 已达带兵上限`
       }
-      const faction = current.factions.find((item) => item.id === current.playerFaction)
+      const faction = current.factions.find((item) => item.id === factionId)
       if (faction === undefined || faction.grain < cost) {
         return '粮食不足'
       }
       return null
     },
     execute: (current) => {
-      const faction = current.factions.find((item) => item.id === current.playerFaction)
+      const faction = current.factions.find((item) => item.id === factionId)
       if (character === null || faction === undefined) {
         return { outcome: '征兵未生效' }
       }
@@ -138,13 +147,18 @@ export function harvestGrainBaseline(state: GameState, character: Character): nu
  * 征粮：派一名部属征收粮食，消耗行动力，结果直接入库，并占用该武将本季的行动。
  * 产量按该武将的内政与势力自有战略点数浮动；不像征兵那样需要粮食，也不占用粮食。
  */
-export function harvestGrain(state: GameState, characterId: CharacterId): ActionResult {
+export function harvestGrain(
+  state: GameState,
+  characterId: CharacterId,
+  factionId: FactionId = state.playerFaction,
+): ActionResult {
   const character = state.characters.find((item) => item.id === characterId) ?? null
 
   return runAction(state, {
     kind: 'harvestGrain',
+    factionId,
     precondition: (current) => {
-      const blocked = officerBlockedReason(current, character)
+      const blocked = officerBlockedReason(current, character, factionId)
       if (blocked !== null) {
         return blocked
       }
@@ -154,10 +168,7 @@ export function harvestGrain(state: GameState, characterId: CharacterId): Action
       return null
     },
     execute: (current) => {
-      const faction =
-        character === null
-          ? undefined
-          : current.factions.find((item) => item.id === character.factionId)
+      const faction = current.factions.find((item) => item.id === factionId)
       if (character === null || faction === undefined) {
         return { outcome: '征粮未生效' }
       }
@@ -217,6 +228,7 @@ export function transfer(
   state: GameState,
   characterIds: readonly CharacterId[],
   targetSiteId: SiteId,
+  factionId: FactionId = state.playerFaction,
 ): ActionResult {
   const characters = characterIds
     .map((id) => state.characters.find((item) => item.id === id))
@@ -225,12 +237,13 @@ export function transfer(
 
   return runAction(state, {
     kind: 'transfer',
+    factionId,
     cost: ACTION_COSTS.transfer * characters.length,
     precondition: (current) => {
       if (target === null) {
         return '目标战略点不存在'
       }
-      if (target.owner !== current.playerFaction) {
+      if (target.owner !== factionId) {
         return '目标不是自有战略点'
       }
       if (characters.length === 0) {
@@ -241,7 +254,7 @@ export function transfer(
       }
 
       for (const character of characters) {
-        const blocked = officerBlockedReason(current, character)
+        const blocked = officerBlockedReason(current, character, factionId)
         if (blocked !== null) {
           return blocked
         }

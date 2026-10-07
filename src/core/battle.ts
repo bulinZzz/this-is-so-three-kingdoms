@@ -1,8 +1,9 @@
 import { runAction, type ActionResult } from './actions'
 import { resolveProvinceOwners } from './geography'
 import { hasActedThisTurn, markActed, officerBlockedReason, stationAdjacentTo } from './military'
-import type { BattleReport, Character, CharacterId, GameState, Site, SiteId } from './model'
+import type { BattleReport, Character, CharacterId, FactionId, GameState, Site, SiteId } from './model'
 import { createRandom, type Random } from './random'
+import { areAllied } from './relations'
 
 /** 士气满值。 */
 export const MORALE_FULL = 100
@@ -187,31 +188,45 @@ function resolveDefenders(
   }
 }
 
-/** 该战略点是否可作为进攻目标：非自有，且至少有一个自有战略点与它相邻。 */
-export function isAttackable(state: GameState, targetSiteId: SiteId): boolean {
+/** 该战略点是否为指定势力可进攻的目标：非自有、非同同盟，且至少有一个自有战略点与它相邻。缺省按玩家势力评判。 */
+export function isAttackable(
+  state: GameState,
+  targetSiteId: SiteId,
+  factionId: FactionId = state.playerFaction,
+): boolean {
   const target = state.geography.sites.find((site) => site.id === targetSiteId)
-  if (target === undefined || target.owner === state.playerFaction) {
+  if (target === undefined || target.owner === factionId) {
+    return false
+  }
+  if (target.owner !== null && areAllied(state, factionId, target.owner)) {
     return false
   }
 
   return state.geography.sites.some(
-    (site) => site.owner === state.playerFaction && site.neighbors.includes(target.id),
+    (site) => site.owner === factionId && site.neighbors.includes(target.id),
   )
 }
 
 /**
  * 进攻某战略点的候选部属：驻守在与目标相邻的自有战略点的人。
- * 已行动或无兵者也在列，由界面标注为不可选。
+ * 已行动或无兵者也在列，由界面标注为不可选。缺省按玩家势力取候选。
  */
-export function attackCandidates(state: GameState, targetSiteId: SiteId): Character[] {
+export function attackCandidates(
+  state: GameState,
+  targetSiteId: SiteId,
+  factionId: FactionId = state.playerFaction,
+): Character[] {
   const target = state.geography.sites.find((site) => site.id === targetSiteId)
-  if (target === undefined || target.owner === state.playerFaction) {
+  if (target === undefined || target.owner === factionId) {
+    return []
+  }
+  if (target.owner !== null && areAllied(state, factionId, target.owner)) {
     return []
   }
 
   return state.characters.filter(
     (character) =>
-      officerBlockedReason(state, character) === null &&
+      officerBlockedReason(state, character, factionId) === null &&
       stationAdjacentTo(state, character, targetSiteId),
   )
 }
@@ -253,7 +268,12 @@ export function partySide(state: GameState, party: AttackParty): BattleSide {
  * 士气取主将，守方再乘防守补正。胜则战略点归攻方、参战部队一同前移进驻，
  * 败则各自退回原驻地并受损。随机数取自随存档落盘的模拟流。
  */
-export function attack(state: GameState, party: AttackParty, targetSiteId: SiteId): ActionResult {
+export function attack(
+  state: GameState,
+  party: AttackParty,
+  targetSiteId: SiteId,
+  factionId: FactionId = state.playerFaction,
+): ActionResult {
   const ids = partyIds(party)
   const members = ids
     .map((id) => state.characters.find((item) => item.id === id))
@@ -264,12 +284,16 @@ export function attack(state: GameState, party: AttackParty, targetSiteId: SiteI
 
   return runAction(state, {
     kind: 'attack',
+    factionId,
     precondition: (current) => {
       if (target === null) {
         return '目标战略点不存在'
       }
-      if (target.owner === current.playerFaction) {
+      if (target.owner === factionId) {
         return '目标已是自有战略点'
+      }
+      if (target.owner !== null && areAllied(current, factionId, target.owner)) {
+        return '与对方同盟，不能进攻'
       }
       if (commander === null) {
         return '必须指定主将'
@@ -282,7 +306,7 @@ export function attack(state: GameState, party: AttackParty, targetSiteId: SiteI
       }
 
       for (const member of members) {
-        const blocked = officerBlockedReason(current, member)
+        const blocked = officerBlockedReason(current, member, factionId)
         if (blocked !== null) {
           return blocked
         }
@@ -375,7 +399,7 @@ export function attack(state: GameState, party: AttackParty, targetSiteId: SiteI
             defender.troops = applyLoss(defender.troops, defenderLossRate)
           }
         }
-        target.owner = current.playerFaction
+        target.owner = factionId
         for (const member of members) {
           member.stationedSiteId = target.id
         }

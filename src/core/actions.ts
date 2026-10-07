@@ -16,18 +16,24 @@ export const ACTION_COSTS: Record<ActionKind, number> = {
   attack: 4,
 }
 
-/** 当季剩余行动力是否够执行某项行动。 */
-export function canAfford(state: GameState, kind: ActionKind): boolean {
-  return state.actionPoints >= ACTION_COSTS[kind]
+/** 该势力当季剩余行动力是否够执行某项行动。 */
+export function canAfford(state: GameState, factionId: FactionId, kind: ActionKind): boolean {
+  return (state.actionPoints[factionId] ?? 0) >= ACTION_COSTS[kind]
 }
 
-/** 扣除行动力；不足时不改动状态并返回 false。省略消耗时取该行动的标准消耗。 */
-export function spendActionPoints(state: GameState, kind: ActionKind, cost = ACTION_COSTS[kind]): boolean {
-  if (state.actionPoints < cost) {
+/** 扣除该势力的行动力；不足时不改动状态并返回 false。省略消耗时取该行动的标准消耗。 */
+export function spendActionPoints(
+  state: GameState,
+  factionId: FactionId,
+  kind: ActionKind,
+  cost = ACTION_COSTS[kind],
+): boolean {
+  const remaining = state.actionPoints[factionId] ?? 0
+  if (remaining < cost) {
     return false
   }
 
-  state.actionPoints -= cost
+  state.actionPoints[factionId] = remaining - cost
 
   return true
 }
@@ -63,19 +69,20 @@ export type ActionResult =
  * 前置条件或行动力不满足时整体拒绝，状态不变。
  */
 export function runAction(state: GameState, request: ActionRequest): ActionResult {
+  const factionId = request.factionId ?? state.playerFaction
   const blocked = request.precondition?.(state) ?? null
   if (blocked !== null) {
     return { ok: false, reason: blocked }
   }
 
-  if (!spendActionPoints(state, request.kind, request.cost)) {
+  if (!spendActionPoints(state, factionId, request.kind, request.cost)) {
     return { ok: false, reason: '行动力不足' }
   }
 
   const { targetId = null, outcome, battle } = request.execute(state)
   const record: ActionRecord = {
     kind: request.kind,
-    factionId: request.factionId ?? state.playerFaction,
+    factionId,
     date: { ...state.currentDate },
     targetId,
     outcome,

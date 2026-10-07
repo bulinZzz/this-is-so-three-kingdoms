@@ -15,7 +15,9 @@ describe('createInitialState', () => {
   })
 
   it('开局行动力为当季预算', () => {
-    expect(createInitialState().actionPoints).toBe(ACTION_POINTS_PER_TURN)
+    const state = createInitialState()
+
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
   })
 
   it('剧本从建安十三年秋开局', () => {

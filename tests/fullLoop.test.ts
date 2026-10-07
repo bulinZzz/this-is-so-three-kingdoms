@@ -134,7 +134,7 @@ describe('完整循环（无画面）', () => {
     expect(session.seekTalent('jiangxia').ok).toBe(true)
     expect(session.recruit('guanyu').ok).toBe(true)
     // 一季 10 点：寻访与征兵之后，正好剩下一次进攻的行动力。
-    expect(state.actionPoints).toBe(ACTION_COSTS.attack)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_COSTS.attack)
 
     session.endTurn()
 
@@ -142,7 +142,12 @@ describe('完整循环（无画面）', () => {
 
     expect(siteOwner(state, 'chibi')).toBe('liubei')
     expect(characterOf(state, 'guanyu').stationedSiteId).toBe('chibi')
-    expect(state.history.map((record) => record.kind)).toEqual(['seekTalent', 'recruit', 'attack'])
+    // 他方本季也会行动并写入历史，只核对玩家自己的行动序列。
+    expect(
+      state.history
+        .filter((record) => record.factionId === state.playerFaction)
+        .map((record) => record.kind),
+    ).toEqual(['seekTalent', 'recruit', 'attack'])
     expect(state.currentTurn).toBe(2)
   })
 

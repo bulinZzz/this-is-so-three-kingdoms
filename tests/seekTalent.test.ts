@@ -27,7 +27,7 @@ describe('seekTalent', () => {
     expect(result.record.kind).toBe('seekTalent')
     expect(result.record.targetId).toBe('jiangxia')
     expect(servingOf(state)).toHaveLength(before + 1)
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
     expect(state.history).toEqual([result.record])
   })
 
@@ -72,7 +72,7 @@ describe('seekTalent', () => {
     const result = seekTalent(state, createRandom(1), 'xiangyang')
 
     expect(result).toEqual({ ok: false, reason: '此处不是自有战略点' })
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
     expect(state.history).toEqual([])
   })
 
@@ -139,7 +139,7 @@ describe('seekTalent', () => {
     const result = seekTalent(state, createRandom(1), 'jiangxia')
 
     expect(result).toEqual({ ok: false, reason: '麾下已满' })
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
     expect(state.history).toEqual([])
   })
 
@@ -150,7 +150,7 @@ describe('seekTalent', () => {
     const result = seekTalent(state, createRandom(1), 'jiangxia')
 
     expect(result).toEqual({ ok: false, reason: '此处已无可寻之人' })
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
     expect(state.history).toEqual([])
   })
 })

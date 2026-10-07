@@ -16,6 +16,13 @@ function servingCount(session: GameSession): number {
   ).length
 }
 
+/** 玩家势力当季剩余行动力。 */
+function playerActionPoints(session: GameSession): number {
+  const state = session.getState()
+
+  return state.actionPoints[state.playerFaction] ?? 0
+}
+
 function createSession(): { store: LocalSaveStore; session: GameSession } {
   const store = new LocalSaveStore(new MemoryStorage())
 
@@ -151,7 +158,7 @@ describe('GameSession', () => {
     const result = session.seekTalent('jiangxia')
 
     expect(result.ok).toBe(true)
-    expect(session.getState().actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
+    expect(playerActionPoints(session)).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
     expect(servingCount(session)).toBe(before + 1)
     expect(store.load(AUTO_SAVE_KEY)).toBeNull()
   })
@@ -168,7 +175,7 @@ describe('GameSession', () => {
 
   it('行动力不足时寻访失败，状态不变', () => {
     const { session } = createSession()
-    session.getState().actionPoints = 0
+    session.getState().actionPoints[session.getState().playerFaction] = 0
 
     const result = session.seekTalent('jiangxia')
 
@@ -213,7 +220,7 @@ describe('GameSession 作战接口', () => {
     expect(state.factions.find((faction) => faction.id === state.playerFaction)?.grain).toBe(
       grainBefore - recruitGrainCost(guanyu),
     )
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
+    expect(playerActionPoints(session)).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
   })
 
   it('征粮后势力粮食增加、该武将本季已行动', () => {
@@ -228,7 +235,7 @@ describe('GameSession 作战接口', () => {
       grainBefore,
     )
     expect(state.actedCharacterIds).toContain('zhugeliang')
-    expect(state.actionPoints).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.harvestGrain)
+    expect(playerActionPoints(session)).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.harvestGrain)
   })
 
   it('调动把武将及其部队移到相邻的自有战略点', () => {

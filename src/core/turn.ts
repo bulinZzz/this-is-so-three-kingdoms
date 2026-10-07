@@ -1,5 +1,6 @@
 import { ACTION_POINTS_PER_TURN } from './actions'
 import { collectGrain } from './economy'
+import { runFactionTurns } from './factionAi'
 import { growTroops } from './military'
 import type { FactionId, GameState, Season } from './model'
 
@@ -12,7 +13,9 @@ const SEASONS: readonly Season[] = ['spring', 'summer', 'autumn', 'winter']
  */
 export function advanceTurn(state: GameState): void {
   state.currentTurn += 1
-  state.actionPoints = ACTION_POINTS_PER_TURN
+  for (const faction of state.factions) {
+    state.actionPoints[faction.id] = ACTION_POINTS_PER_TURN
+  }
   state.actedCharacterIds = []
 
   const index = SEASONS.indexOf(state.currentDate.season)
@@ -25,6 +28,15 @@ export function advanceTurn(state: GameState): void {
 
   collectGrain(state)
   growTroops(state)
+}
+
+/**
+ * 结束本回合：其他势力按各自的最小行为集先行行动，随后结算并进入下一季。
+ * 玩家自己的行动由界面在回合内完成，不在此列。
+ */
+export function endTurn(state: GameState): void {
+  runFactionTurns(state)
+  advanceTurn(state)
 }
 
 /** 本回合各势力的行动顺序：玩家势力先行动，其余按势力列表顺序。 */

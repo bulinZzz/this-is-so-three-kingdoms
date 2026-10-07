@@ -7,7 +7,7 @@ import type { CharacterId, GameState, Scenario, SiteId } from '../core/model'
 import { createRandom, createSeed, type Random } from '../core/random'
 import { AUTO_SAVE_KEY, slotKey, type SaveStore, type SaveSummary } from '../core/saveStore'
 import { seekTalent as runSeekTalent } from '../core/seekTalent'
-import { advanceTurn } from '../core/turn'
+import { endTurn as resolveEndTurn } from '../core/turn'
 
 export type StateListener = (state: GameState) => void
 
@@ -43,9 +43,9 @@ export class GameSession {
     this.notify()
   }
 
-  /** 结束本回合；进入下一回合时写入自动存档。 */
+  /** 结束本回合：其他势力行动，随后结算并进入下一回合，写入自动存档。 */
   endTurn(): void {
-    advanceTurn(this.state)
+    resolveEndTurn(this.state)
     this.saveStore.save(AUTO_SAVE_KEY, this.state)
     this.notify()
   }

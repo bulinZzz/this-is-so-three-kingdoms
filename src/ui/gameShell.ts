@@ -29,6 +29,7 @@ import {
   transferCandidates,
   troopLimit,
 } from '../core/military'
+import { relationBetween } from '../core/relations'
 import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
 import './shell.css'
@@ -284,6 +285,14 @@ function renderFactions(list: Element, state: GameState): void {
       badge.className = 'shell__badge'
       badge.textContent = '我'
       item.append(badge)
+    } else {
+      const relation = relationBetween(state, state.playerFaction, faction.id)
+      if (relation !== null) {
+        const badge = document.createElement('span')
+        badge.className = `shell__badge shell__badge--${relation}`
+        badge.textContent = relation === 'ally' ? '同盟' : '敌对'
+        item.append(badge)
+      }
     }
 
     if (isFactionDestroyed(state, faction.id)) {
@@ -311,7 +320,8 @@ function renderFactions(list: Element, state: GameState): void {
 }
 
 function renderActionPoints(label: Element, state: GameState): void {
-  label.textContent = `行动力 ${state.actionPoints} / ${ACTION_POINTS_PER_TURN}`
+  const remaining = state.actionPoints[state.playerFaction] ?? 0
+  label.textContent = `行动力 ${remaining} / ${ACTION_POINTS_PER_TURN}`
 }
 
 /** 内政弹窗：玩家势力的兵力与粮食；后续经营类信息也放这里。 */

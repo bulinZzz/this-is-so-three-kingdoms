@@ -12,6 +12,11 @@ export const SANGUO_208: Scenario = {
     { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 6000 },
     { id: 'sunquan', name: '孙权', color: '#b0413e', grain: 12000 },
   ],
+  relations: [
+    { factions: ['liubei', 'sunquan'], kind: 'ally' },
+    { factions: ['liubei', 'caocao'], kind: 'hostile' },
+    { factions: ['caocao', 'sunquan'], kind: 'hostile' },
+  ],
   geography: GEOGRAPHY_SANGUO,
   characters: CHARACTERS_SANGUO,
 }
@@ -113,6 +118,11 @@ export const SANGUO_ACCEPTANCE: Scenario = {
     { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 4000 },
     { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 12000 },
     { id: 'sunquan', name: '孙权', color: '#b0413e', grain: 8000 },
+  ],
+  relations: [
+    { factions: ['liubei', 'sunquan'], kind: 'ally' },
+    { factions: ['liubei', 'caocao'], kind: 'hostile' },
+    { factions: ['caocao', 'sunquan'], kind: 'hostile' },
   ],
   geography: ACCEPTANCE_GEOGRAPHY,
   characters: [

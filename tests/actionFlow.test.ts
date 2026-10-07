@@ -19,7 +19,7 @@ describe('行动力与寻访流程（无画面）', () => {
     }
 
     expect(successes).toBe(Math.floor(ACTION_POINTS_PER_TURN / ACTION_COSTS.seekTalent))
-    expect(session.getState().actionPoints).toBe(
+    expect(session.getState().actionPoints[session.getState().playerFaction]).toBe(
       ACTION_POINTS_PER_TURN - successes * ACTION_COSTS.seekTalent,
     )
     expect(session.getState().history).toHaveLength(successes)
@@ -27,8 +27,15 @@ describe('行动力与寻访流程（无画面）', () => {
     session.endTurn()
 
     expect(session.getState().currentTurn).toBe(startTurn + 1)
-    expect(session.getState().actionPoints).toBe(ACTION_POINTS_PER_TURN)
-    expect(session.getState().history).toHaveLength(successes)
+    expect(session.getState().actionPoints[session.getState().playerFaction]).toBe(
+      ACTION_POINTS_PER_TURN,
+    )
+    // 他方本季也会行动并写入历史，只核对玩家自己的记录跨回合保留。
+    expect(
+      session
+        .getState()
+        .history.filter((record) => record.factionId === session.getState().playerFaction),
+    ).toHaveLength(successes)
   })
 
   it('寻访只消耗抽卡流，模拟流的随机状态保持不变', () => {
