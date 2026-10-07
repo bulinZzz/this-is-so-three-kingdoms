@@ -153,6 +153,9 @@ export interface Scenario {
 /** 玩家可执行的行动。 */
 export type ActionKind = 'seekTalent' | 'visit' | 'recruit' | 'harvestGrain' | 'transfer' | 'attack'
 
+/** 写入历史的记录类型：行动之外，世界结算（如叛离）也占一条。 */
+export type ActionRecordKind = ActionKind | 'defect'
+
 /** 战报中一方的要点。 */
 export interface BattleReportSide {
   /** 主将姓名；守方无将时为空串。 */
@@ -183,7 +186,7 @@ export interface BattleReport {
 
 /** 一条行动记录：行动类型、势力、时间、目标与结果。 */
 export interface ActionRecord {
-  kind: ActionKind
+  kind: ActionRecordKind
   /** 发起行动的势力。 */
   factionId: FactionId
   /** 行动发生的日期。 */

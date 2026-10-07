@@ -18,6 +18,7 @@ import type {
 } from '../core/model'
 import { attackCandidates, isAttackable, type AttackParty } from '../core/battle'
 import { grainYield } from '../core/economy'
+import { loyaltyHint } from '../core/loyalty'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
 import { SCENARIOS } from '../core/scenarios'
 import {
@@ -377,9 +378,12 @@ function createOrderButton(
   return button
 }
 
-/** 武将的兵力（连同带兵上限）与能力摘要，供各处卡片统一显示。 */
+/** 武将的兵力（连同带兵上限）、能力与忠诚提示，供各处卡片统一显示。 */
 function officerMetaText(character: Character): string {
-  return `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
+  const summary = `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
+  const hint = loyaltyHint(character.loyalty)
+
+  return hint === null ? summary : `${summary} · ${hint}`
 }
 
 /** 武将卡片：姓名、兵力与四项能力，供选将时比较。可附标记与一排行动按钮。 */

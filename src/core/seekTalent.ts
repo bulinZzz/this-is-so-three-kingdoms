@@ -73,7 +73,7 @@ function markContacted(
 }
 
 /** 某武将入仕后，把它从各势力的接触名单里清掉。 */
-function clearContacts(state: GameState, characterId: CharacterId): void {
+export function clearContacts(state: GameState, characterId: CharacterId): void {
   for (const factionId of Object.keys(state.contactedCandidates)) {
     state.contactedCandidates[factionId] = state.contactedCandidates[factionId].filter(
       (candidate) => candidate.characterId !== characterId,

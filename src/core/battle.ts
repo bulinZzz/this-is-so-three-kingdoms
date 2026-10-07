@@ -1,5 +1,6 @@
 import { runAction, type ActionResult } from './actions'
 import { resolveProvinceOwners } from './geography'
+import { LOYALTY_LOSS, loseLoyalty, maybeDefect, wildTierFor } from './loyalty'
 import { hasActedThisTurn, markActed, officerBlockedReason, stationAdjacentTo } from './military'
 import type { BattleReport, Character, CharacterId, FactionId, GameState, Site, SiteId } from './model'
 import { createRandom, type Random } from './random'
@@ -171,7 +172,9 @@ function resolveDefenders(
       if (!doomed) {
         const refuge = refuges[Math.floor(random.next() * refuges.length)]
         defender.stationedSiteId = refuge.id
-        fates.push(`${defender.name} 撤往${refuge.name}`)
+        // 失守受挫：忠诚下降；低到阈值以下者就此离走，不再只是换个驻地。
+        loseLoyalty(defender, LOYALTY_LOSS.siteLost)
+        fates.push(maybeDefect(state, defender, '失守') ?? `${defender.name} 撤往${refuge.name}`)
         continue
       }
 
@@ -180,8 +183,9 @@ function resolveDefenders(
       defender.factionId = null
       defender.stationedSiteId = null
       defender.troops = 0
-      // 卡池层级暂给最基础一档，按能力与身份细分留待迭代 7。
-      defender.tier = 'basic'
+      defender.loyalty = 0
+      // 回归在野者的卡池层级按能力给。
+      defender.tier = wildTierFor(defender)
       fates.push(`${defender.name} 流落为在野`)
       continue
     }
@@ -422,6 +426,11 @@ export function attack(
         }
         for (const defender of garrison.members) {
           defender.troops = applyLoss(defender.troops, defenderLossRate)
+        }
+        // 败方受挫：参战者忠诚下降，低到阈值以下者就此离走（各自写一条记录）。
+        for (const member of members) {
+          loseLoyalty(member, LOYALTY_LOSS.battleLost)
+          maybeDefect(current, member, '败绩')
         }
       }
 
