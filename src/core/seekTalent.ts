@@ -26,7 +26,7 @@ export function seekTalent(
           (character) =>
             isRecruitable(character) &&
             character.provinceId === site.provinceId &&
-            isTierAvailable(character.tier, provinceControl(state, site.provinceId)),
+            isTierAvailable(character.tier, provinceControl(state, site.provinceId, factionId)),
         )
 
   return runAction(state, {

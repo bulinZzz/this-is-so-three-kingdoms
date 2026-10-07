@@ -123,9 +123,9 @@ export function garrisonAt(state: GameState, siteId: SiteId): Garrison {
 /** 战略点失守后，守军每名武将的去向。 */
 export type DefenderFate = 'flee' | 'die' | 'capture'
 
-/** 去向权重：偏向逃亡，战死与被俘各占四分之一。具体行为留待迭代 7 细化。 */
-const FLEE_CHANCE = 0.5
-const DIE_CHANCE = 0.25
+/** 去向权重：绝大多数逃亡，战死与被俘各占少数。具体行为留待迭代 7 细化。 */
+const FLEE_CHANCE = 0.75
+const DIE_CHANCE = 0.15
 
 /** 按权重抽取一种去向。 */
 function rollFate(random: Random): DefenderFate {
@@ -152,13 +152,16 @@ function fleeRefuges(state: GameState, defender: Character, target: Site): Site[
  * 势力覆灭的那一战也不例外。君主只在本势力尚未覆灭时必定逃亡。
  * 逃亡者撤往自有的战略点；本势力再无城池可投（此战即覆灭）时，逃亡者流落为在野，将来可以复起。
  * 被俘的处置（招降、释放、处决）尚未实现，暂与战死一样退场，留待迭代 9。
+ * 返回逐人的去向，写入行动记录，供历史与战报展示。
  */
 function resolveDefenders(
   state: GameState,
   defenders: readonly Character[],
   target: Site,
   random: Random,
-): void {
+): string[] {
+  const fates: string[] = []
+
   for (const defender of defenders) {
     const refuges = fleeRefuges(state, defender, target)
     const doomed = refuges.length === 0
@@ -166,7 +169,9 @@ function resolveDefenders(
 
     if (fate === 'flee') {
       if (!doomed) {
-        defender.stationedSiteId = refuges[Math.floor(random.next() * refuges.length)].id
+        const refuge = refuges[Math.floor(random.next() * refuges.length)]
+        defender.stationedSiteId = refuge.id
+        fates.push(`${defender.name} 撤往${refuge.name}`)
         continue
       }
 
@@ -177,6 +182,7 @@ function resolveDefenders(
       defender.troops = 0
       // 卡池层级暂给最基础一档，按能力与身份细分留待迭代 7。
       defender.tier = 'basic'
+      fates.push(`${defender.name} 流落为在野`)
       continue
     }
 
@@ -185,7 +191,10 @@ function resolveDefenders(
     defender.factionId = null
     defender.stationedSiteId = null
     defender.troops = 0
+    fates.push(`${defender.name} ${fate === 'die' ? '战死' : '被俘'}`)
   }
+
+  return fates
 }
 
 /** 该战略点是否为指定势力可进攻的目标：非自有、非同同盟，且至少有一个自有战略点与它相邻。缺省按玩家势力评判。 */
@@ -390,6 +399,8 @@ export function attack(
         },
       }
 
+      let defenderFates: string[] = []
+
       if (attackerWins) {
         if (!undefended) {
           for (const member of members) {
@@ -403,7 +414,7 @@ export function attack(
         for (const member of members) {
           member.stationedSiteId = target.id
         }
-        resolveDefenders(current, defenders, target, random)
+        defenderFates = resolveDefenders(current, defenders, target, random)
         resolveProvinceOwners(current.geography)
       } else {
         for (const member of members) {
@@ -419,10 +430,12 @@ export function attack(
       }
       current.randomState = random.getState()
 
+      const fateNote = defenderFates.length > 0 ? `；守将 ${defenderFates.join('、')}` : ''
+
       return {
         targetId: target.id,
         outcome: attackerWins
-          ? `${generalNames} 攻占 ${target.name}`
+          ? `${generalNames} 攻占 ${target.name}${fateNote}`
           : `${generalNames} 进攻 ${target.name} 失利`,
         battle: report,
       }

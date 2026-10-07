@@ -370,14 +370,15 @@ function runPlaythrough(): Playthrough {
     endTurn(state)
 
     // 覆灭可能发生在玩家或他方手中，进入新一季后再判定，记在刚结束的那一季。
-    for (const other of state.factions) {
-      if (other.id !== player && isFactionDestroyed(state, other.id) && !destroyedAt.has(other.id)) {
-        destroyedAt.set(other.id, state.currentTurn - 1)
+    for (const faction of state.factions) {
+      if (isFactionDestroyed(state, faction.id) && !destroyedAt.has(faction.id)) {
+        destroyedAt.set(faction.id, state.currentTurn - 1)
       }
     }
 
-    // 敌方尽灭就收工，不必把上限跑满。
+    // 玩家覆灭，或敌方尽灭，都不必把上限跑满。
     if (
+      isFactionDestroyed(state, player) ||
       state.factions.every((other) => other.id === player || isFactionDestroyed(state, other.id))
     ) {
       break

@@ -194,6 +194,29 @@ describe('进攻', () => {
     }
   })
 
+  it('战略点失守后，守将的去向写入行动记录', () => {
+    const state = createInitialState({ seed: 208 })
+
+    const result = attack(state, { commander: 'guanyu' }, 'xiangyang')
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.record.outcome).toContain('攻占 襄阳')
+      expect(result.record.outcome).toContain('守将')
+    }
+  })
+
+  it('无主战略点没有守将，记录里不写去向', () => {
+    const state = createInitialState({ seed: 208 })
+
+    const result = attack(state, { commander: 'guanyu' }, 'chibi')
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.record.outcome).not.toContain('守将')
+    }
+  })
+
   it('固定种子下同一场战斗结果稳定', () => {
     const fight = () => {
       const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
