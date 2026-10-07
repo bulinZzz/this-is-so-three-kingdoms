@@ -1,5 +1,6 @@
 import type { ActionResult } from '../core/actions'
 import { attack as runAttack, type AttackParty } from '../core/battle'
+import { executeCaptive as runExecuteCaptive, persuade as runPersuade, releaseCaptive as runReleaseCaptive } from '../core/captives'
 import { createInitialState } from '../core/createInitialState'
 import { LocalSaveStore } from '../core/localSaveStore'
 import { harvestGrain as runHarvestGrain, recruit as runRecruit, transfer as runTransfer } from '../core/military'
@@ -98,6 +99,21 @@ export class GameSession {
   /** 派主将、副将与军师合攻相邻的他方或无主战略点；成功后通知界面，地图随领土变化刷新。 */
   attack(party: AttackParty, targetSiteId: SiteId): ActionResult {
     return this.apply(runAttack(this.state, party, targetSiteId))
+  }
+
+  /** 劝降营中的一名俘虏：花行动力使其意愿上升，到「愿降」档再劝一次即归附；成功后通知界面。 */
+  persuade(characterId: CharacterId): ActionResult {
+    return this.apply(runPersuade(this.state, this.drawRandom, characterId))
+  }
+
+  /** 斩杀营中的一名俘虏；成功后通知界面。 */
+  executeCaptive(characterId: CharacterId): ActionResult {
+    return this.apply(runExecuteCaptive(this.state, characterId))
+  }
+
+  /** 释放营中的一名俘虏，他转为在野；成功后通知界面。 */
+  releaseCaptive(characterId: CharacterId): ActionResult {
+    return this.apply(runReleaseCaptive(this.state, characterId))
   }
 
   /** 读取自动存档；没有可用存档时返回 false，当前对局保持不变。 */

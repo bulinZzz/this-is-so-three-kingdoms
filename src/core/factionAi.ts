@@ -8,6 +8,7 @@ import {
   partySide,
   type AttackParty,
 } from './battle'
+import { recruitWillingCaptives } from './captives'
 import {
   hasActedThisTurn,
   isFactionDestroyed,
@@ -144,6 +145,8 @@ function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
 
 /** 一个势力的一季行动。 */
 function runFactionTurn(state: GameState, factionId: FactionId): void {
+  // 营中已到「愿降」档的俘虏先行归附，本季即可出力。
+  recruitWillingCaptives(state, factionId)
   seekOnce(state, factionId)
   attackOnce(state, factionId)
   recruitUntilExhausted(state, factionId)

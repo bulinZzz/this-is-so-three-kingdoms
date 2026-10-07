@@ -135,6 +135,17 @@ export interface ContactedCandidate {
   siteId: SiteId
 }
 
+/** 俘虏的态度，由劝降意愿分档而来，仅作展示。 */
+export type CaptiveAttitude = '宁死不屈' | '不卑不亢' | '意有所动' | '心动' | '愿降'
+
+/** 一名被俘武将与俘获方之间的关系：意愿即劝降进度（0–100），越高越易归附。 */
+export interface CaptiveRecord {
+  characterId: CharacterId
+  /** 被俘时所属的势力，供俘虏营标出他的来历；被俘后其 factionId 已清空。 */
+  formerFactionId: FactionId | null
+  will: number
+}
+
 /** 开局剧本：一组初始条件的集合，不同时间点的开局各是一份剧本。 */
 export interface Scenario {
   id: string
@@ -151,7 +162,16 @@ export interface Scenario {
 }
 
 /** 玩家可执行的行动。 */
-export type ActionKind = 'seekTalent' | 'visit' | 'recruit' | 'harvestGrain' | 'transfer' | 'attack'
+export type ActionKind =
+  | 'seekTalent'
+  | 'visit'
+  | 'recruit'
+  | 'harvestGrain'
+  | 'transfer'
+  | 'attack'
+  | 'persuade'
+  | 'executeCaptive'
+  | 'releaseCaptive'
 
 /** 写入历史的记录类型：行动之外，世界结算（如叛离）也占一条。 */
 export type ActionRecordKind = ActionKind | 'defect'
@@ -172,6 +192,16 @@ export interface BattleReportSide {
   remaining: number
 }
 
+/** 一名被俘武将的结局，供战报的俘虏窗口展示。 */
+export interface CaptiveReport {
+  /** 被俘者姓名。 */
+  name: string
+  /** 原属势力名。 */
+  formerFaction: string
+  /** 被俘时的态度，由劝降意愿分档而来。 */
+  attitude: CaptiveAttitude
+}
+
 /** 一场战斗的战报；规则层结算时产出，表现层只读。 */
 export interface BattleReport {
   /** 目标战略点名。 */
@@ -182,6 +212,8 @@ export interface BattleReport {
   attackerWins: boolean
   attacker: BattleReportSide
   defender: BattleReportSide
+  /** 被俘武将的去向；无人被俘时为空。 */
+  captives: CaptiveReport[]
 }
 
 /** 一条行动记录：行动类型、势力、时间、目标与结果。 */
@@ -208,6 +240,8 @@ export interface GameState {
   actedCharacterIds: CharacterId[]
   /** 各势力已接触但尚未招到的在野者，供再次拜访；结束回合不清空。 */
   contactedCandidates: Record<FactionId, ContactedCandidate[]>
+  /** 各势力关押的俘虏与其劝降意愿；被俘者的状态同时记为 captured。 */
+  captives: Record<FactionId, CaptiveRecord[]>
   /** 全局行动历史，按发生顺序追加，回合推进不清空。 */
   history: ActionRecord[]
   /** 势力间的关系；未列出的势力对为中立。 */

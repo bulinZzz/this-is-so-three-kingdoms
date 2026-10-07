@@ -10,9 +10,10 @@ import {
   MORALE_FULL,
   partySide,
 } from '../src/core/battle'
+import { takeCaptive } from '../src/core/captives'
 import { createInitialState } from '../src/core/createInitialState'
 import { hasActedThisTurn, markActed } from '../src/core/military'
-import type { GameState, Scenario } from '../src/core/model'
+import type { BattleReport, Character, GameState, Scenario } from '../src/core/model'
 import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 
 function characterOf(state: GameState, id: string) {
@@ -250,23 +251,23 @@ describe('进攻', () => {
     expect(siteOf(state, 'b').owner).toBe('caocao')
   })
 
-  it('本势力再无城池可投时，守军或在野或退场', () => {
+  it('本势力再无城池可投时，守军或流落为在野、或被俘、或战死', () => {
     const statuses = new Set<string>()
 
-    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+    for (let seed = 1; seed <= 20; seed += 1) {
       const state = scene({ attackerTroops: 20000, defenderTroops: 1000, seed })
       attack(state, { commander: 'attacker' }, 'b')
       statuses.add(characterOf(state, 'defender').status)
     }
 
     expect(statuses.has('wild')).toBe(true)
-    expect(statuses.has('retired')).toBe(true)
+    expect(statuses.has('captured') || statuses.has('retired')).toBe(true)
   })
 
   it('势力覆灭时君主不再必逃亡，与其他守军一样判骰', () => {
     const statuses = new Set<string>()
 
-    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+    for (let seed = 1; seed <= 20; seed += 1) {
       const state = scene({
         attackerTroops: 20000,
         defenderTroops: 1000,
@@ -278,7 +279,7 @@ describe('进攻', () => {
     }
 
     expect(statuses.has('wild')).toBe(true)
-    expect(statuses.has('retired')).toBe(true)
+    expect(statuses.has('captured') || statuses.has('retired')).toBe(true)
   })
 
   it('君主必定逃亡，不会战死或被俘', () => {
@@ -292,17 +293,17 @@ describe('进攻', () => {
     expect(['fancheng', 'changbanpo']).toContain(caocao.stationedSiteId)
   })
 
-  it('有退路时也不是必然逃亡，仍可能战死', () => {
+  it('有退路时也不是必然逃亡，仍可能战死或被俘', () => {
     const statuses = new Set<string>()
 
-    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
+    for (let seed = 1; seed <= 20; seed += 1) {
       const state = createInitialState({ seed })
       attack(state, { commander: 'guanyu' }, 'xiangyang')
       statuses.add(characterOf(state, 'caimao').status)
     }
 
     expect(statuses.has('serving')).toBe(true)
-    expect(statuses.has('retired')).toBe(true)
+    expect(statuses.size).toBeGreaterThan(1)
   })
 
   it('编成中的兵力合计，单将打不动、加副将可得手', () => {
@@ -433,5 +434,85 @@ describe('单挑', () => {
     duel(state, 'guanyu', 'caimao', false)
 
     expect(characterOf(state, 'caimao').morale).toBe(0)
+  })
+})
+
+describe('被俘与招降', () => {
+  /**
+   * 在若干固定种子里筛出一局守将被俘的结果：去向本就是概率，须先有被俘才谈得上招降。
+   * 守军只身一人、随机序列固定，这套筛选因此可复现。
+   */
+  function captureOf(
+    overrides: Partial<Character>,
+  ): { state: GameState; report: BattleReport } | null {
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const state = scene({ attackerTroops: 50000, defenderTroops: 100, seed })
+      Object.assign(characterOf(state, 'defender'), overrides)
+      const result = attack(state, { commander: 'attacker' }, 'b')
+
+      if (result.ok && result.record.battle !== undefined && result.record.battle.captives.length > 0) {
+        return { state, report: result.record.battle }
+      }
+    }
+
+    return null
+  }
+
+  it('被俘者一律入营：转为 captured、脱离驻地，战报带上其态度', () => {
+    const found = captureOf({ personality: 'open', loyalty: 0, affinities: { liubei: 100 } })
+    expect(found).not.toBeNull()
+    if (found === null) {
+      return
+    }
+
+    const defender = characterOf(found.state, 'defender')
+    expect(found.report.captives).toEqual([
+      { name: '守将', formerFaction: '曹操', attitude: '愿降' },
+    ])
+    expect(defender.status).toBe('captured')
+    expect(defender.factionId).toBeNull()
+    expect(defender.stationedSiteId).toBeNull()
+    expect(defender.troops).toBe(0)
+  })
+
+  it('忠于原势力者入营时是宁死不屈', () => {
+    const found = captureOf({ personality: 'proud', loyalty: 100, affinities: { liubei: 0 } })
+    expect(found).not.toBeNull()
+    if (found === null) {
+      return
+    }
+
+    expect(found.report.captives).toEqual([
+      { name: '守将', formerFaction: '曹操', attitude: '宁死不屈' },
+    ])
+    expect(characterOf(found.state, 'defender').status).toBe('captured')
+  })
+
+  it('无人被俘时战报的俘虏为空', () => {
+    const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
+
+    const result = attack(state, { commander: 'attacker' }, 'b')
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.record.battle?.captives).toEqual([])
+    }
+  })
+
+  it('被打灭的一方，其营中俘虏交由攻方处置', () => {
+    const state = scene({ attackerTroops: 20000, defenderTroops: 1000 })
+    const returnee = characterOf(state, 'attacker2')
+    takeCaptive(state, returnee, 'caocao')
+
+    const result = attack(state, { commander: 'attacker' }, 'b')
+
+    expect(result.ok).toBe(true)
+    // 刘备正是他的旧主，直接回归。
+    expect(returnee.status).toBe('serving')
+    expect(returnee.factionId).toBe('liubei')
+    expect(state.captives.caocao).toHaveLength(0)
+    if (result.ok) {
+      expect(result.record.outcome).toContain('重归旧主')
+    }
   })
 })

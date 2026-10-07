@@ -15,6 +15,9 @@ export const ACTION_COSTS: Record<ActionKind, number> = {
   harvestGrain: 2,
   transfer: 1,
   attack: 4,
+  persuade: 2,
+  executeCaptive: 0,
+  releaseCaptive: 0,
 }
 
 /** 该势力当季剩余行动力是否够执行某项行动。 */

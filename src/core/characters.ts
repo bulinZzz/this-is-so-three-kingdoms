@@ -16,9 +16,9 @@ export function countServing(characters: readonly Character[], factionId: Factio
   ).length
 }
 
-/** 新开局克隆人物数据，不直接持有剧本里的对象。 */
+/** 新开局克隆人物数据，不直接持有剧本里的对象；倾向表也一并复制，免得运行时改动写回剧本。 */
 export function cloneCharacters(characters: readonly Character[]): Character[] {
-  return characters.map((character) => ({ ...character }))
+  return characters.map((character) => ({ ...character, affinities: { ...character.affinities } }))
 }
 
 /** 每过一年，全体武将年龄加一；开局尚未出生者据此向出生接近。 */

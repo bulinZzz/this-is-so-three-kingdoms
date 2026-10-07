@@ -1,8 +1,24 @@
 import { runAction, type ActionResult } from './actions'
+import { absorbCaptives, attitudeOf, takeCaptive } from './captives'
 import { resolveProvinceOwners } from './geography'
 import { LOYALTY_LOSS, loseLoyalty, maybeDefect, wildTierFor } from './loyalty'
-import { hasActedThisTurn, markActed, officerBlockedReason, stationAdjacentTo } from './military'
-import type { BattleReport, Character, CharacterId, FactionId, GameState, Site, SiteId } from './model'
+import {
+  hasActedThisTurn,
+  isFactionDestroyed,
+  markActed,
+  officerBlockedReason,
+  stationAdjacentTo,
+} from './military'
+import type {
+  BattleReport,
+  CaptiveReport,
+  Character,
+  CharacterId,
+  FactionId,
+  GameState,
+  Site,
+  SiteId,
+} from './model'
 import { createRandom, type Random } from './random'
 import { areAllied } from './relations'
 
@@ -121,15 +137,15 @@ export function garrisonAt(state: GameState, siteId: SiteId): Garrison {
   }
 }
 
-/** 战略点失守后，守军每名武将的去向。 */
-export type DefenderFate = 'flee' | 'die' | 'capture'
+/** 守军失守后的初次去向：被俘者再由招降判定细分。 */
+type InitialFate = 'flee' | 'die' | 'capture'
 
 /** 去向权重：多数逃亡，少数被俘，战死最少。具体行为留待迭代 7 细化。 */
 const FLEE_CHANCE = 0.75
 const DIE_CHANCE = 0.1
 
-/** 按权重抽取一种去向。 */
-function rollFate(random: Random): DefenderFate {
+/** 按权重抽取一种初次去向。 */
+function rollFate(random: Random): InitialFate {
   const roll = random.next()
   if (roll < FLEE_CHANCE) {
     return 'flee'
@@ -148,25 +164,41 @@ function fleeRefuges(state: GameState, defender: Character, target: Site): Site[
   return adjacent.length > 0 ? adjacent : friendly
 }
 
+/** 势力名；查不到时退回标识。 */
+function factionName(state: GameState, factionId: FactionId | null): string {
+  return state.factions.find((faction) => faction.id === factionId)?.name ?? factionId ?? ''
+}
+
+/** 退场：脱离势力与驻地，兵力归零。 */
+function retire(character: Character): void {
+  character.status = 'retired'
+  character.factionId = null
+  character.stationedSiteId = null
+  character.troops = 0
+}
+
 /**
  * 战略点失守后结算每名守军的去向：逃亡、战死、被俘三者按权重判定，任何战略点都一样，
- * 势力覆灭的那一战也不例外。君主只在本势力尚未覆灭时必定逃亡。
- * 逃亡者撤往自有的战略点；本势力再无城池可投（此战即覆灭）时，逃亡者流落为在野，将来可以复起。
- * 被俘的处置（招降、释放、处决）尚未实现，暂与战死一样退场，留待迭代 9。
- * 返回逐人的去向，写入行动记录，供历史与战报展示。
+ * 势力覆灭的那一战也不例外；君主只在本势力尚未覆灭时必定逃亡。
+ * 逃亡者撤往自有的战略点；本势力再无城池可投（此战即覆灭）时，流落为在野，将来可以复起。
+ * 被俘者按其对俘获方的偏好与自身忠诚判定：归附则入仕俘获方、驻守刚夺下的战略点，不屈则退场；
+ * 君主不事二主，必不屈。返回去向说明与俘虏结局，前者写入行动记录，后者供战报展示。
  */
 function resolveDefenders(
   state: GameState,
   defenders: readonly Character[],
   target: Site,
+  captorId: FactionId,
   random: Random,
-): string[] {
+): { fates: string[]; captives: CaptiveReport[] } {
   const fates: string[] = []
+  const captives: CaptiveReport[] = []
+  const captorName = factionName(state, captorId)
 
   for (const defender of defenders) {
     const refuges = fleeRefuges(state, defender, target)
     const doomed = refuges.length === 0
-    const fate: DefenderFate = defender.isMonarch && !doomed ? 'flee' : rollFate(random)
+    const fate: InitialFate = defender.isMonarch && !doomed ? 'flee' : rollFate(random)
 
     if (fate === 'flee') {
       if (!doomed) {
@@ -190,15 +222,23 @@ function resolveDefenders(
       continue
     }
 
-    // 战死，或被俘——被俘的处置尚未实现，暂同样退场。
-    defender.status = 'retired'
-    defender.factionId = null
-    defender.stationedSiteId = null
-    defender.troops = 0
-    fates.push(`${defender.name} ${fate === 'die' ? '战死' : '被俘'}`)
+    if (fate === 'die') {
+      retire(defender)
+      fates.push(`${defender.name} 战死`)
+      continue
+    }
+
+    // 被俘：一律进俘获方的俘虏营，能否归附由此后的劝降决定。
+    const record = takeCaptive(state, defender, captorId)
+    fates.push(`${defender.name} 被俘，入${captorName}营`)
+    captives.push({
+      name: defender.name,
+      formerFaction: factionName(state, record.formerFactionId),
+      attitude: attitudeOf(record.will),
+    })
   }
 
-  return fates
+  return { fates, captives }
 }
 
 /** 该战略点是否为指定势力可进攻的目标：非自有、非同同盟，且至少有一个自有战略点与它相邻。缺省按玩家势力评判。 */
@@ -401,9 +441,11 @@ export function attack(
           casualties: defenderCasualties,
           remaining: defenderTroops - defenderCasualties,
         },
+        captives: [],
       }
 
       let defenderFates: string[] = []
+      let absorbedNotes: string[] = []
 
       if (attackerWins) {
         if (!undefended) {
@@ -414,12 +456,23 @@ export function attack(
             defender.troops = applyLoss(defender.troops, defenderLossRate)
           }
         }
+        const previousOwner = target.owner
         target.owner = factionId
         for (const member of members) {
           member.stationedSiteId = target.id
         }
-        defenderFates = resolveDefenders(current, defenders, target, random)
+        const captured = resolveDefenders(current, defenders, target, factionId, random)
+        defenderFates = captured.fates
+        report.captives = captured.captives
         resolveProvinceOwners(current.geography)
+        // 就此打灭的一方，其营中俘虏交由攻方处置。
+        if (
+          previousOwner !== null &&
+          previousOwner !== factionId &&
+          isFactionDestroyed(current, previousOwner)
+        ) {
+          absorbedNotes = absorbCaptives(current, previousOwner, factionId)
+        }
       } else {
         for (const member of members) {
           member.troops = applyLoss(member.troops, attackerLossRate)
@@ -440,11 +493,12 @@ export function attack(
       current.randomState = random.getState()
 
       const fateNote = defenderFates.length > 0 ? `；守将 ${defenderFates.join('、')}` : ''
+      const absorbNote = absorbedNotes.length > 0 ? `；${absorbedNotes.join('、')}` : ''
 
       return {
         targetId: target.id,
         outcome: attackerWins
-          ? `${generalNames} 攻占 ${target.name}${fateNote}`
+          ? `${generalNames} 攻占 ${target.name}${fateNote}${absorbNote}`
           : `${generalNames} 进攻 ${target.name} 失利`,
         battle: report,
       }

@@ -5,6 +5,7 @@ import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../core/actions'
 import type {
   BattleReport,
   BattleReportSide,
+  CaptiveReport,
   Character,
   CharacterId,
   CharacterStatus,
@@ -17,6 +18,7 @@ import type {
   SiteType,
 } from '../core/model'
 import { attackCandidates, isAttackable, type AttackParty } from '../core/battle'
+import { captivesOf } from '../core/captives'
 import { grainYield } from '../core/economy'
 import { loyaltyHint } from '../core/loyalty'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
@@ -149,6 +151,21 @@ const SHELL_HTML = `
         <div class="battle__defender"></div>
       </div>
     </dialog>
+    <dialog class="captives">
+      <div class="saves__head">
+        <h2 class="saves__title">俘虏</h2>
+        <button type="button" class="saves__close" data-action="close-captives">关闭</button>
+      </div>
+      <ul class="captives__list"></ul>
+    </dialog>
+    <dialog class="prison">
+      <div class="saves__head">
+        <h2 class="saves__title">俘虏营</h2>
+        <button type="button" class="saves__close" data-action="close-prison">关闭</button>
+      </div>
+      <p class="prison__status"></p>
+      <ul class="prison__list"></ul>
+    </dialog>
     <dialog class="settings">
       <div class="saves__head">
         <h2 class="saves__title">设置</h2>
@@ -188,6 +205,7 @@ const ACTION_BAR_HTML = `
   <nav class="action-bar">
     <button type="button" class="action-bar__button" data-action="open-roster">武将</button>
     <button type="button" class="action-bar__button" data-action="open-domestic">内政</button>
+    <button type="button" class="action-bar__button" data-action="open-prison">俘虏营</button>
     <button type="button" class="action-bar__button" data-action="open-history">历史</button>
   </nav>
 `
@@ -964,6 +982,104 @@ function renderBattleDialog(dialog: HTMLDialogElement, report: BattleReport): vo
   )
 }
 
+/** 俘虏弹窗：列出被俘者的原属与态度。 */
+function renderCaptivesDialog(dialog: HTMLDialogElement, captives: readonly CaptiveReport[]): void {
+  const list = requireElement<HTMLElement>(dialog, '.captives__list')
+
+  list.replaceChildren(
+    ...captives.map((captive) => {
+      const item = document.createElement('li')
+      item.className = 'captives__item'
+
+      const name = document.createElement('span')
+      name.className = 'captives__name'
+      name.textContent = captive.name
+
+      const meta = document.createElement('span')
+      meta.className = 'captives__meta'
+      meta.textContent = `${captive.formerFaction} · ${captive.attitude}`
+
+      item.append(name, meta)
+
+      return item
+    }),
+  )
+}
+
+/** 俘虏营：列出营中俘虏的原属与态度，可劝降或斩杀；君主只能斩杀。 */
+function renderPrison(dialog: HTMLDialogElement, state: GameState, message: string): void {
+  const list = requireElement<HTMLElement>(dialog, '.prison__list')
+  const factionNames = new Map(state.factions.map((faction) => [faction.id, faction.name]))
+  const captives = captivesOf(state, state.playerFaction)
+
+  requireElement<HTMLElement>(dialog, '.prison__status').textContent = message
+
+  if (captives.length === 0) {
+    const empty = document.createElement('li')
+    empty.className = 'prison__empty'
+    empty.textContent = '营中暂无俘虏'
+    list.replaceChildren(empty)
+    return
+  }
+
+  list.replaceChildren(
+    ...captives.map(({ character, record, attitude }) => {
+      const item = document.createElement('li')
+      item.className = 'prison__item'
+
+      const info = document.createElement('div')
+      info.className = 'prison__info'
+
+      const name = document.createElement('span')
+      name.className = 'prison__name'
+      name.textContent = character.name
+
+      const meta = document.createElement('span')
+      meta.className = 'prison__meta'
+      const former =
+        record.formerFactionId === null
+          ? '无主'
+          : (factionNames.get(record.formerFactionId) ?? record.formerFactionId)
+      meta.textContent = `${former} · ${attitude}`
+
+      info.append(name, meta)
+
+      const actions = document.createElement('div')
+      actions.className = 'prison__actions'
+
+      if (!character.isMonarch) {
+        const persuade = document.createElement('button')
+        persuade.type = 'button'
+        persuade.className = 'prison__button'
+        persuade.dataset.action = 'persuade'
+        persuade.dataset.characterId = character.id
+        persuade.textContent = `劝降（${ACTION_COSTS.persuade} 行动力）`
+        actions.append(persuade)
+
+        const release = document.createElement('button')
+        release.type = 'button'
+        release.className = 'prison__button'
+        release.dataset.action = 'release-captive'
+        release.dataset.characterId = character.id
+        release.textContent = '释放'
+        actions.append(release)
+      }
+
+      const execute = document.createElement('button')
+      execute.type = 'button'
+      execute.className = 'prison__button'
+      execute.dataset.action = 'execute-captive'
+      execute.dataset.characterId = character.id
+      execute.textContent = '斩杀'
+      actions.append(execute)
+
+      item.append(info, actions)
+
+      return item
+    }),
+  )
+}
+
 function createSlotItem(label: string, summary: SaveSummary | null): HTMLLIElement {
   const item = document.createElement('li')
   item.className = 'slot'
@@ -1106,6 +1222,12 @@ export function mountGameShell(
   const orderGoButton = requireElement<HTMLButtonElement>(root, '[data-action="order-go"]')
   const closeBattleButton = requireElement<HTMLButtonElement>(root, '[data-action="close-battle"]')
   const battleDialog = requireElement<HTMLDialogElement>(root, '.battle')
+  const closeCaptivesButton = requireElement<HTMLButtonElement>(root, '[data-action="close-captives"]')
+  const captivesDialog = requireElement<HTMLDialogElement>(root, '.captives')
+  const openPrisonButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-prison"]')
+  const closePrisonButton = requireElement<HTMLButtonElement>(root, '[data-action="close-prison"]')
+  const prisonDialog = requireElement<HTMLDialogElement>(root, '.prison')
+  const prisonList = requireElement<HTMLElement>(root, '.prison__list')
 
   linksCheckbox.checked = settings.get().showStrategicLinks
   developerCheckbox.checked = settings.get().developerMode
@@ -1124,6 +1246,10 @@ export function mountGameShell(
   let contactMessage = ''
   /** 命令弹窗当前的目标与行动：进攻或调动。 */
   let orderRequest: OrderRequest | null = null
+  /** 刚结束的一战里的俘虏；等战报关闭后再单独弹出俘虏窗口。 */
+  let pendingCaptives: CaptiveReport[] = []
+  /** 俘虏营的上一次操作反馈。 */
+  let prisonMessage = ''
 
   const paint = (state: GameState): void => {
     dateLabel.textContent = formatDate(state)
@@ -1137,6 +1263,7 @@ export function mountGameShell(
     officerCount.textContent = String(renderOfficers(officerList, state))
     rosterStatus.textContent = recruitMessage
     renderHistory(historyList, state)
+    renderPrison(prisonDialog, state, prisonMessage)
     renderSlots(slotList, session)
 
     const developerMode = settings.get().developerMode
@@ -1188,6 +1315,49 @@ export function mountGameShell(
 
   closeBattleButton.addEventListener('click', () => {
     battleDialog.close()
+    if (pendingCaptives.length > 0) {
+      renderCaptivesDialog(captivesDialog, pendingCaptives)
+      captivesDialog.showModal()
+      pendingCaptives = []
+    }
+  })
+
+  closeCaptivesButton.addEventListener('click', () => {
+    captivesDialog.close()
+  })
+
+  openPrisonButton.addEventListener('click', () => {
+    prisonMessage = ''
+    paint(session.getState())
+    prisonDialog.showModal()
+  })
+
+  closePrisonButton.addEventListener('click', () => {
+    prisonDialog.close()
+  })
+
+  prisonList.addEventListener('click', (event) => {
+    const button = actionButtonOf(event)
+    const characterId = button?.dataset.characterId
+    if (button === null || characterId === undefined) {
+      return
+    }
+
+    const action = button.dataset.action
+    const result =
+      action === 'persuade'
+        ? session.persuade(characterId)
+        : action === 'execute-captive'
+          ? session.executeCaptive(characterId)
+          : action === 'release-captive'
+            ? session.releaseCaptive(characterId)
+            : null
+    if (result === null) {
+      return
+    }
+
+    prisonMessage = result.ok ? result.record.outcome : result.reason
+    paint(session.getState())
   })
 
   orderGoButton.addEventListener('click', () => {
@@ -1206,6 +1376,7 @@ export function mountGameShell(
       orderDialog.close()
       paint(session.getState())
       if (result.record.battle !== undefined) {
+        pendingCaptives = result.record.battle.captives
         renderBattleDialog(battleDialog, result.record.battle)
         battleDialog.showModal()
       }

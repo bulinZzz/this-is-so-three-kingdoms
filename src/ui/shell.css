@@ -402,6 +402,89 @@
   color: #e8d9b5;
 }
 
+.captives__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 6px 16px 12px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.captives__item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid #2a241c;
+}
+
+.captives__name {
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.captives__meta {
+  flex: none;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #9a8b70;
+}
+
+.prison__status {
+  margin: 0;
+  padding: 10px 16px 0;
+  font-size: 13px;
+  color: #9a8b70;
+}
+
+.prison__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 6px 16px 12px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.prison__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #2a241c;
+}
+
+.prison__info {
+  min-width: 0;
+}
+
+.prison__name {
+  display: block;
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.prison__meta {
+  display: block;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.prison__actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+
+.prison__empty {
+  padding: 10px 0;
+  font-size: 13px;
+  color: #6f6250;
+}
+
 .picker {
   padding: 8px 10px;
   border: 1px solid #3a3128;
@@ -784,6 +867,8 @@
 .domestic,
 .order,
 .battle,
+.captives,
+.prison,
 .new-game {
   width: min(420px, 100% - 32px);
   max-height: 80vh;
@@ -806,6 +891,8 @@
 .domestic[open],
 .order[open],
 .battle[open],
+.captives[open],
+.prison[open],
 .new-game[open] {
   display: flex;
   flex-direction: column;
@@ -818,6 +905,8 @@
 .domestic::backdrop,
 .order::backdrop,
 .battle::backdrop,
+.captives::backdrop,
+.prison::backdrop,
 .new-game::backdrop {
   background: rgb(0 0 0 / 60%);
 }
@@ -877,6 +966,7 @@
 }
 
 .slot__button,
+.prison__button,
 .saves__close {
   flex: none;
   padding: 3px 8px;
@@ -890,6 +980,7 @@
 }
 
 .slot__button:hover,
+.prison__button:hover,
 .saves__close:hover {
   background: #322819;
 }
