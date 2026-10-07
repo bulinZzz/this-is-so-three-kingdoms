@@ -78,9 +78,14 @@ export type CharacterStatus = 'wild' | 'serving' | 'captured' | 'retired'
 /** 人物卡池层级：基础、二级、三级。层级越高，越需要更高的州控制度才会放出。 */
 export type CharacterTier = 'basic' | 'second' | 'third'
 
+/** 性格标签：武将的性情，集中定义。决定基准招聘成功率，将来也用于送礼、答问等交互。 */
+export const PERSONALITIES = ['open', 'scheming', 'brave', 'steady', 'cautious', 'proud'] as const
+
+export type Personality = (typeof PERSONALITIES)[number]
+
 /**
  * 武将：能力、倾向与处境。
- * 野心、声望、性格与年龄留待迭代 7；兵种随部队留待迭代 8。
+ * 兵种随部队留待迭代 8。
  */
 export interface Character {
   id: CharacterId
@@ -99,11 +104,18 @@ export interface Character {
   /** 内政，影响征兵、征粮等经营行为；当前为静态字段。 */
   politics: number
   /**
-   * 势力倾向：最倾向的势力，无倾向时为 null。
-   * 初版只记一个主要倾向，多重倾向与其数值计算留待迭代 7。
+   * 年龄，开局时的岁数；开局尚未出生者记负数（如 -5 表示五年后出生）。
+   * 只作记录，随年份增长，不参与结算；展示时不足二十岁作「未冠」。
    */
-  factionAffinity: FactionId | null
-  /** 忠诚，静态度量，未出仕者为 0；计算留待迭代 7。 */
+  age: number
+  /** 性格，取自集中定义的少量标签；决定基准招聘成功率，将来也用于送礼、答问等交互。 */
+  personality: Personality
+  /**
+   * 势力倾向：对各势力的偏好，0–100 的自然数，50 为中性；只记非中性者，未记录的对按 50。
+   * 影响寻访成功率与招降难度；与忠诚无关——偏好是感觉，忠诚是价值观。
+   */
+  affinities: Partial<Record<FactionId, number>>
+  /** 忠诚，个人的价值观，未出仕者为 0；与倾向无关，随经历变化。 */
   loyalty: number
   /** 是否为所在势力的君主，每个势力有且只有一人。 */
   isMonarch: boolean
@@ -115,6 +127,12 @@ export interface Character {
   morale: number
   /** 在野者所属的寻访卡池层级；非在野者不参与寻访，为 null。 */
   tier: CharacterTier | null
+}
+
+/** 一位已被某势力接触、尚未入仕的在野者，并记下他是在哪个自有战略点被遇到的。 */
+export interface ContactedCandidate {
+  characterId: CharacterId
+  siteId: SiteId
 }
 
 /** 开局剧本：一组初始条件的集合，不同时间点的开局各是一份剧本。 */
@@ -133,7 +151,7 @@ export interface Scenario {
 }
 
 /** 玩家可执行的行动。 */
-export type ActionKind = 'seekTalent' | 'recruit' | 'harvestGrain' | 'transfer' | 'attack'
+export type ActionKind = 'seekTalent' | 'visit' | 'recruit' | 'harvestGrain' | 'transfer' | 'attack'
 
 /** 战报中一方的要点。 */
 export interface BattleReportSide {
@@ -185,6 +203,8 @@ export interface GameState {
   actionPoints: Record<FactionId, number>
   /** 本回合已执行调动或进攻的武将，结束回合时清空。 */
   actedCharacterIds: CharacterId[]
+  /** 各势力已接触但尚未招到的在野者，供再次拜访；结束回合不清空。 */
+  contactedCandidates: Record<FactionId, ContactedCandidate[]>
   /** 全局行动历史，按发生顺序追加，回合推进不清空。 */
   history: ActionRecord[]
   /** 势力间的关系；未列出的势力对为中立。 */

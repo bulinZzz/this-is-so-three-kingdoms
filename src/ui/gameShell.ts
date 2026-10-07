@@ -72,6 +72,11 @@ const SHELL_HTML = `
       </button>
       <p class="site-panel__status" role="status"></p>
     </section>
+    <section class="shell__section recruit-panel" hidden>
+      <h2 class="shell__title">待招募</h2>
+      <ul class="recruit-panel__list"></ul>
+      <p class="recruit-panel__status" role="status"></p>
+    </section>
     <section class="shell__actions">
       <button type="button" class="shell__button" data-action="end-turn">结束回合</button>
     </section>
@@ -495,6 +500,45 @@ const PARTY_ROLE_LABELS: Record<PartyRole, string> = {
   commander: '主将',
   deputy: '副将',
   strategist: '军师',
+}
+
+/** 侧栏「待招募」：玩家接触过、尚未招到的在野者，可再次拜访以提升其意愿。 */
+function renderContacts(panel: HTMLElement, state: GameState, message: string): void {
+  const contacts = state.contactedCandidates[state.playerFaction] ?? []
+  const candidates = contacts
+    .map((contact) => state.characters.find((character) => character.id === contact.characterId))
+    .filter(
+      (character): character is Character => character !== undefined && character.status === 'wild',
+    )
+
+  panel.hidden = candidates.length === 0 && message === ''
+
+  const list = requireElement<HTMLElement>(panel, '.recruit-panel__list')
+  list.replaceChildren(
+    ...(candidates.length === 0
+      ? [createListItem('recruit-panel__empty', '暂无待招募之人')]
+      : candidates.map((character) => {
+          const item = document.createElement('li')
+          item.className = 'recruit-panel__item'
+
+          const name = document.createElement('span')
+          name.className = 'recruit-panel__name'
+          name.textContent = character.name
+
+          const button = document.createElement('button')
+          button.type = 'button'
+          button.className = 'recruit-panel__visit'
+          button.dataset.action = 'visit-character'
+          button.dataset.character = character.id
+          button.textContent = `再次拜访 · ${ACTION_COSTS.visit} 行动力`
+
+          item.append(name, button)
+
+          return item
+        })),
+  )
+
+  requireElement<HTMLElement>(panel, '.recruit-panel__status').textContent = message
 }
 
 /**
@@ -1020,6 +1064,7 @@ export function mountGameShell(
   const statusLabel = requireElement<HTMLElement>(root, '.shell__status')
   const endTurnButton = requireElement<HTMLButtonElement>(root, '[data-action="end-turn"]')
   const sitePanel = requireElement<HTMLElement>(root, '.site-panel')
+  const contactPanel = requireElement<HTMLElement>(root, '.recruit-panel')
   const siteSeekButton = requireElement<HTMLButtonElement>(root, '[data-action="seek-here"]')
   const openRosterButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-roster"]')
   const closeRosterButton = requireElement<HTMLButtonElement>(root, '[data-action="close-roster"]')
@@ -1072,6 +1117,7 @@ export function mountGameShell(
   /** 各面板的上一次行动反馈。 */
   let siteMessage = ''
   let recruitMessage = ''
+  let contactMessage = ''
   /** 命令弹窗当前的目标与行动：进攻或调动。 */
   let orderRequest: OrderRequest | null = null
 
@@ -1082,6 +1128,7 @@ export function mountGameShell(
     renderDomestic(domesticDialog, state)
     renderFactions(factionList, state)
     renderSitePanel(sitePanel, state, selection.get(), siteMessage)
+    renderContacts(contactPanel, state, contactMessage)
     renderOrderDialog(root, state, orderRequest)
     officerCount.textContent = String(renderOfficers(officerList, state))
     rosterStatus.textContent = recruitMessage
@@ -1098,6 +1145,7 @@ export function mountGameShell(
 
   endTurnButton.addEventListener('click', () => {
     recruitMessage = ''
+    contactMessage = ''
     session.endTurn()
     const state = session.getState()
     statusLabel.textContent = `新回合开始：${formatDate(state)}，粮产 +${grainYield(state, state.playerFaction)}，已自动保存`
@@ -1223,6 +1271,19 @@ export function mountGameShell(
 
     const result = session.seekTalent(siteId)
     siteMessage = result.ok ? result.record.outcome : result.reason
+    paint(session.getState())
+  })
+
+  /** 待招募名单：再次拜访某人，花行动力提升其意愿并重新判定招聘。 */
+  contactPanel.addEventListener('click', (event) => {
+    const button = actionButtonOf(event)
+    const characterId = button?.dataset.character
+    if (button === null || button.dataset.action !== 'visit-character' || characterId === undefined) {
+      return
+    }
+
+    const result = session.visit(characterId)
+    contactMessage = result.ok ? result.record.outcome : result.reason
     paint(session.getState())
   })
 

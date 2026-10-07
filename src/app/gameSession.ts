@@ -4,23 +4,41 @@ import { createInitialState } from '../core/createInitialState'
 import { LocalSaveStore } from '../core/localSaveStore'
 import { harvestGrain as runHarvestGrain, recruit as runRecruit, transfer as runTransfer } from '../core/military'
 import type { CharacterId, GameState, Scenario, SiteId } from '../core/model'
-import { createRandom, createSeed, type Random } from '../core/random'
+import { createRandom, type Random } from '../core/random'
 import { AUTO_SAVE_KEY, slotKey, type SaveStore, type SaveSummary } from '../core/saveStore'
-import { seekTalent as runSeekTalent } from '../core/seekTalent'
+import { seekTalent as runSeekTalent, visit as runVisit } from '../core/seekTalent'
 import { endTurn as resolveEndTurn } from '../core/turn'
 
 export type StateListener = (state: GameState) => void
 
 export interface GameSessionOptions {
-  /** 抽卡随机源的种子；不指定时随机播种。抽卡流不落盘，读档与刷新都不回退。 */
+  /** 固定抽卡随机源的种子，仅供测试；不指定时按回合播种。 */
   drawSeed?: number
+}
+
+/**
+ * 抽卡随机源按回合播种：同一回合里无论刷新还是读档，抽到的人都一样、判定也一样，
+ * 不能靠 S/L 重掷；要再争取只能花行动力拜访。
+ */
+function drawSeedFor(state: GameState): number {
+  const text = `${state.currentDate.era}|${state.currentDate.year}|${state.currentDate.season}|${state.currentTurn}|${state.playerFaction}`
+  let hash = 2166136261
+
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+
+  return (hash >>> 0) || 1
 }
 
 /** 持有当前对局的唯一 GameState，负责回合推进、行动、回合开始的自动存档与手动槽位。 */
 export class GameSession {
   private state: GameState
   private readonly listeners = new Set<StateListener>()
-  /** 玩家发起抽取所用的随机源，会话级、不随存档保存。 */
+  /** 固定抽卡的种子，仅供测试；为空时按回合播种。 */
+  private readonly drawSeedOverride: number | null
+  /** 玩家发起抽取所用的随机源，按回合播种、不随存档保存。 */
   private drawRandom: Random
 
   constructor(
@@ -28,7 +46,8 @@ export class GameSession {
     options: GameSessionOptions = {},
   ) {
     this.state = this.saveStore.load(AUTO_SAVE_KEY) ?? createInitialState()
-    this.drawRandom = createRandom(options.drawSeed ?? createSeed())
+    this.drawSeedOverride = options.drawSeed ?? null
+    this.drawRandom = this.createDrawRandom()
   }
 
   getState(): GameState {
@@ -38,7 +57,7 @@ export class GameSession {
   /** 用指定剧本重开一局：重置对局并写入自动存档，覆盖当前进度；手动槽位不受影响。 */
   newGame(scenario: Scenario): void {
     this.state = createInitialState({ scenario })
-    this.drawRandom = createRandom(createSeed())
+    this.drawRandom = this.createDrawRandom()
     this.saveStore.save(AUTO_SAVE_KEY, this.state)
     this.notify()
   }
@@ -47,12 +66,18 @@ export class GameSession {
   endTurn(): void {
     resolveEndTurn(this.state)
     this.saveStore.save(AUTO_SAVE_KEY, this.state)
+    this.drawRandom = this.createDrawRandom()
     this.notify()
   }
 
   /** 在指定自有战略点就地寻访；成功后通知界面，失败时返回原因且不改变对局。自动存档只在回合开始时写入。 */
   seekTalent(siteId: SiteId): ActionResult {
     return this.apply(runSeekTalent(this.state, this.drawRandom, siteId))
+  }
+
+  /** 再次拜访一位已接触的在野者：提升其对己方的意愿并重新判定招聘；成功后通知界面。 */
+  visit(characterId: CharacterId): ActionResult {
+    return this.apply(runVisit(this.state, this.drawRandom, characterId))
   }
 
   /** 在武将驻地征兵；成功后通知界面。 */
@@ -120,9 +145,14 @@ export class GameSession {
     }
 
     this.state = saved
+    this.drawRandom = this.createDrawRandom()
     this.notify()
 
     return true
+  }
+
+  private createDrawRandom(): Random {
+    return createRandom(this.drawSeedOverride ?? drawSeedFor(this.state))
   }
 
   private notify(): void {

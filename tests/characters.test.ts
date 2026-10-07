@@ -31,7 +31,9 @@ function character(overrides: Partial<Character> = {}): Character {
     command: 50,
     intellect: 50,
     politics: 50,
-    factionAffinity: null,
+    age: 40,
+    personality: 'steady',
+    affinities: {},
     loyalty: 0,
     isMonarch: false,
     stationedSiteId: null,
@@ -84,10 +86,34 @@ describe('validateCharacters', () => {
     )
   })
 
-  it('势力倾向不存在会被指出', () => {
+  it('势力倾向指向不存在的势力会被指出', () => {
     expect(
-      validateCharacters([character({ factionAffinity: 'unknown' })], FACTION_IDS, GEOGRAPHY),
-    ).toContain('武将 a 的势力倾向不存在：unknown')
+      validateCharacters([character({ affinities: { unknown: 90 } })], FACTION_IDS, GEOGRAPHY),
+    ).toContain('武将 a 的势力倾向指向不存在的势力：unknown')
+  })
+
+  it('势力倾向超出 0–100 会被指出', () => {
+    expect(
+      validateCharacters([character({ affinities: { liubei: 120 } })], FACTION_IDS, GEOGRAPHY),
+    ).toContain('武将 a 的势力倾向超出范围：120')
+  })
+
+  it('性格不在既定标签内会被指出', () => {
+    const invalid = 'mystery' as unknown as Character['personality']
+
+    expect(
+      validateCharacters([character({ personality: invalid })], FACTION_IDS, GEOGRAPHY),
+    ).toContain('武将 a 的性格不合法：mystery')
+  })
+
+  it('年龄超出范围会被指出', () => {
+    expect(validateCharacters([character({ age: 200 })], FACTION_IDS, GEOGRAPHY)).toContain(
+      '武将 a 的年龄超出范围：200',
+    )
+  })
+
+  it('尚未出生者记负年龄，属于合法数据', () => {
+    expect(validateCharacters([character({ age: -5 })], FACTION_IDS, GEOGRAPHY)).toEqual([])
   })
 
   it('在野武将没有卡池层级会被指出', () => {

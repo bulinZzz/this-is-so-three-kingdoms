@@ -53,6 +53,27 @@ describe('advanceTurn', () => {
     expect(state.currentTurn).toBe(5)
   })
 
+  it('跨年时全体武将年龄加一', () => {
+    const state = createInitialState({ seed: 208 })
+    state.currentDate = { era: '建安', year: 12, season: 'winter' }
+    const before = new Map(state.characters.map((character) => [character.id, character.age]))
+
+    advanceTurn(state)
+
+    for (const character of state.characters) {
+      expect(character.age).toBe((before.get(character.id) ?? 0) + 1)
+    }
+  })
+
+  it('未跨年的季节不改变年龄', () => {
+    const state = createInitialState({ seed: 208 })
+    const before = state.characters.map((character) => character.age)
+
+    advanceTurn(state)
+
+    expect(state.characters.map((character) => character.age)).toEqual(before)
+  })
+
   it('每个季节回合数只增加一', () => {
     const state = createInitialState({ seed: 208 })
 

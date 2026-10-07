@@ -645,6 +645,65 @@
   color: #9a8b70;
 }
 
+/* 侧栏「待招募」：接触过但尚未招到的在野者，可再次拜访。 */
+.recruit-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recruit-panel__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.recruit-panel__name {
+  font-size: 14px;
+  color: #f0e2bd;
+}
+
+.recruit-panel__visit {
+  flex: none;
+  padding: 6px 10px;
+  border: 1px solid #7a6746;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #33291c, #2a2219);
+  color: #f0e2bd;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.recruit-panel__visit:hover {
+  border-color: #8f7a53;
+  background: linear-gradient(180deg, #3d3122, #322819);
+}
+
+.recruit-panel__visit:active {
+  transform: translateY(1px);
+}
+
+.recruit-panel__empty {
+  font-size: 13px;
+  color: #9a8b70;
+}
+
+.recruit-panel__status {
+  min-height: 16px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.recruit-panel__status:empty {
+  display: none;
+}
+
 .roster__section {
   display: flex;
   flex-direction: column;

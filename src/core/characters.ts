@@ -1,4 +1,5 @@
-import type { Character, FactionId, Geography } from './model'
+import { isValidAffinity } from './affinity'
+import { PERSONALITIES, type Character, type FactionId, type GameState, type Geography } from './model'
 
 /** 麾下武将上限。安全阀：在仕武将数达到上限后不能再寻访，解任与替换留待迭代 9。 */
 export const CHARACTER_LIMIT = 30
@@ -20,14 +21,25 @@ export function cloneCharacters(characters: readonly Character[]): Character[] {
   return characters.map((character) => ({ ...character }))
 }
 
-/** 武力、统率、智谋、忠诚的取值范围。 */
+/** 每过一年，全体武将年龄加一；开局尚未出生者据此向出生接近。 */
+export function growAges(state: GameState): void {
+  for (const character of state.characters) {
+    character.age += 1
+  }
+}
+
+/** 武力、统率、智谋、内政、忠诚、士气的取值范围。 */
 const STAT_MIN = 0
 const STAT_MAX = 100
 
+/** 年龄的合理区间。开局尚未出生者为负；超出此范围即为数据错误。 */
+const AGE_MIN = -100
+const AGE_MAX = 100
+
 /**
- * 校验人物数据是否自洽：标识唯一、所在州存在、能力数值齐备、倾向有效，
- * 在仕者必有有效势力与自有驻地、君主唯一，在野与退场者不隶属势力也无驻地。
- * 返回全部问题，为空表示数据可用。
+ * 校验人物数据是否自洽：标识唯一、所在州存在、能力数值齐备、年龄在范围内、性格为既定标签、
+ * 倾向指向的势力存在且偏好合法，在仕者必有有效势力与自有驻地、君主唯一，
+ * 在野与退场者不隶属势力也无驻地。返回全部问题，为空表示数据可用。
  */
 export function validateCharacters(
   characters: readonly Character[],
@@ -64,12 +76,25 @@ export function validateCharacters(
       }
     }
 
+    if (!Number.isInteger(character.age) || character.age < AGE_MIN || character.age > AGE_MAX) {
+      problems.push(`武将 ${character.id} 的年龄超出范围：${character.age}`)
+    }
+
+    if (!PERSONALITIES.includes(character.personality)) {
+      problems.push(`武将 ${character.id} 的性格不合法：${character.personality}`)
+    }
+
     if (!Number.isInteger(character.troops) || character.troops < 0) {
       problems.push(`武将 ${character.id} 的兵力超出范围：${character.troops}`)
     }
 
-    if (character.factionAffinity !== null && !factionIdSet.has(character.factionAffinity)) {
-      problems.push(`武将 ${character.id} 的势力倾向不存在：${character.factionAffinity}`)
+    for (const [factionId, affinity] of Object.entries(character.affinities)) {
+      if (!factionIdSet.has(factionId)) {
+        problems.push(`武将 ${character.id} 的势力倾向指向不存在的势力：${factionId}`)
+      }
+      if (!isValidAffinity(affinity)) {
+        problems.push(`武将 ${character.id} 的势力倾向超出范围：${affinity}`)
+      }
     }
 
     if (character.status === 'wild' && character.tier === null) {

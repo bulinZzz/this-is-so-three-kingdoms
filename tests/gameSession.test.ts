@@ -183,7 +183,7 @@ describe('GameSession', () => {
     expect(session.getState().history).toEqual([])
   })
 
-  it('读档不回退抽卡源，再次寻访得到不同的人', () => {
+  it('同一回合内读档不能重掷：再次寻访与刷新前结果一致', () => {
     const store = new LocalSaveStore(new MemoryStorage())
     const session = new GameSession(store, { drawSeed: 1 })
     session.saveToSlot(1)
@@ -197,7 +197,7 @@ describe('GameSession', () => {
       return
     }
 
-    expect(second.record.outcome).not.toBe(first.record.outcome)
+    expect(second.record.outcome).toBe(first.record.outcome)
   })
 })
 

@@ -20,6 +20,7 @@ export function createInitialState(options: NewGameOptions = {}): GameState {
     currentTurn: 1,
     actionPoints: Object.fromEntries(factions.map((faction) => [faction.id, ACTION_POINTS_PER_TURN])),
     actedCharacterIds: [],
+    contactedCandidates: Object.fromEntries(factions.map((faction) => [faction.id, []])),
     history: [],
     relations: (scenario.relations ?? []).map((relation) => ({
       factions: [...relation.factions] as [FactionId, FactionId],
