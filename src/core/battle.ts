@@ -44,7 +44,7 @@ const WINNER_CASUALTY_RATE = 0.2
 /** 已行动的守军在防守时只计的兵力比例。 */
 const ACTED_DEFENDER_RATIO = 0.5
 /** 迎战守军的至多人数，与攻方编成同宽。 */
-export const GARRISON_SIZE = 3
+const GARRISON_SIZE = 3
 /** 单挑的士气增减。 */
 const DUEL_MORALE_DELTA = 10
 /** 单挑判定时叠加在武力上的随机幅度：幅度够大，武力小差不再是必败，冷门时有发生。 */
@@ -119,20 +119,15 @@ export interface Garrison {
 }
 
 /**
- * 某战略点的迎战守军：默认从守军中取兵力最多的三人作为迎战编成；给了 `defenders` 就按此编成
- * （守方在防御演出里自选，至多三人）。其中统率最高者为主将、智谋最高者为军师。
+ * 某战略点的迎战守军：默认从守军中取兵力最多的三人作为迎战编成；给了 `party` 就按此编成
+ * （守方在编成弹窗自选，与攻方同为至多三人）。其中统率最高者为主将、智谋最高者为军师。
  * 败军退守会让一处战略点的守军越堆越多，只三人迎战才不会让最后一城无止境地变强；
  * 与攻方同为至多三人，双方兵力增长的口径才对等。无主或无人驻守时兵力为零。
  */
-export function garrisonAt(
-  state: GameState,
-  siteId: SiteId,
-  defenders?: readonly CharacterId[],
-): Garrison {
+export function garrisonAt(state: GameState, siteId: SiteId, party?: Party): Garrison {
   const pool = stationedDefendersAt(state, siteId)
-  const candidates =
-    defenders === undefined ? pool : pool.filter((member) => defenders.includes(member.id))
-  const members = [...candidates].sort((a, b) => b.troops - a.troops).slice(0, GARRISON_SIZE)
+  const chosen = party === undefined ? pool : pool.filter((member) => partyIds(party).includes(member.id))
+  const members = [...chosen].sort((a, b) => b.troops - a.troops).slice(0, GARRISON_SIZE)
 
   if (members.length === 0) {
     return { members, side: { troops: 0, intellect: 0, morale: MORALE_FULL } }
@@ -154,28 +149,30 @@ export function garrisonAt(
   }
 }
 
-/** 该战略点守军的主将：统率最高者；无守军时为 null。 */
+/** 该战略点守军的主将：给了编成则以编成中的主将为准，否则取统率最高者；无守军时为 null。 */
 export function garrisonCommanderAt(
   state: GameState,
   siteId: SiteId,
-  defenders?: readonly CharacterId[],
+  party?: Party,
 ): Character | null {
-  return pickByCommand(garrisonAt(state, siteId, defenders).members)
+  const members = garrisonAt(state, siteId, party).members
+
+  return party === undefined
+    ? pickByCommand(members)
+    : (members.find((member) => member.id === party.commander) ?? pickByCommand(members))
 }
 
 /** 单挑时代表守军应战的人：守军编成中统率最高的非君主；无人可应时为 null。 */
 export function duelAnswererAt(
   state: GameState,
   siteId: SiteId,
-  defenders?: readonly CharacterId[],
+  party?: Party,
 ): Character | null {
-  return pickByCommand(
-    garrisonAt(state, siteId, defenders).members.filter((member) => !member.isMonarch),
-  )
+  return pickByCommand(garrisonAt(state, siteId, party).members.filter((member) => !member.isMonarch))
 }
 
 /** 守方提出单挑时，攻方代表应战的人：编成中统率最高的非君主；无人可应时为 null。 */
-export function attackAnswerer(state: GameState, party: AttackParty): Character | null {
+export function attackAnswerer(state: GameState, party: Party): Character | null {
   const members = partyIds(party)
     .map((id) => state.characters.find((item) => item.id === id))
     .filter(
@@ -389,25 +386,29 @@ export function attackCandidates(
   )
 }
 
-/** 进攻的部队编成：主将必选，副将与军师可选；军师提供智谋加成。 */
-export interface AttackParty {
+/** 一支部队的编成：主将必选，副将与军师可选；攻守共用同一套编成。 */
+export interface Party {
   commander: CharacterId
   deputy?: CharacterId | null
   strategist?: CharacterId | null
+}
+
+/** 进攻的部队编成：在编成之外，还可指定由主将或副将出马单挑。 */
+export interface AttackParty extends Party {
   /** 提出单挑者，须是主将或副将；不设则不挑。 */
   challenger?: CharacterId | null
 }
 
 /** 守方对一次来犯的决定：迎战编成与是否提出单挑。 */
 export interface DefenseChoice {
-  /** 迎战编成（至多三人）；不给则取兵力最多的三名，已行动者兵力按半计。 */
-  defenders?: readonly CharacterId[]
-  /** 守方提出单挑的出马者，须在迎战编成之中；不单挑时为 null。 */
+  /** 迎战编成；不给则取兵力最多的三名，已行动者兵力按半计。 */
+  party?: Party
+  /** 守方提出单挑的出马者，须是迎战编成中的主将或副将；不单挑时为 null。 */
   challenger: CharacterId | null
 }
 
 /** 编成中的全部武将标识。 */
-function partyIds(party: AttackParty): CharacterId[] {
+function partyIds(party: Party): CharacterId[] {
   return [party.commander, party.deputy ?? null, party.strategist ?? null].filter(
     (id): id is CharacterId => id !== null,
   )
@@ -426,7 +427,7 @@ function pickByCommand(members: readonly Character[]): Character | null {
  * 不因没指定军师而吃亏。士气是战斗属性，双方开战默认满值，由单挑增减，故此处取满值。
  * 单挑致阵亡者已退场，不再计入。
  */
-export function partySide(state: GameState, party: AttackParty): BattleSide {
+export function partySide(state: GameState, party: Party): BattleSide {
   const members = partyIds(party)
     .map((id) => state.characters.find((item) => item.id === id))
     .filter((item): item is Character => item !== undefined && item.status === 'serving')
@@ -441,7 +442,7 @@ export function partySide(state: GameState, party: AttackParty): BattleSide {
 /**
  * 交战中的单挑：一方出马、另一方应战，先于战力结算，胜负只反映为双方士气的增减。
  * 攻方提出时，出马者取编成中的主将或副将，守军以迎战编成中统率最高的非君主应战；
- * 守方提出时，出马者取迎战编成中的一员，攻方以编成中统率最高的非君主应战。
+ * 守方提出时，出马者取迎战编成中的主将或副将，攻方以编成中统率最高的非君主应战。
  * 君主不参与单挑；应战方无人可应（如只剩君主）时按拒战处理。未发起单挑时返回 null。
  */
 function resolveDuel(
@@ -451,9 +452,9 @@ function resolveDuel(
   target: Site,
   random: Random,
   defenderChallengerId: CharacterId | null,
-  defenders: readonly CharacterId[] | undefined,
+  defenderParty: Party | undefined,
 ): DuelReport | null {
-  const garrison = garrisonAt(state, target.id, defenders)
+  const garrison = garrisonAt(state, target.id, defenderParty)
 
   // 攻方先提：出马者由调用方给定（玩家或他方的决策）。
   const attackerChallengerId = party.challenger ?? null
@@ -461,7 +462,7 @@ function resolveDuel(
     const challenger = members.find((member) => member.id === attackerChallengerId)
     return challenger === undefined || garrison.members.length === 0
       ? null
-      : settleDuelAs('attacker', challenger, duelAnswererAt(state, target.id, defenders), random)
+      : settleDuelAs('attacker', challenger, duelAnswererAt(state, target.id, defenderParty), random)
   }
 
   // 攻方不提，守方再提：守方是玩家时按界面的决定，是他人时按策略判断。单挑只发生一次。
@@ -540,9 +541,9 @@ const OUTLOOK_FLOORS: readonly { min: number; outlook: BattleOutlook }[] = [
  */
 export function battleOutlook(
   state: GameState,
-  party: AttackParty,
+  party: Party,
   targetSiteId: SiteId,
-  defenders?: readonly CharacterId[],
+  defenders?: Party,
 ): BattleOutlook {
   const garrison = garrisonAt(state, targetSiteId, defenders)
   const defenderPower = battlePower(garrison.side, { defending: true })
@@ -570,9 +571,9 @@ const DEFENSE_LABELS: Record<BattleOutlook, DefenseOutlook> = {
 /** 就一次来犯看我方（守方）的前景：把攻方视角的判断翻到守方一侧来说。 */
 export function defenseOutlook(
   state: GameState,
-  party: AttackParty,
+  party: Party,
   targetSiteId: SiteId,
-  defenders?: readonly CharacterId[],
+  defenders?: Party,
 ): DefenseOutlook {
   if (garrisonAt(state, targetSiteId, defenders).members.length === 0) {
     return '守军无将'
@@ -660,7 +661,7 @@ export function attack(
   defense: DefenseChoice | null = null,
 ): ActionResult {
   const defenderChallenger = defense?.challenger ?? null
-  const defenderSquad = defense?.defenders
+  const defenderParty = defense?.party
   const ids = partyIds(party)
   const members = ids
     .map((id) => state.characters.find((item) => item.id === id))
@@ -678,9 +679,17 @@ export function attack(
         return blocked
       }
 
-      // 守方也可提出单挑：出马者须在迎战编成之中，且君主不参与。
+      // 守方编成须落在本战略点的守军之内，主将确实在阵中。
+      if (defenderParty !== undefined) {
+        const garrison = garrisonAt(current, targetSiteId, defenderParty)
+        if (!garrison.members.some((member) => member.id === defenderParty.commander)) {
+          return '迎战编成的主将不在守军之中'
+        }
+      }
+
+      // 守方也可提出单挑：出马者须在迎战编成之中、为主将或副将，且君主不参与。
       if (defenderChallenger !== null) {
-        const dueler = garrisonAt(current, targetSiteId, defenderSquad).members.find(
+        const dueler = garrisonAt(current, targetSiteId, defenderParty).members.find(
           (member) => member.id === defenderChallenger,
         )
         if (dueler === undefined) {
@@ -688,6 +697,12 @@ export function attack(
         }
         if (dueler.isMonarch) {
           return '君主不参与单挑'
+        }
+        if (
+          defenderChallenger !== defenderParty?.commander &&
+          defenderChallenger !== defenderParty?.deputy
+        ) {
+          return '单挑须由主将或副将出马'
         }
       }
 
@@ -706,7 +721,7 @@ export function attack(
         target,
         random,
         defenderChallenger,
-        defenderSquad,
+        defenderParty,
       )
       // 士气看的是「哪一方」，与由谁出马无关：挑战方胜则挑战方升、应战方降。
       const challengerIsAttacker = duel?.challengerSide !== 'defender'
@@ -727,7 +742,7 @@ export function attack(
       }
 
       const defenders = defendersAt(current, target)
-      const garrison = garrisonAt(current, target.id, defenderSquad)
+      const garrison = garrisonAt(current, target.id, defenderParty)
       const defenderSide: BattleSide = {
         ...garrison.side,
         morale: clampBattleMorale(MORALE_FULL + defenderMoraleDelta),

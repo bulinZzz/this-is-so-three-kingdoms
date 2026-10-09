@@ -670,11 +670,14 @@ describe('防守方提出单挑', () => {
     expect(defenseOutlook(state, { commander: 'guanyu' }, 'chibi')).toBe('守军无将')
   })
 
-  it('我方守城时可提出单挑：出马者来自守军，攻方以主力应战', () => {
-    // 曹操来攻我方的甲城，我方选择由「攻将」出马。
+  it('我方守城时可提出单挑：出马者来自迎战编成，攻方以主力应战', () => {
+    // 曹操来攻我方的甲城，我方以「攻将」为主将并令其出马。
     const state = scene({ attackerTroops: 100, defenderTroops: 20000, seed: 7 })
 
-    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', { challenger: 'attacker' })
+    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', {
+      challenger: 'attacker',
+      party: { commander: 'attacker' },
+    })
 
     if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
       throw new Error('未取得单挑战报')
@@ -685,11 +688,14 @@ describe('防守方提出单挑', () => {
     expect(duel.answerer).toBe('守将')
   })
 
-  it('守方指定的出马者不在守军之中时拒绝', () => {
+  it('守方指定的出马者不在迎战编成之中时拒绝', () => {
     const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
 
     // 「守将」驻守乙城，不在甲城守军之列。
-    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', { challenger: 'defender' })
+    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', {
+      challenger: 'defender',
+      party: { commander: 'attacker' },
+    })
 
     expect(result.ok).toBe(false)
     expect(!result.ok && result.reason).toBe('出马者不在守军之中')
@@ -699,7 +705,10 @@ describe('防守方提出单挑', () => {
     const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
     Object.assign(characterOf(state, 'attacker'), { isMonarch: true })
 
-    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', { challenger: 'attacker' })
+    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', {
+      challenger: 'attacker',
+      party: { commander: 'attacker' },
+    })
 
     expect(result.ok).toBe(false)
     expect(!result.ok && result.reason).toBe('君主不参与单挑')
@@ -734,33 +743,45 @@ describe('防守方提出单挑', () => {
   })
 })
 
-describe('守方自选迎战编成', () => {
-  it('自选编成只计入选者的兵力，且至多三人', () => {
+describe('守方迎战编成', () => {
+  it('编成按主将、副将与军师计兵，至多三人', () => {
     const state = createInitialState({ seed: 208 })
 
     // 江夏：关羽 8000、张飞 6000、刘备 5000。
-    expect(garrisonAt(state, 'jiangxia', ['zhangfei']).side.troops).toBe(6000)
-    expect(garrisonAt(state, 'jiangxia', ['zhangfei', 'guanyu']).side.troops).toBe(14000)
+    expect(garrisonAt(state, 'jiangxia', { commander: 'zhangfei' }).side.troops).toBe(6000)
     expect(
-      garrisonAt(state, 'jiangxia', ['zhangfei', 'guanyu', 'liubei', 'zhugeliang']).members,
+      garrisonAt(state, 'jiangxia', { commander: 'zhangfei', deputy: 'guanyu' }).side.troops,
+    ).toBe(14000)
+    expect(
+      garrisonAt(state, 'jiangxia', { commander: 'zhangfei', deputy: 'guanyu', strategist: 'liubei' })
+        .members,
     ).toHaveLength(3)
   })
 
-  it('自选编成里的已行动者仍只计半数兵力', () => {
+  it('编成中的已行动者仍只计半数兵力', () => {
     const state = createInitialState({ seed: 208 })
     markActed(state, 'guanyu')
 
-    expect(garrisonAt(state, 'jiangxia', ['guanyu']).side.troops).toBe(4000)
+    expect(garrisonAt(state, 'jiangxia', { commander: 'guanyu' }).side.troops).toBe(4000)
   })
 
-  it('空编成即无兵可守', () => {
+  it('编成不含本战略点的守军即无兵可守', () => {
     const state = createInitialState({ seed: 208 })
 
-    expect(garrisonAt(state, 'jiangxia', []).members).toEqual([])
-    expect(defenseOutlook(state, { commander: 'guanyu' }, 'jiangxia', [])).toBe('守军无将')
+    // 蔡瑁驻守襄阳，不在江夏。
+    expect(garrisonAt(state, 'jiangxia', { commander: 'caimao' }).members).toEqual([])
+    expect(
+      defenseOutlook(state, { commander: 'guanyu' }, 'jiangxia', { commander: 'caimao' }),
+    ).toBe('守军无将')
   })
 
-  it('这一战的防守兵力与名单随自选编成而变', () => {
+  it('守将取编成中的主将', () => {
+    const state = createInitialState({ seed: 208 })
+
+    expect(garrisonCommanderAt(state, 'jiangxia', { commander: 'zhangfei' })?.name).toBe('张飞')
+  })
+
+  it('这一战的防守兵力、名单与守将随编成而变', () => {
     const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
     state.characters.push({
       ...characterOf(state, 'defender'),
@@ -772,27 +793,32 @@ describe('守方自选迎战编成', () => {
 
     const result = attack(state, { commander: 'attacker' }, 'b', 'liubei', {
       challenger: null,
-      defenders: ['defender2'],
+      party: { commander: 'defender2' },
     })
 
     expect(result.ok).toBe(true)
     if (result.ok) {
       expect(result.record.battle?.defender.officers).toEqual(['守将二'])
       expect(result.record.battle?.defender.troops).toBe(5000)
+      expect(result.record.battle?.defender.commander).toBe('守将二')
     }
   })
 
-  it('出马者不在自选编成之中时拒绝', () => {
+  it('出马者须是迎战编成中的主将或副将，军师不可', () => {
     const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
+    state.characters.push(
+      { ...characterOf(state, 'attacker'), id: 'guard2', name: '守将二' },
+      { ...characterOf(state, 'attacker'), id: 'guard3', name: '守将三' },
+    )
 
-    // 甲城的守军是「攻将」；出马者「守将」不在自选编成里。
+    // 军师「守将三」出马：与攻方同规，只许主将或副将。
     const result = attack(state, { commander: 'defender' }, 'a', 'caocao', {
-      challenger: 'defender',
-      defenders: ['attacker'],
+      challenger: 'guard3',
+      party: { commander: 'attacker', deputy: 'guard2', strategist: 'guard3' },
     })
 
     expect(result.ok).toBe(false)
-    expect(!result.ok && result.reason).toBe('出马者不在守军之中')
+    expect(!result.ok && result.reason).toBe('单挑须由主将或副将出马')
   })
 })
 
@@ -850,14 +876,14 @@ describe('回合推进中的来犯', () => {
     expect(signal.request.targetSiteId).toBe('a')
   })
 
-  it('守方指定出马者后即结算这一战，并继续推进到回合结束', () => {
+  it('守方定下编成与出马者后即结算这一战，并继续推进到回合结束', () => {
     const state = invasionScene()
     // 进攻方武力不济，不会主动提单挑，好让守方的选择说了算。
     Object.assign(characterOf(state, 'defender'), { might: 40 })
     const run = beginTurn(state)
     run.advance()
 
-    const signal = run.advance({ challenger: 'attacker' })
+    const signal = run.advance({ challenger: 'attacker', party: { commander: 'attacker' } })
 
     expect(signal?.kind).toBe('battle')
     if (signal?.kind !== 'battle' || signal.report === null) {

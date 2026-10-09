@@ -24,13 +24,13 @@ import {
   battleOutlook,
   defenseOutlook,
   duelAnswererAt,
-  GARRISON_SIZE,
   garrisonAt,
   garrisonCommanderAt,
   isAttackable,
   MORALE_FULL,
   stationedDefendersAt,
   type AttackParty,
+  type Party,
 } from '../core/battle'
 import { captivesOf } from '../core/captives'
 import { grainYield } from '../core/economy'
@@ -633,14 +633,16 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
     const members = [...stationedDefendersAt(state, request.siteId)].sort(
       (a, b) => b.troops - a.troops,
     )
-    // 默认勾选兵力最多的三人（不足三人则全选），守方可以改。
-    const chosen = members.slice(0, GARRISON_SIZE).map((member) => member.id)
+    // 与进攻同构：主将必选，副将与军师可选；已行动者也可以出战，只是兵力减半。
+    const defaultCommander = garrisonCommanderAt(state, request.siteId)
     list.replaceChildren(
       ...members.map((member) =>
-        createPickerItem(member, member.troops > 0 ? null : '无兵力', {
-          checked: chosen.includes(member.id),
-          note: hasActedThisTurn(state, member.id) ? '已行动 · 兵力减半' : null,
-        }),
+        createOrderOfficerItem(
+          member,
+          member.troops > 0 ? null : '无兵力',
+          member.id === defaultCommander?.id,
+          hasActedThisTurn(state, member.id) ? '已行动 · 兵力减半' : null,
+        ),
       ),
     )
     return
@@ -708,8 +710,8 @@ interface BattleStage {
   siteId: SiteId
   /** 防御演出：来犯的势力；进攻时为空。 */
   attackerId: FactionId | null
-  /** 防御演出：我方自选的迎战编成（至多三人）；进攻时为空。 */
-  defenders: CharacterId[]
+  /** 防御演出：我方自选的迎战编成；进攻或无将可守时为空。 */
+  garrison: Party | null
   step: BattleStep
   /** 已结算的战报；尚未开战时为 null。 */
   report: BattleReport | null
@@ -789,27 +791,26 @@ function characterNameOf(state: GameState, id: CharacterId | null | undefined): 
   return state.characters.find((item) => item.id === id)?.name ?? ''
 }
 
-/** 我方守军一行：守将以统率最高者领头，其余按兵力列出；给了编成则只列此编成。 */
-function garrisonSummary(
-  state: GameState,
-  siteId: SiteId,
-  defenders?: readonly CharacterId[],
-): string {
-  const members = garrisonAt(state, siteId, defenders).members
-  if (members.length === 0) {
-    return '无兵可守'
-  }
+/** 我方守军一行：按编成列出主将、副将与军师及兵力，与攻方的编成摘要同构。 */
+function garrisonSummary(state: GameState, siteId: SiteId, party: Party): string {
+  const members = garrisonAt(state, siteId, party).members
+  const roles: readonly [string, CharacterId | null | undefined][] = [
+    ['主将', party.commander],
+    ['副将', party.deputy],
+    ['军师', party.strategist],
+  ]
 
-  const leader = garrisonCommanderAt(state, siteId, defenders)
-
-  return members
-    .map(
-      (member) => `${member.id === leader?.id ? '守将 ' : ''}${member.name}（兵 ${member.troops}）`,
-    )
+  return roles
+    .filter(([, id]) => id != null && id !== '')
+    .map(([label, id]) => {
+      const member = members.find((item) => item.id === id)
+      return member === undefined ? null : `${label} ${member.name}（兵 ${member.troops}）`
+    })
+    .filter((text): text is string => text !== null)
     .join(' · ')
 }
 
-/** 情报幕的按钮：进攻时列出我方出马者，防御时列出我方守将。 */
+/** 情报幕的按钮：进攻时由主将或副将出马，防御时由迎战编成的主将或副将出马。 */
 function intelButtons(state: GameState, stage: BattleStage): HTMLButtonElement[] {
   const buttons: HTMLButtonElement[] = []
 
@@ -842,18 +843,18 @@ function intelButtons(state: GameState, stage: BattleStage): HTMLButtonElement[]
     return [stageButton('迎战', 'stage-fight')]
   }
 
-  const leader = garrisonCommanderAt(state, stage.siteId, stage.defenders)
-  for (const member of garrisonAt(state, stage.siteId, stage.defenders).members) {
-    if (member.isMonarch) {
-      continue
+  // 与攻方对称：出马者限迎战编成中的主将或副将，君主不参与。
+  const garrison = stage.garrison
+  const members = garrison === null ? [] : garrisonAt(state, stage.siteId, garrison).members
+  const roles: readonly [string, CharacterId | null | undefined][] = [
+    ['主将', garrison?.commander],
+    ['副将', garrison?.deputy],
+  ]
+  for (const [label, id] of roles) {
+    const member = id == null ? undefined : members.find((item) => item.id === id)
+    if (member !== undefined && !member.isMonarch) {
+      buttons.push(stageButton(`${label} ${member.name} 出马`, 'stage-pick', member.id))
     }
-    buttons.push(
-      stageButton(
-        member.id === leader?.id ? `主将 ${member.name} 出马` : `${member.name} 出马`,
-        'stage-pick',
-        member.id,
-      ),
-    )
   }
   buttons.push(stageButton('不单挑，直接迎战', 'stage-fight'))
 
@@ -890,19 +891,20 @@ function stageContent(state: GameState, stage: BattleStage): HTMLElement[] {
         ]
       }
 
+      const garrison = stage.garrison
       const lines: HTMLElement[] = [
         stageLine(
           `${factionName(state, stage.attackerId)} 来攻 ${siteName}　归属 ${siteOwnerName(state, target?.owner ?? null)}`,
         ),
         stageLine(
-          `敌情：${defenseOutlook(state, stage.party, stage.siteId, stage.defenders)}`,
+          `敌情：${defenseOutlook(state, stage.party, stage.siteId, garrison ?? undefined)}`,
           'outlook',
         ),
         stageLine(`敌方　${partySummary(state, stage.party)}`),
       ]
 
       // 守军无将：空城迎敌，无从单挑。
-      if (garrisonAt(state, stage.siteId, stage.defenders).members.length === 0) {
+      if (garrison === null) {
         return [
           ...lines,
           stageLine('城中无将，只能空城迎敌。', 'prompt'),
@@ -912,7 +914,7 @@ function stageContent(state: GameState, stage: BattleStage): HTMLElement[] {
 
       return [
         ...lines,
-        stageLine(`我方　${garrisonSummary(state, stage.siteId, stage.defenders)}`),
+        stageLine(`我方　${garrisonSummary(state, stage.siteId, garrison)}`),
         // 进攻方已提单挑时，守方不再选，只提示一句。
         stageLine(
           stage.party.challenger != null
@@ -1015,6 +1017,7 @@ function createOrderOfficerItem(
   character: Character,
   disabledReason: string | null,
   isDefaultCommander: boolean,
+  note: string | null = null,
 ): HTMLLIElement {
   const item = document.createElement('li')
   item.className = 'picker picker--order'
@@ -1032,10 +1035,11 @@ function createOrderOfficerItem(
 
   item.append(name, meta)
 
-  if (disabledReason !== null) {
+  const statusText = disabledReason ?? note
+  if (statusText !== null) {
     const status = document.createElement('span')
     status.className = 'picker__status'
-    status.textContent = disabledReason
+    status.textContent = statusText
     item.append(status)
   }
 
@@ -1712,13 +1716,13 @@ export function mountGameShell(
   }
 
   /** 迎战编成既定：进入防守演出（情报与选择 → 单挑 → 交战与结果）。 */
-  const startDefenseStage = (request: DefenseRequest, defenders: CharacterId[]): void => {
+  const startDefenseStage = (request: DefenseRequest, garrison: Party | null): void => {
     battleStage = {
       mode: 'defense',
       party: request.party,
       siteId: request.targetSiteId,
       attackerId: request.attackerId,
-      defenders,
+      garrison,
       step: 'intel',
       report: null,
       outcome: '',
@@ -1743,7 +1747,7 @@ export function mountGameShell(
     }
 
     if (stationedDefendersAt(session.getState(), signal.request.targetSiteId).length === 0) {
-      startDefenseStage(signal.request, [])
+      startDefenseStage(signal.request, null)
       return
     }
 
@@ -1785,7 +1789,10 @@ export function mountGameShell(
       return
     }
 
-    const signal = session.answerDefense({ challenger, defenders: battleStage.defenders })
+    const signal = session.answerDefense({
+      party: battleStage.garrison ?? undefined,
+      challenger,
+    })
     if (signal === null) {
       settleTurn()
       return
@@ -1904,7 +1911,7 @@ export function mountGameShell(
         party,
         siteId: orderRequest.siteId,
         attackerId: null,
-        defenders: [],
+        garrison: null,
         step: 'intel',
         report: null,
         outcome: '',
@@ -1917,11 +1924,9 @@ export function mountGameShell(
     }
 
     if (orderRequest.kind === 'defense') {
-      const defenders = Array.from(
-        orderList.querySelectorAll<HTMLInputElement>('.picker__checkbox:checked'),
-      ).map((checkbox) => checkbox.value)
-      if (defenders.length === 0) {
-        orderStatus.textContent = '请选择迎战武将'
+      const garrison = readOrderParty(orderList)
+      if (garrison.commander === '') {
+        orderStatus.textContent = '必须指定主将'
         return
       }
 
@@ -1930,7 +1935,7 @@ export function mountGameShell(
       orderRequest = null
       orderDialog.close()
       if (request !== undefined) {
-        startDefenseStage(request, defenders)
+        startDefenseStage(request, garrison)
       }
       return
     }
@@ -2013,23 +2018,14 @@ export function mountGameShell(
     abandonOrder()
   })
 
-  /** 命令弹窗选人：调动至多三人、防守至多三人且至少留一人；勾满上限后其余候选不可再选。 */
-  orderList.addEventListener('change', (event) => {
+  /** 调动选人：勾满三人后，其余候选不可再选。 */
+  orderList.addEventListener('change', () => {
     const checkboxes = Array.from(orderList.querySelectorAll<HTMLInputElement>('.picker__checkbox'))
-    const limit = orderRequest?.kind === 'defense' ? GARRISON_SIZE : MAX_TRANSFER_PARTY
-
-    // 至少留一人守城：若改选后一人不剩，把刚取消的那个重新勾上。
-    if (
-      orderRequest?.kind === 'defense' &&
-      checkboxes.every((checkbox) => !checkbox.checked) &&
-      event.target instanceof HTMLInputElement
-    ) {
-      event.target.checked = true
-    }
-
     const checked = checkboxes.filter((checkbox) => checkbox.checked).length
+
     for (const checkbox of checkboxes) {
-      checkbox.disabled = checkbox.dataset.blocked === 'true' || (!checkbox.checked && checked >= limit)
+      checkbox.disabled =
+        checkbox.dataset.blocked === 'true' || (!checkbox.checked && checked >= MAX_TRANSFER_PARTY)
     }
   })
 
