@@ -69,7 +69,6 @@ export function validateCharacters(
       ['智谋', character.intellect],
       ['内政', character.politics],
       ['忠诚', character.loyalty],
-      ['士气', character.morale],
     ] as const) {
       if (!Number.isInteger(value) || value < STAT_MIN || value > STAT_MAX) {
         problems.push(`武将 ${character.id} 的${label}超出范围：${value}`)

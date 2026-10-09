@@ -330,17 +330,66 @@
   background: #362c20;
 }
 
-.battle__body {
+.battle-plan__body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
   padding: 14px 18px 18px;
 }
 
-.battle__result {
+.battle-plan__line {
   margin: 0;
-  font-size: 15px;
+  font-size: 13px;
+  color: #b9a87f;
+}
+
+.battle-plan__line.battle-plan__outlook {
+  font-size: 16px;
   color: #e8d9b5;
+}
+
+.battle-plan__line.battle-plan__prompt {
+  margin-top: 2px;
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.battle-plan__line.battle-plan__speech {
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.battle-plan__line.battle-plan__verdict {
+  font-size: 16px;
+  color: #e8d9b5;
+}
+
+.battle-plan__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.battle-plan__go {
+  padding: 8px 12px;
+  border: 1px solid #6b5c42;
+  border-radius: 6px;
+  background: #2a2219;
+  color: #e8d9b5;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.battle-plan__go:hover {
+  background: #362c20;
+}
+
+/* 战斗结果一幕：攻守两方各占一块。 */
+.battle__sides {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .battle__attacker,
@@ -866,7 +915,7 @@
 .history,
 .domestic,
 .order,
-.battle,
+.battle-plan,
 .captives,
 .prison,
 .new-game {
@@ -884,13 +933,18 @@
   width: min(520px, 100% - 32px);
 }
 
+/* 战斗演出的结果要并列攻守双方，同样宽一些。 */
+.battle-plan {
+  width: min(520px, 100% - 32px);
+}
+
 .saves[open],
 .settings[open],
 .roster[open],
 .history[open],
 .domestic[open],
 .order[open],
-.battle[open],
+.battle-plan[open],
 .captives[open],
 .prison[open],
 .new-game[open] {
@@ -904,7 +958,7 @@
 .history::backdrop,
 .domestic::backdrop,
 .order::backdrop,
-.battle::backdrop,
+.battle-plan::backdrop,
 .captives::backdrop,
 .prison::backdrop,
 .new-game::backdrop {

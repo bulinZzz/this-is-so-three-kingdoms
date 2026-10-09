@@ -54,7 +54,6 @@ function wild(id: string, name: string, tier: 'basic' | 'second'): Character {
     isMonarch: false,
     stationedSiteId: null,
     troops: 0,
-    morale: 100,
     tier,
   }
 }
@@ -96,7 +95,6 @@ function loopScenario(): Scenario {
         isMonarch: false,
         stationedSiteId: 'a',
         troops: 20000,
-        morale: 100,
         tier: null,
       },
       {
@@ -116,7 +114,6 @@ function loopScenario(): Scenario {
         isMonarch: false,
         stationedSiteId: 'b',
         troops: 500,
-        morale: 100,
         tier: null,
       },
       wild('basic-1', '基础客', 'basic'),

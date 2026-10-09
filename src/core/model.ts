@@ -123,8 +123,6 @@ export interface Character {
   stationedSiteId: SiteId | null
   /** 所统率部队的兵力；未出仕者为 0。 */
   troops: number
-  /** 士气，0–100，参与战力计算，可被单挑改变。 */
-  morale: number
   /** 在野者所属的寻访卡池层级；非在野者不参与寻访，为 null。 */
   tier: CharacterTier | null
 }
@@ -202,6 +200,30 @@ export interface CaptiveReport {
   attitude: CaptiveAttitude
 }
 
+/** 一场战斗里单挑的结果，供战斗演出与战报使用；提出单挑的可以是攻方，也可以是守方。 */
+export interface DuelReport {
+  /** 提出单挑的是哪一方。 */
+  challengerSide: 'attacker' | 'defender'
+  /** 挑战方出马者姓名。 */
+  challenger: string
+  /** 挑战者标识。 */
+  challengerId: CharacterId
+  /** 应战方出马者姓名；拒战或无人可应时为空串。 */
+  answerer: string
+  /** 应战者标识；无应战者时为 null。 */
+  answererId: CharacterId | null
+  /** 应战方是否拒战（含无人可应）。 */
+  refused: boolean
+  /** 挑战方是否取胜；拒战时为 null。 */
+  challengerWon: boolean | null
+  /** 阵亡者姓名；无人阵亡时为空串。 */
+  fallen: string
+  /** 挑战方这一场士气的增减。 */
+  challengerMoraleDelta: number
+  /** 应战方这一场士气的增减。 */
+  answererMoraleDelta: number
+}
+
 /** 一场战斗的战报；规则层结算时产出，表现层只读。 */
 export interface BattleReport {
   /** 目标战略点名。 */
@@ -210,6 +232,8 @@ export interface BattleReport {
   undefended: boolean
   /** 攻方是否获胜。 */
   attackerWins: boolean
+  /** 交战中的单挑；未发起单挑时为空。 */
+  duel: DuelReport | null
   attacker: BattleReportSide
   defender: BattleReportSide
   /** 被俘武将的去向；无人被俘时为空。 */

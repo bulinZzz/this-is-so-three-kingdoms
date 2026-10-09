@@ -1,5 +1,6 @@
 import { ACTION_COSTS } from './actions'
 import {
+  aiAttackChallenger,
   attack,
   attackCandidates,
   battlePower,
@@ -7,6 +8,7 @@ import {
   isAttackable,
   partySide,
   type AttackParty,
+  type DefenseChoice,
 } from './battle'
 import { recruitWillingCaptives } from './captives'
 import {
@@ -16,7 +18,15 @@ import {
   recruitGrainCost,
   troopLimit,
 } from './military'
-import type { Character, FactionId, GameState, Site, SiteType } from './model'
+import type {
+  BattleReport,
+  Character,
+  FactionId,
+  GameState,
+  Site,
+  SiteId,
+  SiteType,
+} from './model'
 import { createRandom } from './random'
 import { areHostile } from './relations'
 import { seekTalent } from './seekTalent'
@@ -85,13 +95,35 @@ function seekOnce(state: GameState, factionId: FactionId): boolean {
   return false
 }
 
+/** 他方来攻我方时交回界面的请求：由玩家决定迎战编成与是否单挑。 */
+export interface DefenseRequest {
+  /** 来犯的势力。 */
+  attackerId: FactionId
+  /** 被攻打的我方战略点。 */
+  targetSiteId: SiteId
+  /** 来犯的编成。 */
+  party: AttackParty
+}
+
 /**
- * 进攻一次：在可胜的目标中择价值最高、守备最弱者出手；无目标可打则返回假。
- * 只对敌对势力或无主战略点用兵——同盟与中立都不打。
+ * 他方行动推进中交回界面的信号：先给出待应战的请求，等决定后给出这一战的战报。
+ * 用生成器表达，界面据此逐次推进；无界面时一路按「不单挑」放行。
  */
-function attackOnce(state: GameState, factionId: FactionId): boolean {
+export type FactionTurnSignal =
+  | { kind: 'defense'; request: DefenseRequest }
+  | { kind: 'battle'; report: BattleReport | null; outcome: string }
+
+/**
+ * 进攻一次：在可胜的目标中择价值最高、守备最弱者出手；无目标可打则不作声。
+ * 只对敌对势力或无主战略点用兵——同盟与中立都不打。
+ * 目标是我方战略点时暂停，先让界面定下迎战编成与是否单挑，再把这一战的结果交回。
+ */
+function* attackOnce(
+  state: GameState,
+  factionId: FactionId,
+): Generator<FactionTurnSignal, void, DefenseChoice | null> {
   if (state.actionPoints[factionId] < ACTION_COSTS.attack) {
-    return false
+    return
   }
 
   const plans = state.geography.sites
@@ -118,10 +150,30 @@ function attackOnce(state: GameState, factionId: FactionId): boolean {
 
   const plan = plans[0]
   if (plan === undefined) {
-    return false
+    return
   }
 
-  return attack(state, plan.party, plan.site.id, factionId).ok
+  // 他方也会主动提单挑：武力占优、性格好斗时出手，力量接近时看运气。
+  const duelRandom = createRandom(state.randomState)
+  const challenger = aiAttackChallenger(state, plan.party, plan.site.id, duelRandom)
+  state.randomState = duelRandom.getState()
+  const party = challenger === null ? plan.party : { ...plan.party, challenger }
+
+  if (plan.site.owner !== state.playerFaction) {
+    attack(state, party, plan.site.id, factionId)
+    return
+  }
+
+  const decision = yield {
+    kind: 'defense',
+    request: { attackerId: factionId, targetSiteId: plan.site.id, party },
+  }
+  const result = attack(state, party, plan.site.id, factionId, decision)
+  yield {
+    kind: 'battle',
+    report: result.ok ? result.record.battle ?? null : null,
+    outcome: result.ok ? result.record.outcome : result.reason,
+  }
 }
 
 /** 把余下的行动力用于征兵，直到用尽、无人可补或粮尽。 */
@@ -144,20 +196,37 @@ function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
 }
 
 /** 一个势力的一季行动。 */
-function runFactionTurn(state: GameState, factionId: FactionId): void {
+function* runFactionTurn(
+  state: GameState,
+  factionId: FactionId,
+): Generator<FactionTurnSignal, void, DefenseChoice | null> {
   // 营中已到「愿降」档的俘虏先行归附，本季即可出力。
   recruitWillingCaptives(state, factionId)
   seekOnce(state, factionId)
-  attackOnce(state, factionId)
+  yield* attackOnce(state, factionId)
   recruitUntilExhausted(state, factionId)
 }
 
-/** 其他势力依次行动；玩家势力由界面在回合内操作，不在此列，已覆灭者不再出手。 */
-export function runFactionTurns(state: GameState): void {
+/**
+ * 其他势力依次行动：玩家势力由界面在回合内操作，不在此列，已覆灭者不再出手。
+ * 攻打我方时暂停并交回请求，等界面定下迎战编成与是否单挑后再继续。
+ */
+export function* factionTurnStream(
+  state: GameState,
+): Generator<FactionTurnSignal, void, DefenseChoice | null> {
   for (const faction of state.factions) {
     if (faction.id === state.playerFaction || isFactionDestroyed(state, faction.id)) {
       continue
     }
-    runFactionTurn(state, faction.id)
+    yield* runFactionTurn(state, faction.id)
+  }
+}
+
+/** 其他势力依次行动，无人接手时按「不单挑」把每一次来犯一并结算。 */
+export function runFactionTurns(state: GameState): void {
+  const stream = factionTurnStream(state)
+
+  while (!stream.next(null).done) {
+    // 每次都按不单挑放行，直到回合的行动跑完。
   }
 }

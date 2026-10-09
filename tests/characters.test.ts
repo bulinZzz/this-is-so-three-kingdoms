@@ -38,7 +38,6 @@ function character(overrides: Partial<Character> = {}): Character {
     isMonarch: false,
     stationedSiteId: null,
     troops: 0,
-    morale: 100,
     tier: 'basic',
     ...overrides,
   }
@@ -77,9 +76,6 @@ describe('validateCharacters', () => {
     )
     expect(validateCharacters([character({ loyalty: 0.5 })], FACTION_IDS, GEOGRAPHY)).toContain(
       '武将 a 的忠诚超出范围：0.5',
-    )
-    expect(validateCharacters([character({ morale: 120 })], FACTION_IDS, GEOGRAPHY)).toContain(
-      '武将 a 的士气超出范围：120',
     )
     expect(validateCharacters([character({ politics: 120 })], FACTION_IDS, GEOGRAPHY)).toContain(
       '武将 a 的内政超出范围：120',

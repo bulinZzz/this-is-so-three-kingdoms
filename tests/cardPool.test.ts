@@ -24,7 +24,6 @@ function wild(id: string, name: string, tier: CharacterTier): Character {
     isMonarch: false,
     stationedSiteId: null,
     troops: 0,
-    morale: 100,
     tier,
   }
 }

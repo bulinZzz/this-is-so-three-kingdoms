@@ -28,7 +28,6 @@ function officer(overrides: Partial<Character> = {}): Character {
     isMonarch: false,
     stationedSiteId: 'a',
     troops: 500,
-    morale: 100,
     tier: null,
     ...overrides,
   }

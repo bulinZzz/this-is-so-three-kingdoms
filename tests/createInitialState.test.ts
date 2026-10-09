@@ -103,7 +103,6 @@ describe('createInitialState', () => {
           isMonarch: false,
           stationedSiteId: null,
           troops: 0,
-          morale: 100,
           tier: null,
         },
       ],

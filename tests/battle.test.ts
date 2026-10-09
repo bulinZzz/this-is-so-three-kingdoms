@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import {
+  aiDuelChallenger,
   attack,
   attackCandidates,
+  battleOutlook,
   battlePower,
+  defenseOutlook,
   duel,
+  duelAnswererAt,
+  duelHeadline,
   garrisonAt,
+  garrisonCommanderAt,
   isAttackable,
   MORALE_FULL,
   partySide,
@@ -14,6 +20,8 @@ import { takeCaptive } from '../src/core/captives'
 import { createInitialState } from '../src/core/createInitialState'
 import { hasActedThisTurn, markActed } from '../src/core/military'
 import type { BattleReport, Character, GameState, Scenario } from '../src/core/model'
+import type { Random } from '../src/core/random'
+import { beginTurn, endTurn } from '../src/core/turn'
 import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 
 function characterOf(state: GameState, id: string) {
@@ -52,6 +60,7 @@ function scene(options: {
       { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 1000 },
       { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 1000 },
     ],
+    relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile' }],
     geography: {
       provinces: [{ id: 'jing', name: '荆州', owner: null }],
       sites: [
@@ -77,7 +86,6 @@ function scene(options: {
         isMonarch: false,
         stationedSiteId: 'a',
         troops: options.attackerTroops,
-        morale: MORALE_FULL,
         tier: null,
       },
       {
@@ -97,7 +105,6 @@ function scene(options: {
         isMonarch: false,
         stationedSiteId: 'a',
         troops: options.secondAttackerTroops ?? 0,
-        morale: MORALE_FULL,
         tier: null,
       },
       {
@@ -117,7 +124,6 @@ function scene(options: {
         isMonarch: options.defenderIsMonarch ?? false,
         stationedSiteId: 'b',
         troops: options.defenderTroops,
-        morale: MORALE_FULL,
         tier: null,
       },
     ],
@@ -323,19 +329,18 @@ describe('进攻', () => {
     expect(hasActedThisTurn(joint, 'attacker2')).toBe(true)
   })
 
-  it('兵力为三人之和，智谋取三人中最高，士气取主将', () => {
+  it('兵力为三人之和，智谋取三人中最高，士气为战斗默认满值', () => {
     const state = createInitialState({ seed: 208 })
-    characterOf(state, 'guanyu').morale = 60
 
     // 关羽智谋 75、张飞 40，取最高 75；带军师诸葛亮时取 100。
     expect(partySide(state, { commander: 'guanyu', deputy: 'zhangfei' })).toEqual({
       troops: 14000,
       intellect: 75,
-      morale: 60,
+      morale: MORALE_FULL,
     })
     expect(
       partySide(state, { commander: 'guanyu', deputy: 'zhangfei', strategist: 'zhugeliang' }),
-    ).toEqual({ troops: 16000, intellect: 100, morale: 60 })
+    ).toEqual({ troops: 16000, intellect: 100, morale: MORALE_FULL })
   })
 
   it('编成不合规时拒绝', () => {
@@ -403,37 +408,171 @@ describe('进攻', () => {
 })
 
 describe('单挑', () => {
-  it('对方拒战则士气下降', () => {
+  it('对方拒战则作罢，胜负无从谈起', () => {
     const state = createInitialState({ seed: 208 })
-    characterOf(state, 'caimao').morale = 50
-
     const result = duel(state, 'guanyu', 'caimao', false)
 
     expect(result.refused).toBe(true)
     expect(result.winnerId).toBeNull()
-    expect(characterOf(state, 'caimao').morale).toBe(40)
+    expect(result.outcome).toContain('拒战')
   })
 
-  it('应战则胜者士气上升、败者下降', () => {
+  it('应战则分胜负', () => {
     const state = createInitialState({ seed: 208 })
-    characterOf(state, 'guanyu').morale = 50
-    characterOf(state, 'caimao').morale = 50
-
     const result = duel(state, 'guanyu', 'caimao', true)
 
     expect(result.refused).toBe(false)
-    expect([40, 60]).toContain(characterOf(state, 'guanyu').morale)
-    expect([40, 60]).toContain(characterOf(state, 'caimao').morale)
-    expect(characterOf(state, 'guanyu').morale).not.toBe(characterOf(state, 'caimao').morale)
+    expect(['guanyu', 'caimao']).toContain(result.winnerId)
+  })
+})
+
+describe('交战前景', () => {
+  it('按攻守战力之比给出定性判断', () => {
+    const outlook = (attackerTroops: number, defenderTroops: number): string =>
+      battleOutlook(scene({ attackerTroops, defenderTroops }), { commander: 'attacker' }, 'b')
+
+    expect(outlook(8000, 1000)).toBe('我军大优')
+    expect(outlook(1500, 1000)).toBe('我军占优')
+    expect(outlook(1000, 1000)).toBe('势均力敌')
+    expect(outlook(900, 1000)).toBe('我军不利')
+    expect(outlook(500, 5000)).toBe('我军大劣')
   })
 
-  it('士气不会降到 0 以下', () => {
+  it('无守军时为不战而下', () => {
+    const state = scene({ attackerTroops: 5000, defenderTroops: 0 })
+
+    expect(battleOutlook(state, { commander: 'attacker' }, 'b')).toBe('不战而下')
+  })
+})
+
+describe('单挑致阵亡与君主限制', () => {
+  /** 在若干固定种子里筛出一场致阵亡的单挑：阵亡是概率，须先有阵亡才谈得上退场。 */
+  function findFatalDuel(): { state: GameState; fallenId: string } | null {
+    for (let seed = 1; seed <= 200; seed += 1) {
+      const state = scene({ attackerTroops: 100, defenderTroops: 100, seed })
+      const result = duel(state, 'attacker', 'defender', true)
+
+      if (result.fallenId !== null) {
+        return { state, fallenId: result.fallenId }
+      }
+    }
+
+    return null
+  }
+
+  it('应战的败者有一定概率阵亡，阵亡者就此退场', () => {
+    const found = findFatalDuel()
+
+    expect(found).not.toBeNull()
+    const fallen = characterOf(found!.state, found!.fallenId)
+    expect(fallen.status).toBe('retired')
+    expect(fallen.factionId).toBeNull()
+    expect(fallen.stationedSiteId).toBeNull()
+  })
+
+  it('君主不作为挑战方，也不作为应战方', () => {
     const state = createInitialState({ seed: 208 })
-    characterOf(state, 'caimao').morale = 5
 
-    duel(state, 'guanyu', 'caimao', false)
+    expect(duel(state, 'caocao', 'guanyu', true)).toEqual({
+      refused: false,
+      winnerId: null,
+      fallenId: null,
+      outcome: '君主不参与单挑',
+    })
+    expect(duel(state, 'guanyu', 'caocao', true)).toEqual({
+      refused: false,
+      winnerId: null,
+      fallenId: null,
+      outcome: '君主不参与单挑',
+    })
+  })
 
-    expect(characterOf(state, 'caimao').morale).toBe(0)
+  it('进攻可提出单挑，结果先于交战结算并记入战报', () => {
+    const state = scene({ attackerTroops: 5000, defenderTroops: 1000, seed: 3 })
+    const result = attack(state, { commander: 'attacker', challenger: 'attacker' }, 'b')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
+      throw new Error('未取得单挑战报')
+    }
+    const duel = result.record.battle.duel
+    expect(duel.challenger).toBe('攻将')
+    expect(result.record.outcome.startsWith(duelHeadline(duel))).toBe(true)
+  })
+
+  it('单挑须由主将或副将出马', () => {
+    const state = scene({ attackerTroops: 5000, defenderTroops: 1000 })
+    const result = attack(
+      state,
+      { commander: 'attacker', strategist: 'attacker2', challenger: 'attacker2' },
+      'b',
+    )
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.reason).toBe('单挑须由主将或副将出马')
+  })
+
+  it('守军只剩君主时无人应战，按拒战处理', () => {
+    const state = scene({
+      attackerTroops: 5000,
+      defenderTroops: 1000,
+      seed: 5,
+      defenderIsMonarch: true,
+    })
+
+    const result = attack(state, { commander: 'attacker', challenger: 'attacker' }, 'b')
+
+    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
+      throw new Error('未取得单挑战报')
+    }
+    const duel = result.record.battle.duel
+    expect(duel.refused).toBe(true)
+    expect(duel.answerer).toBe('')
+    expect(duel.challengerMoraleDelta).toBe(0)
+    expect(duel.answererMoraleDelta).toBe(-10)
+  })
+
+  it('君主不可提出单挑', () => {
+    const state = createInitialState({ seed: 208 })
+    const result = attack(state, { commander: 'liubei', challenger: 'liubei' }, 'chibi')
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.reason).toBe('君主不参与单挑')
+  })
+
+  it('单挑的士气按方施加：副将获胜，我方 +10、守方 −10', () => {
+    const state = scene({
+      attackerTroops: 5000,
+      defenderTroops: 1000,
+      secondAttackerTroops: 1000,
+      seed: 7,
+    })
+    Object.assign(characterOf(state, 'attacker2'), { might: 100 })
+
+    const result = attack(
+      state,
+      { commander: 'attacker', deputy: 'attacker2', challenger: 'attacker2' },
+      'b',
+    )
+
+    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
+      throw new Error('未取得单挑战报')
+    }
+    const duel = result.record.battle.duel
+    // 副将出马且必胜（武力 100 对 80）：士气按方施加，与出马者是谁无关。
+    expect(duel.challenger).toBe('副将')
+    expect(duel.challengerSide).toBe('attacker')
+    expect(duel.challengerWon).toBe(true)
+    expect(duel.challengerMoraleDelta).toBe(10)
+    expect(duel.answererMoraleDelta).toBe(-10)
+  })
+
+  it('守军主将与应战者取自守军，应战者不含君主', () => {
+    const state = createInitialState({ seed: 208 })
+
+    expect(garrisonCommanderAt(state, 'xiangyang')?.name).toBe('蔡瑁')
+    expect(duelAnswererAt(state, 'xiangyang')?.name).toBe('蔡瑁')
+    expect(duelAnswererAt(state, 'chibi')).toBeNull()
   })
 })
 
@@ -514,5 +653,251 @@ describe('被俘与招降', () => {
     if (result.ok) {
       expect(result.record.outcome).toContain('重归旧主')
     }
+  })
+})
+
+describe('防守方提出单挑', () => {
+  it('守方视角的敌情与攻方视角相反', () => {
+    const state = scene({ attackerTroops: 8000, defenderTroops: 1000 })
+
+    expect(battleOutlook(state, { commander: 'attacker' }, 'b')).toBe('我军大优')
+    expect(defenseOutlook(state, { commander: 'attacker' }, 'b')).toBe('敌军大优')
+  })
+
+  it('守军无人可守时，守方视角为「守军无将」', () => {
+    const state = createInitialState({ seed: 208 })
+
+    expect(defenseOutlook(state, { commander: 'guanyu' }, 'chibi')).toBe('守军无将')
+  })
+
+  it('我方守城时可提出单挑：出马者来自守军，攻方以主力应战', () => {
+    // 曹操来攻我方的甲城，我方选择由「攻将」出马。
+    const state = scene({ attackerTroops: 100, defenderTroops: 20000, seed: 7 })
+
+    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', { challenger: 'attacker' })
+
+    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
+      throw new Error('未取得单挑战报')
+    }
+    const duel = result.record.battle.duel
+    expect(duel.challengerSide).toBe('defender')
+    expect(duel.challenger).toBe('攻将')
+    expect(duel.answerer).toBe('守将')
+  })
+
+  it('守方指定的出马者不在守军之中时拒绝', () => {
+    const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
+
+    // 「守将」驻守乙城，不在甲城守军之列。
+    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', { challenger: 'defender' })
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.reason).toBe('出马者不在守军之中')
+  })
+
+  it('君主不能作为守方出马者', () => {
+    const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
+    Object.assign(characterOf(state, 'attacker'), { isMonarch: true })
+
+    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', { challenger: 'attacker' })
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.reason).toBe('君主不参与单挑')
+  })
+
+  it('攻方不提时，他方守军武力占优便会主动提单挑', () => {
+    const state = scene({ attackerTroops: 5000, defenderTroops: 1000, seed: 7 })
+    Object.assign(characterOf(state, 'attacker'), { might: 50 })
+
+    // 我方进攻且不提单挑，守军（武力 80 对 50）主动来挑。
+    const result = attack(state, { commander: 'attacker' }, 'b')
+
+    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
+      throw new Error('未取得单挑战报')
+    }
+    const duel = result.record.battle.duel
+    expect(duel.challengerSide).toBe('defender')
+    expect(duel.challenger).toBe('守将')
+    expect(duel.answerer).toBe('攻将')
+  })
+
+  it('攻方已提单挑时，守方不再另提（单挑只发生一次）', () => {
+    const state = scene({ attackerTroops: 5000, defenderTroops: 1000, seed: 7 })
+    Object.assign(characterOf(state, 'defender'), { might: 100 })
+
+    const result = attack(state, { commander: 'attacker', challenger: 'attacker' }, 'b')
+
+    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
+      throw new Error('未取得单挑战报')
+    }
+    expect(result.record.battle.duel.challengerSide).toBe('attacker')
+  })
+})
+
+describe('守方自选迎战编成', () => {
+  it('自选编成只计入选者的兵力，且至多三人', () => {
+    const state = createInitialState({ seed: 208 })
+
+    // 江夏：关羽 8000、张飞 6000、刘备 5000。
+    expect(garrisonAt(state, 'jiangxia', ['zhangfei']).side.troops).toBe(6000)
+    expect(garrisonAt(state, 'jiangxia', ['zhangfei', 'guanyu']).side.troops).toBe(14000)
+    expect(
+      garrisonAt(state, 'jiangxia', ['zhangfei', 'guanyu', 'liubei', 'zhugeliang']).members,
+    ).toHaveLength(3)
+  })
+
+  it('自选编成里的已行动者仍只计半数兵力', () => {
+    const state = createInitialState({ seed: 208 })
+    markActed(state, 'guanyu')
+
+    expect(garrisonAt(state, 'jiangxia', ['guanyu']).side.troops).toBe(4000)
+  })
+
+  it('空编成即无兵可守', () => {
+    const state = createInitialState({ seed: 208 })
+
+    expect(garrisonAt(state, 'jiangxia', []).members).toEqual([])
+    expect(defenseOutlook(state, { commander: 'guanyu' }, 'jiangxia', [])).toBe('守军无将')
+  })
+
+  it('这一战的防守兵力与名单随自选编成而变', () => {
+    const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
+    state.characters.push({
+      ...characterOf(state, 'defender'),
+      id: 'defender2',
+      name: '守将二',
+      troops: 5000,
+      command: 60,
+    })
+
+    const result = attack(state, { commander: 'attacker' }, 'b', 'liubei', {
+      challenger: null,
+      defenders: ['defender2'],
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.record.battle?.defender.officers).toEqual(['守将二'])
+      expect(result.record.battle?.defender.troops).toBe(5000)
+    }
+  })
+
+  it('出马者不在自选编成之中时拒绝', () => {
+    const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
+
+    // 甲城的守军是「攻将」；出马者「守将」不在自选编成里。
+    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', {
+      challenger: 'defender',
+      defenders: ['attacker'],
+    })
+
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.reason).toBe('出马者不在守军之中')
+  })
+})
+
+describe('他方是否提单挑', () => {
+  /** 固定骰子的随机源：便于断言性格与武力差的作用。 */
+  const fixedRoll = (value: number): Random => ({ next: () => value, getState: () => 0 })
+
+  it('武力差之外，性格与骰子一起决定', () => {
+    const state = scene({ attackerTroops: 100, defenderTroops: 100 })
+    const foe = characterOf(state, 'attacker')
+    const dueler = characterOf(state, 'defender')
+    Object.assign(foe, { might: 90 })
+
+    // 刚烈：武力 80 对 90 也敢上（80 − 90 + 12 + 0 = 2）。
+    Object.assign(dueler, { might: 80, personality: 'brave' })
+    expect(aiDuelChallenger([dueler], foe, fixedRoll(0.5))).toBe('defender')
+
+    // 谨慎：武力 95 对 90 仍按兵不动（95 − 90 − 10 + 0 = −5）。
+    Object.assign(dueler, { might: 95, personality: 'cautious' })
+    expect(aiDuelChallenger([dueler], foe, fixedRoll(0.5))).toBeNull()
+
+    // 沉稳：势均力敌时全看骰子（90 − 90 + 0）。
+    Object.assign(dueler, { might: 90, personality: 'steady' })
+    expect(aiDuelChallenger([dueler], foe, fixedRoll(0.5))).toBe('defender')
+    expect(aiDuelChallenger([dueler], foe, fixedRoll(0))).toBeNull()
+  })
+
+  it('君主不参与，无人可应时也不挑', () => {
+    const state = scene({ attackerTroops: 100, defenderTroops: 100 })
+    const dueler = characterOf(state, 'defender')
+    Object.assign(dueler, { might: 99, personality: 'brave' })
+
+    expect(aiDuelChallenger([dueler], null, fixedRoll(0.5))).toBeNull()
+    expect(aiDuelChallenger([{ ...dueler, isMonarch: true }], characterOf(state, 'attacker'), fixedRoll(0.5))).toBeNull()
+  })
+})
+
+describe('回合推进中的来犯', () => {
+  /** 曹操兵多，刘备兵少：他方会来攻我方的甲城。 */
+  function invasionScene(seed = 7): GameState {
+    return scene({ attackerTroops: 100, defenderTroops: 20000, seed })
+  }
+
+  it('他方来攻我方时，回合推进先交回应战请求', () => {
+    const state = invasionScene()
+    const run = beginTurn(state)
+
+    const signal = run.advance()
+
+    expect(signal?.kind).toBe('defense')
+    if (signal?.kind !== 'defense') {
+      throw new Error('未取得应战请求')
+    }
+    expect(signal.request.attackerId).toBe('caocao')
+    expect(signal.request.targetSiteId).toBe('a')
+  })
+
+  it('守方指定出马者后即结算这一战，并继续推进到回合结束', () => {
+    const state = invasionScene()
+    // 进攻方武力不济，不会主动提单挑，好让守方的选择说了算。
+    Object.assign(characterOf(state, 'defender'), { might: 40 })
+    const run = beginTurn(state)
+    run.advance()
+
+    const signal = run.advance({ challenger: 'attacker' })
+
+    expect(signal?.kind).toBe('battle')
+    if (signal?.kind !== 'battle' || signal.report === null) {
+      throw new Error('未取得战报')
+    }
+    expect(signal.report.duel?.challengerSide).toBe('defender')
+
+    // 再无来犯，本回合跑完并进入下一季。
+    expect(run.advance()).toBeNull()
+    expect(state.currentTurn).toBe(2)
+  })
+
+  it('他方进攻且武力占优时会主动提单挑，守方不再选择', () => {
+    const state = invasionScene()
+    Object.assign(characterOf(state, 'defender'), { might: 100 })
+    Object.assign(characterOf(state, 'attacker'), { might: 60 })
+
+    const run = beginTurn(state)
+    const request = run.advance()
+    if (request?.kind !== 'defense') {
+      throw new Error('未取得应战请求')
+    }
+    // 进攻方已提单挑，请求里带着出马者。
+    expect(request.request.party.challenger).toBe('defender')
+
+    const battle = run.advance(null)
+    if (battle?.kind !== 'battle' || battle.report === null) {
+      throw new Error('未取得战报')
+    }
+    expect(battle.report.duel?.challengerSide).toBe('attacker')
+    expect(battle.report.duel?.challenger).toBe('守将')
+  })
+
+  it('无人接手时按不单挑一并结算（endTurn 的行为不变）', () => {
+    const state = invasionScene()
+
+    endTurn(state)
+
+    expect(state.currentTurn).toBe(2)
+    // 我方守军不敌，城池易手。
+    expect(siteOf(state, 'a').owner).toBe('caocao')
   })
 })

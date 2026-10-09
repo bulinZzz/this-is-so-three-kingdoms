@@ -1,5 +1,5 @@
 import type { ActionResult } from '../core/actions'
-import { attack as runAttack, type AttackParty } from '../core/battle'
+import { attack as runAttack, type AttackParty, type DefenseChoice } from '../core/battle'
 import { executeCaptive as runExecuteCaptive, persuade as runPersuade, releaseCaptive as runReleaseCaptive } from '../core/captives'
 import { createInitialState } from '../core/createInitialState'
 import { LocalSaveStore } from '../core/localSaveStore'
@@ -8,7 +8,12 @@ import type { CharacterId, GameState, Scenario, SiteId } from '../core/model'
 import { createRandom, type Random } from '../core/random'
 import { AUTO_SAVE_KEY, slotKey, type SaveStore, type SaveSummary } from '../core/saveStore'
 import { seekTalent as runSeekTalent, visit as runVisit } from '../core/seekTalent'
-import { endTurn as resolveEndTurn } from '../core/turn'
+import {
+  beginTurn,
+  endTurn as resolveEndTurn,
+  type FactionTurnSignal,
+  type TurnRun,
+} from '../core/turn'
 
 export type StateListener = (state: GameState) => void
 
@@ -41,6 +46,8 @@ export class GameSession {
   private readonly drawSeedOverride: number | null
   /** 玩家发起抽取所用的随机源，按回合播种、不随存档保存。 */
   private drawRandom: Random
+  /** 本回合分步推进的句柄；界面逐次应战时持有，跑完即清空。 */
+  private turnRun: TurnRun | null = null
 
   constructor(
     private readonly saveStore: SaveStore = new LocalSaveStore(),
@@ -65,10 +72,47 @@ export class GameSession {
 
   /** 结束本回合：其他势力行动，随后结算并进入下一回合，写入自动存档。 */
   endTurn(): void {
+    this.turnRun = null
     resolveEndTurn(this.state)
     this.saveStore.save(AUTO_SAVE_KEY, this.state)
     this.drawRandom = this.createDrawRandom()
     this.notify()
+  }
+
+  /**
+   * 结束回合（分步）：他方来攻我方时暂停，交回待应战的信号；本回合跑完则返回 null。
+   * 界面据信号逐次应战——先收到「待应战」，再以守方的迎战编成与出马者作答，随即收到这一战的战报。
+   */
+  endTurnStaged(): FactionTurnSignal | null {
+    this.turnRun = beginTurn(this.state)
+    return this.advanceTurnStep(null)
+  }
+
+  /** 就上一次来犯作出决定：迎战编成与出马者；null 表示按默认编成、不单挑。 */
+  answerDefense(decision: DefenseChoice | null): FactionTurnSignal | null {
+    return this.advanceTurnStep(decision)
+  }
+
+  /** 演出看完后继续推进本回合：取下一场来犯，或跑完本回合。 */
+  continueTurn(): FactionTurnSignal | null {
+    return this.advanceTurnStep(null)
+  }
+
+  /** 继续推进本回合；跑完则清空推进器、按新回合播种抽卡源并写入自动存档。 */
+  private advanceTurnStep(decision: DefenseChoice | null): FactionTurnSignal | null {
+    if (this.turnRun === null) {
+      return null
+    }
+
+    const signal = this.turnRun.advance(decision)
+    if (signal === null) {
+      this.turnRun = null
+      this.drawRandom = this.createDrawRandom()
+      this.saveStore.save(AUTO_SAVE_KEY, this.state)
+    }
+    this.notify()
+
+    return signal
   }
 
   /** 在指定自有战略点就地寻访；成功后通知界面，失败时返回原因且不改变对局。自动存档只在回合开始时写入。 */
