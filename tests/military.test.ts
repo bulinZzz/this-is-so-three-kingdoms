@@ -13,6 +13,7 @@ import {
   recruit,
   recruitGrainCost,
   transfer,
+  transferCandidates,
   troopLimit,
 } from '../src/core/military'
 import type { FactionId, GameState } from '../src/core/model'
@@ -239,6 +240,23 @@ describe('调动', () => {
 
     expect(transfer(state, ['xiahoudun'], 'hulao')).toEqual({ ok: false, reason: '行动力不足' })
     expect(characterOf(state, 'xiahoudun').stationedSiteId).toBe('luoyang')
+  })
+
+  it('退场者不在调动候选之列，也不计入势力兵力', () => {
+    const state = caocaoTurn()
+    const xiahoudun = characterOf(state, 'xiahoudun')
+    const before = factionTroops(state, 'caocao')
+    const hisTroops = xiahoudun.troops
+
+    expect(transferCandidates(state, 'hulao').map((item) => item.id)).toContain('xiahoudun')
+
+    xiahoudun.status = 'retired'
+    xiahoudun.factionId = null
+    xiahoudun.stationedSiteId = null
+    xiahoudun.troops = 0
+
+    expect(transferCandidates(state, 'hulao').map((item) => item.id)).not.toContain('xiahoudun')
+    expect(factionTroops(state, 'caocao')).toBe(before - hisTroops)
   })
 })
 

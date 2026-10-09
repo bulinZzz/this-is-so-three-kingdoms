@@ -15,6 +15,7 @@ import {
   isAttackable,
   MORALE_FULL,
   partySide,
+  stationedDefendersAt,
 } from '../src/core/battle'
 import { takeCaptive } from '../src/core/captives'
 import { createInitialState } from '../src/core/createInitialState'
@@ -925,5 +926,38 @@ describe('回合推进中的来犯', () => {
     expect(state.currentTurn).toBe(2)
     // 我方守军不敌，城池易手。
     expect(siteOf(state, 'a').owner).toBe('caocao')
+  })
+})
+
+describe('退场者不参与结算', () => {
+  it('退场的守将不在守军、迎战编成与敌方情报之中', () => {
+    const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
+    const defender = characterOf(state, 'defender')
+    defender.status = 'retired'
+    defender.factionId = null
+    defender.stationedSiteId = null
+    defender.troops = 0
+
+    expect(stationedDefendersAt(state, 'b')).toEqual([])
+    expect(garrisonAt(state, 'b').members).toEqual([])
+    expect(garrisonAt(state, 'b').side.troops).toBe(0)
+    expect(garrisonCommanderAt(state, 'b')).toBeNull()
+    expect(duelAnswererAt(state, 'b')).toBeNull()
+  })
+
+  it('退场的部属不在进攻候选与编成战力之中', () => {
+    const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
+    const attacker = characterOf(state, 'attacker')
+    attacker.status = 'retired'
+    attacker.factionId = null
+    attacker.stationedSiteId = null
+    attacker.troops = 0
+
+    expect(attackCandidates(state, 'b').map((item) => item.id)).not.toContain('attacker')
+    expect(partySide(state, { commander: 'attacker' })).toEqual({
+      troops: 0,
+      intellect: 0,
+      morale: MORALE_FULL,
+    })
   })
 })

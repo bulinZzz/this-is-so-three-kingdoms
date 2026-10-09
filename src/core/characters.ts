@@ -9,10 +9,20 @@ export function isRecruitable(character: Character): boolean {
   return character.status === 'wild'
 }
 
+/** 在仕武将：隶属某势力并驻守一处战略点，参与一切结算。 */
+export function isServing(character: Character): boolean {
+  return character.status === 'serving'
+}
+
+/** 退场武将：已退出游戏（战死、阵亡或被斩杀），不再参与任何结算与名单。 */
+export function isRetired(character: Character): boolean {
+  return character.status === 'retired'
+}
+
 /** 某势力当前在仕的武将数，在野与退场不计入。 */
 export function countServing(characters: readonly Character[], factionId: FactionId): number {
   return characters.filter(
-    (character) => character.status === 'serving' && character.factionId === factionId,
+    (character) => isServing(character) && character.factionId === factionId,
   ).length
 }
 
@@ -21,9 +31,13 @@ export function cloneCharacters(characters: readonly Character[]): Character[] {
   return characters.map((character) => ({ ...character, affinities: { ...character.affinities } }))
 }
 
-/** 每过一年，全体武将年龄加一；开局尚未出生者据此向出生接近。 */
+/** 每过一年，在世武将年龄加一；退场者不再参与结算，开局尚未出生者据此向出生接近。 */
 export function growAges(state: GameState): void {
   for (const character of state.characters) {
+    if (isRetired(character)) {
+      continue
+    }
+
     character.age += 1
   }
 }
@@ -96,19 +110,19 @@ export function validateCharacters(
       }
     }
 
-    if (character.status === 'wild' && character.tier === null) {
+    if (isRecruitable(character) && character.tier === null) {
       problems.push(`在野武将 ${character.id} 没有卡池层级`)
     }
 
     if (character.isMonarch) {
-      if (character.status !== 'serving' || character.factionId === null) {
+      if (!isServing(character) || character.factionId === null) {
         problems.push(`非在仕武将 ${character.id} 不应是君主`)
       } else {
         monarchCounts.set(character.factionId, (monarchCounts.get(character.factionId) ?? 0) + 1)
       }
     }
 
-    if (character.status === 'serving') {
+    if (isServing(character)) {
       if (character.factionId === null) {
         problems.push(`在仕武将 ${character.id} 没有所属势力`)
       } else if (!factionIdSet.has(character.factionId)) {

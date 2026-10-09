@@ -1,5 +1,5 @@
 import { runAction, type ActionResult } from './actions'
-import { affinityToward, recruitmentFactor } from './affinity'
+import { affinityToward, joinLoyaltyFor, recruitmentFactor } from './affinity'
 import { isTierAvailable, provinceControl } from './cardPool'
 import { CHARACTER_LIMIT, countServing, isRecruitable } from './characters'
 import type { Character, CharacterId, FactionId, GameState, Personality, Site, SiteId } from './model'
@@ -81,12 +81,13 @@ export function clearContacts(state: GameState, characterId: CharacterId): void 
   }
 }
 
-/** 某人入仕某势力，驻守给定战略点。 */
+/** 某人入仕某势力，驻守给定战略点，忠诚按其对该势力的偏好定初值。 */
 function join(state: GameState, character: Character, factionId: FactionId, siteId: SiteId): void {
   character.status = 'serving'
   character.factionId = factionId
   character.stationedSiteId = siteId
   character.troops = RECRUIT_INITIAL_TROOPS
+  character.loyalty = joinLoyaltyFor(affinityToward(character, factionId))
   clearContacts(state, character.id)
 }
 
@@ -162,7 +163,7 @@ export function visit(
       if (character === null) {
         return '武将不存在'
       }
-      if (character.status !== 'wild') {
+      if (!isRecruitable(character)) {
         return '此人已不在野'
       }
       if (contact === null) {

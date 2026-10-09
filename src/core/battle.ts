@@ -1,5 +1,6 @@
 import { runAction, type ActionResult } from './actions'
 import { absorbCaptives, attitudeOf, takeCaptive } from './captives'
+import { isServing } from './characters'
 import { resolveProvinceOwners } from './geography'
 import { LOYALTY_LOSS, loseLoyalty, maybeDefect, wildTierFor } from './loyalty'
 import {
@@ -93,11 +94,11 @@ function applyLoss(troops: number, rate: number): number {
   return Math.max(0, Math.round(troops * (1 - rate)))
 }
 
-/** 某战略点上该战略点归属势力的守军。 */
+/** 某战略点上该战略点归属势力的守军。退场者不在其中。 */
 function defendersAt(state: GameState, site: Site): Character[] {
   return state.characters.filter(
     (character) =>
-      character.status === 'serving' &&
+      isServing(character) &&
       character.factionId === site.owner &&
       character.stationedSiteId === site.id,
   )
@@ -175,10 +176,7 @@ export function duelAnswererAt(
 export function attackAnswerer(state: GameState, party: Party): Character | null {
   const members = partyIds(party)
     .map((id) => state.characters.find((item) => item.id === id))
-    .filter(
-      (item): item is Character =>
-        item !== undefined && item.status === 'serving' && !item.isMonarch,
-    )
+    .filter((item): item is Character => item !== undefined && isServing(item) && !item.isMonarch)
 
   return pickByCommand(members)
 }
@@ -206,7 +204,7 @@ export function aiDuelChallenger(
   random: Random,
 ): CharacterId | null {
   const dueler = candidates
-    .filter((member) => member.status === 'serving' && !member.isMonarch)
+    .filter((member) => isServing(member) && !member.isMonarch)
     .reduce<Character | null>(
       (best, member) => (best === null || member.might > best.might ? member : best),
       null,
@@ -430,7 +428,7 @@ function pickByCommand(members: readonly Character[]): Character | null {
 export function partySide(state: GameState, party: Party): BattleSide {
   const members = partyIds(party)
     .map((id) => state.characters.find((item) => item.id === id))
-    .filter((item): item is Character => item !== undefined && item.status === 'serving')
+    .filter((item): item is Character => item !== undefined && isServing(item))
 
   return {
     troops: members.reduce((total, member) => total + member.troops, 0),
@@ -731,7 +729,7 @@ export function attack(
         duel === null ? 0 : challengerIsAttacker ? duel.answererMoraleDelta : duel.challengerMoraleDelta
 
       // 单挑可能致人阵亡，此后只在场的部属参与结算。
-      const fighters = members.filter((member) => member.status === 'serving')
+      const fighters = members.filter(isServing)
       const generalNames = fighters.map((member) => member.name).join('、')
       const lead = fighters.find((member) => member.id === party.commander) ?? fighters[0] ?? commander
 

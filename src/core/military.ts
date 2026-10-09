@@ -1,4 +1,5 @@
 import { ACTION_COSTS, runAction, type ActionResult } from './actions'
+import { isServing } from './characters'
 import type { Character, CharacterId, FactionId, GameState, SiteId } from './model'
 import { createRandom, type Random } from './random'
 
@@ -29,10 +30,10 @@ export function troopLimit(character: Character): number {
   return character.command * TROOPS_LIMIT_PER_COMMAND
 }
 
-/** 某势力当前的总兵力，为其在仕武将所统率部队之和。 */
+/** 某势力当前的总兵力，为其在仕武将所统率部队之和；退场者不计入。 */
 export function factionTroops(state: GameState, factionId: FactionId): number {
   return state.characters
-    .filter((character) => character.status === 'serving' && character.factionId === factionId)
+    .filter((character) => isServing(character) && character.factionId === factionId)
     .reduce((total, character) => total + character.troops, 0)
 }
 
@@ -40,7 +41,7 @@ export function factionTroops(state: GameState, factionId: FactionId): number {
 export function isFactionDestroyed(state: GameState, factionId: FactionId): boolean {
   const holdsSite = state.geography.sites.some((site) => site.owner === factionId)
   const hasOfficer = state.characters.some(
-    (character) => character.status === 'serving' && character.factionId === factionId,
+    (character) => isServing(character) && character.factionId === factionId,
   )
 
   return !holdsSite || !hasOfficer
@@ -65,7 +66,7 @@ export function officerBlockedReason(
   if (character === null) {
     return '武将不存在'
   }
-  if (character.status !== 'serving' || character.factionId !== factionId) {
+  if (!isServing(character) || character.factionId !== factionId) {
     return '该武将不在此势力'
   }
   if (character.stationedSiteId === null) {
@@ -196,7 +197,7 @@ export function growTroops(state: GameState): void {
   const random = createRandom(state.randomState)
 
   for (const character of state.characters) {
-    if (character.status !== 'serving') {
+    if (!isServing(character)) {
       continue
     }
 

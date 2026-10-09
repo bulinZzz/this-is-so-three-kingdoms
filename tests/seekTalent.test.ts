@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
+import { joinLoyaltyFor } from '../src/core/affinity'
 import { CHARACTER_LIMIT, countServing } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import type { Character, GameState, Personality, Scenario } from '../src/core/model'
@@ -96,6 +97,8 @@ describe('seekTalent', () => {
     expect(recruited.factionId).toBe('liubei')
     expect(recruited.stationedSiteId).toBe('a')
     expect(recruited.troops).toBe(RECRUIT_INITIAL_TROOPS)
+    // 入仕者的忠诚按其对主家的偏好定初值，不会一入仕就「离心」。
+    expect(recruited.loyalty).toBe(joinLoyaltyFor(100))
     expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
     expect(state.history).toEqual([result.record])
   })
@@ -216,6 +219,7 @@ describe('visit', () => {
     expect(who.affinities.liubei).toBe(10)
     expect(who.status).toBe('serving')
     expect(who.stationedSiteId).toBe('a')
+    expect(who.loyalty).toBe(joinLoyaltyFor(10))
     expect(state.contactedCandidates.liubei).toEqual([])
     expect(state.actionPoints.liubei).toBe(
       ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent - ACTION_COSTS.visit,

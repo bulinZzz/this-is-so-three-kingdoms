@@ -28,3 +28,30 @@ export function affinityToward(
 export function recruitmentFactor(affinity: number): number {
   return 1 + (affinity - NEUTRAL_AFFINITY) / 100
 }
+
+/**
+ * 入仕某势力者的忠诚初值：跟着对该势力的偏好走，不高，但挨得起一两场败仗。
+ * 寻访投效与劝降归附同用此值——在野之人本无忠诚可言，入仕时才按对主家的感觉定下。
+ */
+export function joinLoyaltyFor(affinity: number): number {
+  return 50 + Math.round(affinity / 5)
+}
+
+/** 定性分档的门槛：偏好不低于 70 作亲附，不高于 30 作疏离，其余为中立。 */
+const AFFINITY_CLOSE = 70
+const AFFINITY_ALOOF = 30
+
+/** 势力倾向的定性态度，供界面展示，不必露出数值。 */
+export type AffinityAttitude = '亲附' | '中立' | '疏离'
+
+/** 由偏好分档得到的定性态度。 */
+export function affinityAttitude(affinity: number): AffinityAttitude {
+  if (affinity >= AFFINITY_CLOSE) {
+    return '亲附'
+  }
+  if (affinity <= AFFINITY_ALOOF) {
+    return '疏离'
+  }
+
+  return '中立'
+}

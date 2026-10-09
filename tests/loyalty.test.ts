@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
 import {
   DEFECT_THRESHOLD,
+  defectThresholdFor,
   LOYALTY_LOSS,
   loseLoyalty,
   loyaltyHint,
@@ -94,6 +95,11 @@ describe('忠诚提示', () => {
     expect(loyaltyHint(DEFECT_THRESHOLD + 19)).toBe('不满')
     expect(loyaltyHint(DEFECT_THRESHOLD + 20)).toBeNull()
   })
+
+  it('门槛随偏好浮动：同一个忠诚值，疏离者报离心、亲附者不报', () => {
+    expect(loyaltyHint(44, 46)).toBe('离心')
+    expect(loyaltyHint(44, 36)).toBe('不满')
+  })
 })
 
 describe('回归在野的卡池层级', () => {
@@ -149,5 +155,27 @@ describe('叛离判定', () => {
 
     expect(maybeDefect(state, monarch, '失守')).toBeNull()
     expect(monarch.status).toBe('serving')
+  })
+})
+
+describe('叛离阈值随偏好浮动', () => {
+  it('以 40 为基准、两端不超过 ±6：亲附者更低、疏离者更高', () => {
+    expect(defectThresholdFor(officer({ affinities: { liubei: 100 } }), 'liubei')).toBe(34)
+    expect(defectThresholdFor(officer({ affinities: { liubei: 90 } }), 'liubei')).toBe(35)
+    expect(defectThresholdFor(officer({ affinities: { liubei: 50 } }), 'liubei')).toBe(40)
+    expect(defectThresholdFor(officer({ affinities: {} }), 'liubei')).toBe(40)
+    expect(defectThresholdFor(officer({ affinities: { liubei: 10 } }), 'liubei')).toBe(45)
+    expect(defectThresholdFor(officer({ affinities: { liubei: 0 } }), 'liubei')).toBe(46)
+  })
+
+  it('同一个忠诚值：疏离者受挫即走，亲附者留得下', () => {
+    const aloof = officer({ affinities: { liubei: 0 }, loyalty: 42 })
+    const devoted = officer({ affinities: { liubei: 100 }, loyalty: 38 })
+
+    expect(maybeDefect(scene([aloof]), aloof, '败绩')).not.toBeNull()
+    expect(aloof.status).toBe('wild')
+
+    expect(maybeDefect(scene([devoted]), devoted, '败绩')).toBeNull()
+    expect(devoted.status).toBe('serving')
   })
 })

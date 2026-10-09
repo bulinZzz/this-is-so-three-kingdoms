@@ -2,6 +2,7 @@ import type { GameSession } from '../app/gameSession'
 import type { SelectionStore } from '../app/selectionStore'
 import type { SettingsStore } from '../app/settingsStore'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../core/actions'
+import { affinityAttitude, affinityToward } from '../core/affinity'
 import type {
   BattleReport,
   BattleReportSide,
@@ -32,10 +33,11 @@ import {
   type AttackParty,
   type Party,
 } from '../core/battle'
+import { isRecruitable, isServing } from '../core/characters'
 import { captivesOf } from '../core/captives'
 import { grainYield } from '../core/economy'
 import { duelLineOf, duelResponseLineOf } from '../core/duelLines'
-import { loyaltyHint } from '../core/loyalty'
+import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
 import { SCENARIOS } from '../core/scenarios'
@@ -408,17 +410,25 @@ function createOrderButton(
   return button
 }
 
-/** 武将的兵力（连同带兵上限）、能力与忠诚提示，供各处卡片统一显示。 */
-function officerMetaText(character: Character): string {
-  const summary = `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
-  const hint = loyaltyHint(character.loyalty)
-
-  return hint === null ? summary : `${summary} · ${hint}`
+/** 年龄的呈现：不足二十岁作「未冠」，含开局尚未出生者。 */
+function ageText(age: number): string {
+  return age < 20 ? '未冠' : `${age} 岁`
 }
 
-/** 武将卡片：姓名、兵力与四项能力，供选将时比较。可附标记与一排行动按钮。 */
+/** 武将的兵力（连同带兵上限）、能力、对某势力的态度与年龄，供各处卡片统一显示。 */
+function officerMetaText(character: Character, factionId: FactionId): string {
+  const summary = `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
+  const attitude = affinityAttitude(affinityToward(character, factionId))
+  const hint = loyaltyHint(character.loyalty, defectThresholdFor(character, factionId))
+  const loyalty = hint === null ? '' : ` · ${hint}`
+
+  return `${summary} · ${attitude} · ${ageText(character.age)}${loyalty}`
+}
+
+/** 武将卡片：姓名、兵力、能力、态度与年龄，供选将时比较。可附标记与一排行动按钮。 */
 function createOfficerCard(
   character: Character,
+  factionId: FactionId,
   actions: readonly HTMLButtonElement[],
   flags: readonly string[] = [],
 ): HTMLLIElement {
@@ -445,7 +455,7 @@ function createOfficerCard(
 
   const meta = document.createElement('span')
   meta.className = 'officer-card__meta'
-  meta.textContent = officerMetaText(character)
+  meta.textContent = officerMetaText(character, factionId)
 
   item.append(head, meta)
 
@@ -486,7 +496,7 @@ function renderSitePanel(
 
   const isOwn = site.owner === state.playerFaction
   const officers = state.characters.filter(
-    (character) => character.status === 'serving' && character.stationedSiteId === site.id,
+    (character) => isServing(character) && character.stationedSiteId === site.id,
   )
 
   requireElement<HTMLElement>(panel, '.site-panel__officers').replaceChildren(
@@ -544,7 +554,7 @@ function renderContacts(panel: HTMLElement, state: GameState, message: string): 
   const candidates = contacts
     .map((contact) => state.characters.find((character) => character.id === contact.characterId))
     .filter(
-      (character): character is Character => character !== undefined && character.status === 'wild',
+      (character): character is Character => character !== undefined && isRecruitable(character),
     )
 
   panel.hidden = candidates.length === 0 && message === ''
@@ -621,6 +631,7 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
       ...candidates.map((character) =>
         createOrderOfficerItem(
           character,
+          state.playerFaction,
           attackDisabledReason(state, character),
           character.id === defaultCommander?.id,
         ),
@@ -639,6 +650,7 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
       ...members.map((member) =>
         createOrderOfficerItem(
           member,
+          state.playerFaction,
           member.troops > 0 ? null : '无兵力',
           member.id === defaultCommander?.id,
           hasActedThisTurn(state, member.id) ? '已行动 · 兵力减半' : null,
@@ -653,7 +665,7 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
     ...(candidates.length === 0
       ? [createListItem('order__empty', '暂无可调动的武将')]
       : candidates.map((character) =>
-          createPickerItem(character, transferDisabledReason(state, character)),
+          createPickerItem(character, state.playerFaction, transferDisabledReason(state, character)),
         )),
   )
 }
@@ -1015,6 +1027,7 @@ function renderBattleStage(root: HTMLElement, state: GameState, stage: BattleSta
 /** 进攻候选条目：姓名与能力摘要，右侧主将、副将、军师三个标记可点选。 */
 function createOrderOfficerItem(
   character: Character,
+  factionId: FactionId,
   disabledReason: string | null,
   isDefaultCommander: boolean,
   note: string | null = null,
@@ -1031,7 +1044,7 @@ function createOrderOfficerItem(
 
   const meta = document.createElement('span')
   meta.className = 'picker__meta'
-  meta.textContent = officerMetaText(character)
+  meta.textContent = officerMetaText(character, factionId)
 
   item.append(name, meta)
 
@@ -1103,6 +1116,7 @@ function readOrderParty(list: HTMLElement): AttackParty {
 /** 可勾选的武将条目：复选框、姓名与兵力能力摘要；不可选时标出原因，可附一句提示。 */
 function createPickerItem(
   character: Character,
+  factionId: FactionId,
   disabledReason: string | null,
   options: { checked?: boolean; disabled?: boolean; note?: string | null } = {},
 ): HTMLLIElement {
@@ -1130,7 +1144,7 @@ function createPickerItem(
 
   const meta = document.createElement('span')
   meta.className = 'picker__meta'
-  meta.textContent = officerMetaText(character)
+  meta.textContent = officerMetaText(character, factionId)
 
   label.append(checkbox, name, meta)
 
@@ -1158,7 +1172,7 @@ function createListItem(className: string, text: string): HTMLLIElement {
 /** 渲染麾下武将为卡片，每张可当场征兵，返回人数。 */
 function renderOfficers(list: Element, state: GameState): number {
   const officers = state.characters.filter(
-    (character) => character.status === 'serving' && character.factionId === state.playerFaction,
+    (character) => isServing(character) && character.factionId === state.playerFaction,
   )
 
   if (officers.length === 0) {
@@ -1172,6 +1186,7 @@ function renderOfficers(list: Element, state: GameState): number {
 
       return createOfficerCard(
         officer,
+        state.playerFaction,
         [
           createOrderButton(
             '征兵',

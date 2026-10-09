@@ -1,5 +1,5 @@
 import { runAction, type ActionResult } from './actions'
-import { affinityToward, recruitmentFactor } from './affinity'
+import { affinityToward, joinLoyaltyFor, recruitmentFactor } from './affinity'
 import { CHARACTER_LIMIT, countServing } from './characters'
 import { wildTierFor } from './loyalty'
 import type { CaptiveAttitude, CaptiveRecord, Character, CharacterId, FactionId, GameState } from './model'
@@ -49,7 +49,7 @@ export function initialWill(character: Character, captorId: FactionId): number {
 
 /** 归附者的忠诚初值：跟着对俘获方的偏好走，不高，但挨得起一两场败仗。 */
 export function joinLoyalty(character: Character, captorId: FactionId): number {
-  return 50 + Math.round(affinityToward(character, captorId) / 5)
+  return joinLoyaltyFor(affinityToward(character, captorId))
 }
 
 /** 该武将被谁关着；不在营中时为 null。 */

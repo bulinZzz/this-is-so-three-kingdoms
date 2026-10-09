@@ -11,6 +11,7 @@ import {
   type DefenseChoice,
 } from './battle'
 import { recruitWillingCaptives } from './captives'
+import { isServing } from './characters'
 import {
   hasActedThisTurn,
   isFactionDestroyed,
@@ -50,7 +51,7 @@ function sitesOf(state: GameState, factionId: FactionId): Site[] {
 
 function officersOf(state: GameState, factionId: FactionId): Character[] {
   return state.characters.filter(
-    (character) => character.status === 'serving' && character.factionId === factionId,
+    (character) => isServing(character) && character.factionId === factionId,
   )
 }
 

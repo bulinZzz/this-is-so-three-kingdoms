@@ -3,9 +3,13 @@ import {
   CHARACTER_LIMIT,
   cloneCharacters,
   countServing,
+  growAges,
   isRecruitable,
+  isRetired,
+  isServing,
   validateCharacters,
 } from '../src/core/characters'
+import { createInitialState } from '../src/core/createInitialState'
 import type { Character, Geography } from '../src/core/model'
 
 const FACTION_IDS = ['liubei', 'caocao', 'sunquan']
@@ -239,5 +243,34 @@ describe('武将判定', () => {
   it('上限为正整数', () => {
     expect(Number.isInteger(CHARACTER_LIMIT)).toBe(true)
     expect(CHARACTER_LIMIT).toBeGreaterThan(0)
+  })
+})
+
+describe('在场与退场', () => {
+  it('在仕与退场各自判明，互不重叠', () => {
+    expect(isServing(character({ status: 'serving', factionId: 'liubei' }))).toBe(true)
+    expect(isServing(character({ status: 'wild' }))).toBe(false)
+    expect(isServing(character({ status: 'retired' }))).toBe(false)
+
+    expect(isRetired(character({ status: 'retired' }))).toBe(true)
+    expect(isRetired(character({ status: 'serving', factionId: 'liubei' }))).toBe(false)
+    expect(isRetired(character({ status: 'wild' }))).toBe(false)
+  })
+
+  it('跨年时在世武将加一岁，退场者不再参与结算', () => {
+    const state = createInitialState({ seed: 208 })
+    const living = state.characters.find((item) => isServing(item))
+    const retired = state.characters.find((item) => item.status === 'wild')
+    if (living === undefined || retired === undefined) {
+      throw new Error('开局缺少可用武将')
+    }
+    retired.status = 'retired'
+    const livingAge = living.age
+    const retiredAge = retired.age
+
+    growAges(state)
+
+    expect(living.age).toBe(livingAge + 1)
+    expect(retired.age).toBe(retiredAge)
   })
 })
