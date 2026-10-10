@@ -1211,7 +1211,7 @@ function createOfficerNameCell(character: Character): HTMLTableCellElement {
   return cell
 }
 
-/** 忠诚单元格：在仕者给忠诚数值，其余留空。是否离心在详情页里说明。 */
+/** 忠诚单元格：在仕者给忠诚数值，其余留空。是否离心在选将条目里说明。 */
 function createLoyaltyCell(character: Character): HTMLTableCellElement {
   if (!isServing(character) || character.factionId === null) {
     return createTextCell('—', 'roster__muted')
