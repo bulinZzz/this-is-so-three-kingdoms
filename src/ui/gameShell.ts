@@ -15,6 +15,7 @@ import type {
   FactionId,
   GameDate,
   GameState,
+  Personality,
   Season,
   SiteId,
   SiteType,
@@ -33,7 +34,7 @@ import {
   type AttackParty,
   type Party,
 } from '../core/battle'
-import { isRecruitable, isServing } from '../core/characters'
+import { isRecruitable, isRetired, isServing } from '../core/characters'
 import { captivesOf } from '../core/captives'
 import { grainYield } from '../core/economy'
 import { duelLineOf, duelResponseLineOf } from '../core/duelLines'
@@ -108,14 +109,52 @@ const SHELL_HTML = `
         <button type="button" class="saves__close" data-action="close-roster">关闭</button>
       </div>
       <div class="roster__body">
-        <section class="roster__section">
-          <h3 class="roster__section-title roster__officers-title" hidden>麾下<span class="roster__count roster__officers-count"></span></h3>
-          <ul class="roster__officers"></ul>
-        </section>
-        <section class="roster__section roster__dev" hidden>
-          <h3 class="roster__section-title">全部武将<span class="roster__count roster__all-count"></span></h3>
-          <ul class="roster__all"></ul>
-        </section>
+        <div class="roster__list">
+          <section class="roster__section">
+            <h3 class="roster__section-title roster__officers-title" hidden>麾下<span class="roster__count roster__officers-count"></span></h3>
+            <div class="roster__table-wrap">
+              <table class="roster__table">
+                <thead>
+                  <tr>
+                    <th>姓名</th>
+                    <th>驻地</th>
+                    <th>兵力</th>
+                    <th>武</th>
+                    <th>统</th>
+                    <th>智</th>
+                    <th>政</th>
+                    <th>忠诚</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody class="roster__officers"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="roster__section roster__dev" hidden>
+            <h3 class="roster__section-title">全部武将<span class="roster__count roster__all-count"></span></h3>
+            <div class="roster__table-wrap">
+              <table class="roster__table roster__table--all">
+                <thead>
+                  <tr>
+                    <th>姓名</th>
+                    <th>所在州</th>
+                    <th>兵力</th>
+                    <th>武</th>
+                    <th>统</th>
+                    <th>智</th>
+                    <th>政</th>
+                    <th>忠诚</th>
+                    <th>状态</th>
+                    <th>君主</th>
+                  </tr>
+                </thead>
+                <tbody class="roster__all"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+        <div class="roster__detail" hidden></div>
       </div>
       <p class="roster__status" role="status"></p>
     </dialog>
@@ -188,6 +227,10 @@ const SHELL_HTML = `
       <label class="settings__option">
         <input type="checkbox" class="settings__checkbox" data-setting="showStrategicLinks" />
         <span>显示战略点的连线</span>
+      </label>
+      <label class="settings__option">
+        <input type="checkbox" class="settings__checkbox" data-setting="showActionCosts" />
+        <span>显示行动力消耗</span>
       </label>
       <label class="settings__option">
         <input type="checkbox" class="settings__checkbox" data-setting="developerMode" />
@@ -381,31 +424,21 @@ const SITE_TYPE_LABELS: Record<SiteType, string> = {
   field: '野地',
 }
 
-/** 造一个带 data 属性的行动按钮，供各面板的事件代理读取参数；右侧附上行动力消耗。 */
-function createOrderButton(
+/** 表格行内的行动按钮；开启「显示行动力消耗」时把消耗并入名称。 */
+function createRosterAction(
   label: string,
   action: string,
-  data: Record<string, string>,
+  characterId: CharacterId,
   cost: number,
-  disabled = false,
+  showCosts: boolean,
 ): HTMLButtonElement {
   const button = document.createElement('button')
   button.type = 'button'
   button.className = 'officer-action'
   button.dataset.action = action
-  button.disabled = disabled
-  for (const [key, value] of Object.entries(data)) {
-    button.dataset[key] = value
-  }
-
-  const text = document.createElement('span')
-  text.textContent = label
-
-  const costLabel = document.createElement('span')
-  costLabel.className = 'action-cost'
-  costLabel.textContent = `${cost} 行动力`
-
-  button.append(text, costLabel)
+  button.dataset.character = characterId
+  button.title = `消耗 ${cost} 行动力`
+  button.textContent = showCosts ? `${label} ${cost}` : label
 
   return button
 }
@@ -415,7 +448,7 @@ function ageText(age: number): string {
   return age < 20 ? '未冠' : `${age} 岁`
 }
 
-/** 武将的兵力（连同带兵上限）、能力、对某势力的态度与年龄，供各处卡片统一显示。 */
+/** 武将的兵力（连同带兵上限）、能力、对某势力的态度与年龄，供选将条目统一显示。 */
 function officerMetaText(character: Character, factionId: FactionId): string {
   const summary = `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
   const attitude = affinityAttitude(affinityToward(character, factionId))
@@ -423,50 +456,6 @@ function officerMetaText(character: Character, factionId: FactionId): string {
   const loyalty = hint === null ? '' : ` · ${hint}`
 
   return `${summary} · ${attitude} · ${ageText(character.age)}${loyalty}`
-}
-
-/** 武将卡片：姓名、兵力、能力、态度与年龄，供选将时比较。可附标记与一排行动按钮。 */
-function createOfficerCard(
-  character: Character,
-  factionId: FactionId,
-  actions: readonly HTMLButtonElement[],
-  flags: readonly string[] = [],
-): HTMLLIElement {
-  const item = document.createElement('li')
-  item.className = 'officer-card'
-
-  const head = document.createElement('div')
-  head.className = 'officer-card__head'
-
-  const name = document.createElement('span')
-  name.className = 'officer-card__name'
-  name.textContent = character.name
-
-  head.append(
-    name,
-    ...flags.map((text) => {
-      const flag = document.createElement('span')
-      flag.className = 'officer-card__flag'
-      flag.textContent = text
-
-      return flag
-    }),
-  )
-
-  const meta = document.createElement('span')
-  meta.className = 'officer-card__meta'
-  meta.textContent = officerMetaText(character, factionId)
-
-  item.append(head, meta)
-
-  if (actions.length > 0) {
-    const row = document.createElement('div')
-    row.className = 'officer-card__actions'
-    row.append(...actions)
-    item.append(row)
-  }
-
-  return item
 }
 
 /** 侧栏战略点面板：所选战略点的名称、类型、归属与驻守武将；按接壤情况提供进攻、调动与寻访。 */
@@ -549,7 +538,12 @@ const PARTY_ROLE_LABELS: Record<PartyRole, string> = {
 }
 
 /** 侧栏「待招募」：玩家接触过、尚未招到的在野者，可再次拜访以提升其意愿。 */
-function renderContacts(panel: HTMLElement, state: GameState, message: string): void {
+function renderContacts(
+  panel: HTMLElement,
+  state: GameState,
+  message: string,
+  showCosts: boolean,
+): void {
   const contacts = state.contactedCandidates[state.playerFaction] ?? []
   const candidates = contacts
     .map((contact) => state.characters.find((character) => character.id === contact.characterId))
@@ -576,7 +570,9 @@ function renderContacts(panel: HTMLElement, state: GameState, message: string): 
           button.className = 'recruit-panel__visit'
           button.dataset.action = 'visit-character'
           button.dataset.character = character.id
-          button.textContent = `再次拜访 · ${ACTION_COSTS.visit} 行动力`
+          button.textContent = showCosts
+            ? `再次拜访 · ${ACTION_COSTS.visit} 行动力`
+            : '再次拜访'
 
           item.append(name, button)
 
@@ -1169,46 +1165,188 @@ function createListItem(className: string, text: string): HTMLLIElement {
   return item
 }
 
-/** 渲染麾下武将为卡片，每张可当场征兵，返回人数。 */
-function renderOfficers(list: Element, state: GameState): number {
+/** 武将表的列数，供空表与跨列单元格使用。 */
+const ROSTER_COLUMNS = 9
+
+/** 表格中的单元格。 */
+function createTextCell(text: string, className = ''): HTMLTableCellElement {
+  const cell = document.createElement('td')
+  if (className !== '') {
+    cell.className = className
+  }
+  cell.textContent = text
+
+  return cell
+}
+
+/** 姓名单元格：姓名按钮，点开详情。 */
+function createOfficerNameCell(character: Character): HTMLTableCellElement {
+  const cell = document.createElement('td')
+
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'roster__name'
+  button.dataset.action = 'officer-detail'
+  button.dataset.character = character.id
+  button.textContent = character.name
+
+  cell.append(button)
+
+  return cell
+}
+
+/** 忠诚单元格：在仕者给忠诚数值，其余留空。是否离心在详情页里说明。 */
+function createLoyaltyCell(character: Character): HTMLTableCellElement {
+  if (!isServing(character) || character.factionId === null) {
+    return createTextCell('—', 'roster__muted')
+  }
+
+  return createTextCell(String(character.loyalty))
+}
+
+/** 操作单元格：本季未行动者给征兵与征粮，已行动者换成不可点的「已行动」。 */
+function createOpsCell(
+  character: Character,
+  acted: boolean,
+  showCosts: boolean,
+): HTMLTableCellElement {
+  const cell = document.createElement('td')
+  const ops = document.createElement('div')
+  ops.className = 'roster__ops'
+
+  if (acted) {
+    ops.append(createDoneAction())
+  } else {
+    ops.append(
+      createRosterAction('征兵', 'recruit', character.id, ACTION_COSTS.recruit, showCosts),
+      createRosterAction('征粮', 'harvest-grain', character.id, ACTION_COSTS.harvestGrain, showCosts),
+    )
+  }
+
+  cell.append(ops)
+
+  return cell
+}
+
+/** 已行动的标牌：与行动按钮同一枚药丸，但停用、点不动。 */
+function createDoneAction(): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'officer-action'
+  button.disabled = true
+  button.textContent = '已行动'
+
+  return button
+}
+
+/** 渲染麾下武将为表格行：即战所需的兵力、四项能力、忠诚与当季操作；姓名可点开详情。返回人数。 */
+function renderOfficers(list: Element, state: GameState, showCosts: boolean): number {
   const officers = state.characters.filter(
     (character) => isServing(character) && character.factionId === state.playerFaction,
   )
+  const siteNames = new Map(state.geography.sites.map((site) => [site.id, site.name]))
 
   if (officers.length === 0) {
-    list.replaceChildren(createListItem('roster__empty', '麾下暂无武将'))
+    const row = document.createElement('tr')
+    const cell = document.createElement('td')
+    cell.className = 'roster__empty'
+    cell.colSpan = ROSTER_COLUMNS
+    cell.textContent = '麾下暂无武将'
+    row.append(cell)
+    list.replaceChildren(row)
+
     return 0
   }
 
   list.replaceChildren(
     ...officers.map((officer) => {
       const acted = hasActedThisTurn(state, officer.id)
+      const row = document.createElement('tr')
+      if (acted) {
+        row.className = 'roster__row--acted'
+      }
 
-      return createOfficerCard(
-        officer,
-        state.playerFaction,
-        [
-          createOrderButton(
-            '征兵',
-            'recruit',
-            { character: officer.id },
-            ACTION_COSTS.recruit,
-            acted,
-          ),
-          createOrderButton(
-            '征粮',
-            'harvest-grain',
-            { character: officer.id },
-            ACTION_COSTS.harvestGrain,
-            acted,
-          ),
-        ],
-        acted ? ['已行动'] : [],
+      row.append(
+        createOfficerNameCell(officer),
+        createTextCell(siteNames.get(officer.stationedSiteId ?? '') ?? '—'),
+        createTextCell(`${officer.troops}/${troopLimit(officer)}`),
+        createTextCell(String(officer.might)),
+        createTextCell(String(officer.command)),
+        createTextCell(String(officer.intellect)),
+        createTextCell(String(officer.politics)),
+        createLoyaltyCell(officer),
+        createOpsCell(officer, acted, showCosts),
       )
+
+      return row
     }),
   )
 
   return officers.length
+}
+
+const PERSONALITY_LABELS: Record<Personality, string> = {
+  open: '豁达',
+  scheming: '多谋',
+  brave: '刚烈',
+  steady: '沉稳',
+  cautious: '谨慎',
+  proud: '骄矜',
+}
+
+/**
+ * 武将详情：表格之外的记录性信息——头像位、身份、年龄、性格、对己方态度与所在州。
+ * 头像暂以姓名首字占位，将来换作正式立绘。
+ */
+function renderOfficerDetail(container: Element, state: GameState, character: Character): void {
+  const back = document.createElement('button')
+  back.type = 'button'
+  back.className = 'roster__back'
+  back.dataset.action = 'officer-back'
+  back.textContent = '返回列表'
+
+  const head = document.createElement('div')
+  head.className = 'officer-detail__head'
+
+  const portrait = document.createElement('div')
+  portrait.className = 'officer-detail__portrait'
+  portrait.textContent = character.name.slice(0, 1)
+
+  const title = document.createElement('div')
+  title.className = 'officer-detail__title'
+
+  const name = document.createElement('h3')
+  name.className = 'officer-detail__name'
+  name.textContent = character.name
+
+  const role = document.createElement('span')
+  role.className = 'officer-detail__role'
+  role.textContent = character.isMonarch ? '君主' : '麾下'
+
+  title.append(name, role)
+  head.append(portrait, title)
+
+  const provinceName =
+    state.geography.provinces.find((province) => province.id === character.provinceId)?.name ??
+    character.provinceId
+  const facts: readonly [string, string][] = [
+    ['年龄', ageText(character.age)],
+    ['性格', PERSONALITY_LABELS[character.personality]],
+    ['对己方态度', affinityAttitude(affinityToward(character, state.playerFaction))],
+    ['所在州', provinceName],
+  ]
+
+  const list = document.createElement('dl')
+  list.className = 'officer-detail__facts'
+  for (const [label, value] of facts) {
+    const term = document.createElement('dt')
+    term.textContent = label
+    const detail = document.createElement('dd')
+    detail.textContent = value
+    list.append(term, detail)
+  }
+
+  container.replaceChildren(back, head, list)
 }
 
 const CHARACTER_STATUS_LABELS: Record<CharacterStatus, string> = {
@@ -1218,35 +1356,57 @@ const CHARACTER_STATUS_LABELS: Record<CharacterStatus, string> = {
   retired: '退场',
 }
 
-/** 开发者模式：列出全部武将及其所在州、状态与所属势力，返回人数。 */
+/** 开发者模式：列出全部武将的所在州、兵力、能力与忠诚，并标出状态与所属君主。返回人数。 */
 function renderAllCharacters(list: Element, state: GameState): number {
   const provinceNames = new Map(
     state.geography.provinces.map((province) => [province.id, province.name]),
   )
   const factionNames = new Map(state.factions.map((faction) => [faction.id, faction.name]))
+  const monarchNames = new Map<FactionId, string>()
+  for (const character of state.characters) {
+    if (character.isMonarch && isServing(character) && character.factionId !== null) {
+      monarchNames.set(character.factionId, character.name)
+    }
+  }
+  // 被俘者已无势力，来历记在营中的记录里。
+  const formerFactions = new Map<CharacterId, FactionId>()
+  for (const records of Object.values(state.captives)) {
+    for (const record of records) {
+      if (record.formerFactionId !== null) {
+        formerFactions.set(record.characterId, record.formerFactionId)
+      }
+    }
+  }
 
   list.replaceChildren(
     ...state.characters.map((character) => {
-      const item = document.createElement('li')
-      item.className = 'roster__all-item'
+      const row = document.createElement('tr')
+      if (isRetired(character)) {
+        row.className = 'roster__row--acted'
+      }
 
-      const name = document.createElement('span')
-      name.className = 'roster__all-name'
-      name.textContent = character.name
+      // 君主列写「他属于谁的麾下」：在仕者取现属，被俘者取被俘前的原属，其余留空。
+      // 旧主已覆灭时其君主多半不在册，退回势力名。
+      const ownerId = character.factionId ?? formerFactions.get(character.id) ?? null
+      const monarch =
+        ownerId === null
+          ? '—'
+          : (monarchNames.get(ownerId) ?? factionNames.get(ownerId) ?? '—')
 
-      const where = provinceNames.get(character.provinceId) ?? character.provinceId
-      const owner =
-        character.factionId === null
-          ? ''
-          : ` · ${factionNames.get(character.factionId) ?? character.factionId}`
+      row.append(
+        createTextCell(character.name),
+        createTextCell(provinceNames.get(character.provinceId) ?? character.provinceId),
+        createTextCell(`${character.troops}/${troopLimit(character)}`),
+        createTextCell(String(character.might)),
+        createTextCell(String(character.command)),
+        createTextCell(String(character.intellect)),
+        createTextCell(String(character.politics)),
+        createLoyaltyCell(character),
+        createTextCell(CHARACTER_STATUS_LABELS[character.status]),
+        createTextCell(monarch, monarch === '—' ? 'roster__muted' : ''),
+      )
 
-      const meta = document.createElement('span')
-      meta.className = 'roster__all-meta'
-      meta.textContent = `${where} · ${CHARACTER_STATUS_LABELS[character.status]}${owner}`
-
-      item.append(name, meta)
-
-      return item
+      return row
     }),
   )
 
@@ -1403,7 +1563,12 @@ function renderCaptivesDialog(dialog: HTMLDialogElement, captives: readonly Capt
 }
 
 /** 俘虏营：列出营中俘虏的原属与态度，可劝降或斩杀；君主只能斩杀。 */
-function renderPrison(dialog: HTMLDialogElement, state: GameState, message: string): void {
+function renderPrison(
+  dialog: HTMLDialogElement,
+  state: GameState,
+  message: string,
+  showCosts: boolean,
+): void {
   const list = requireElement<HTMLElement>(dialog, '.prison__list')
   const factionNames = new Map(state.factions.map((faction) => [faction.id, faction.name]))
   const captives = captivesOf(state, state.playerFaction)
@@ -1449,7 +1614,7 @@ function renderPrison(dialog: HTMLDialogElement, state: GameState, message: stri
         persuade.className = 'prison__button'
         persuade.dataset.action = 'persuade'
         persuade.dataset.characterId = character.id
-        persuade.textContent = `劝降（${ACTION_COSTS.persuade} 行动力）`
+        persuade.textContent = showCosts ? `劝降（${ACTION_COSTS.persuade} 行动力）` : '劝降'
         actions.append(persuade)
 
         const release = document.createElement('button')
@@ -1596,6 +1761,8 @@ export function mountGameShell(
   const officerCount = requireElement<HTMLElement>(root, '.roster__officers-count')
   const officersTitle = requireElement<HTMLElement>(root, '.roster__officers-title')
   const rosterStatus = requireElement<HTMLElement>(root, '.roster__status')
+  const rosterList = requireElement<HTMLElement>(root, '.roster__list')
+  const rosterDetail = requireElement<HTMLElement>(root, '.roster__detail')
   const devSection = requireElement<HTMLElement>(root, '.roster__dev')
   const allCharactersList = requireElement<HTMLElement>(root, '.roster__all')
   const allCount = requireElement<HTMLElement>(root, '.roster__all-count')
@@ -1605,6 +1772,7 @@ export function mountGameShell(
   const closeSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="close-saves"]')
   const settingsDialog = requireElement<HTMLDialogElement>(root, '.settings')
   const linksCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="showStrategicLinks"]')
+  const costCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="showActionCosts"]')
   const developerCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="developerMode"]')
   const savesDialog = requireElement<HTMLDialogElement>(root, '.saves')
   const openNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="open-new-game"]')
@@ -1627,20 +1795,27 @@ export function mountGameShell(
   const prisonList = requireElement<HTMLElement>(root, '.prison__list')
 
   linksCheckbox.checked = settings.get().showStrategicLinks
+  costCheckbox.checked = settings.get().showActionCosts
   developerCheckbox.checked = settings.get().developerMode
 
-  /** 给面板上的行动按钮标注行动力消耗，与征兵按钮的标注一致。 */
-  const setActionCost = (action: string, text: string): void => {
-    requireElement<HTMLElement>(root, `[data-action="${action}"] .action-cost`).textContent = text
+  /** 给面板上的行动按钮标注行动力消耗；关闭「显示行动力消耗」时留空，角标随之隐藏。 */
+  const applyActionCosts = (showCosts: boolean): void => {
+    const setActionCost = (action: string, value: string): void => {
+      requireElement<HTMLElement>(root, `[data-action="${action}"] .action-cost`).textContent =
+        showCosts ? value : ''
+    }
+
+    setActionCost('attack-here', `${ACTION_COSTS.attack} 行动力`)
+    setActionCost('transfer-here', `${ACTION_COSTS.transfer} 行动力/人`)
+    setActionCost('seek-here', `${ACTION_COSTS.seekTalent} 行动力`)
   }
-  setActionCost('attack-here', `${ACTION_COSTS.attack} 行动力`)
-  setActionCost('transfer-here', `${ACTION_COSTS.transfer} 行动力/人`)
-  setActionCost('seek-here', `${ACTION_COSTS.seekTalent} 行动力`)
 
   /** 各面板的上一次行动反馈。 */
   let siteMessage = ''
   let recruitMessage = ''
   let contactMessage = ''
+  /** 武将详情当前展示的人；为 null 时展示列表。 */
+  let detailCharacterId: CharacterId | null = null
   /** 命令弹窗当前的目标与行动：进攻或调动。 */
   let orderRequest: OrderRequest | null = null
   /** 编成后进入战斗的演出：编成、已结算的战报与当前幕。 */
@@ -1651,19 +1826,42 @@ export function mountGameShell(
   let prisonMessage = ''
 
   const paint = (state: GameState): void => {
+    const showCosts = settings.get().showActionCosts
+
     dateLabel.textContent = formatDate(state)
     turnLabel.textContent = `第 ${state.currentTurn} 回合`
     renderActionPoints(actionPointsLabel, state)
     renderDomestic(domesticDialog, state)
     renderFactions(factionList, state)
+    applyActionCosts(showCosts)
     renderSitePanel(sitePanel, state, selection.get(), siteMessage)
-    renderContacts(contactPanel, state, contactMessage)
+    renderContacts(contactPanel, state, contactMessage, showCosts)
     renderOrderDialog(root, state, orderRequest)
     renderBattleStage(root, state, battleStage)
-    officerCount.textContent = String(renderOfficers(officerList, state))
+    officerCount.textContent = String(renderOfficers(officerList, state, showCosts))
     rosterStatus.textContent = recruitMessage
+
+    // 详情只认仍在麾下的人；他若已离队（叛离、阵亡等），自动退回列表。
+    const detail =
+      detailCharacterId === null
+        ? undefined
+        : state.characters.find(
+            (character) =>
+              character.id === detailCharacterId &&
+              isServing(character) &&
+              character.factionId === state.playerFaction,
+          )
+    if (detail === undefined) {
+      detailCharacterId = null
+    }
+    rosterList.hidden = detail !== undefined
+    rosterDetail.hidden = detail === undefined
+    if (detail !== undefined) {
+      renderOfficerDetail(rosterDetail, state, detail)
+    }
+
     renderHistory(historyList, state)
-    renderPrison(prisonDialog, state, prisonMessage)
+    renderPrison(prisonDialog, state, prisonMessage, showCosts)
     renderSlots(slotList, session)
 
     const developerMode = settings.get().developerMode
@@ -1683,6 +1881,7 @@ export function mountGameShell(
   openRosterButton.addEventListener('click', () => {
     recruitMessage = ''
     rosterStatus.textContent = ''
+    detailCharacterId = null
     rosterDialog.showModal()
   })
 
@@ -2051,11 +2250,28 @@ export function mountGameShell(
       return
     }
 
+    if (button.dataset.action === 'officer-detail') {
+      recruitMessage = ''
+      detailCharacterId = characterId
+      paint(session.getState())
+      return
+    }
+
     const result =
       button.dataset.action === 'harvest-grain'
         ? session.harvestGrain(characterId)
         : session.recruit(characterId)
     recruitMessage = result.ok ? result.record.outcome : result.reason
+    paint(session.getState())
+  })
+
+  /** 详情页：返回列表。 */
+  rosterDetail.addEventListener('click', (event) => {
+    if (actionButtonOf(event)?.dataset.action !== 'officer-back') {
+      return
+    }
+
+    detailCharacterId = null
     paint(session.getState())
   })
 
@@ -2113,6 +2329,11 @@ export function mountGameShell(
 
   linksCheckbox.addEventListener('change', () => {
     settings.update({ showStrategicLinks: linksCheckbox.checked })
+  })
+
+  costCheckbox.addEventListener('change', () => {
+    settings.update({ showActionCosts: costCheckbox.checked })
+    paint(session.getState())
   })
 
   developerCheckbox.addEventListener('change', () => {

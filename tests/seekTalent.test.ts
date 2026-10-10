@@ -250,3 +250,58 @@ describe('visit', () => {
     expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN)
   })
 })
+
+describe('寻访与接触名单', () => {
+  it('已接触过的人不再被寻访抽到，再争取只能登门拜访', () => {
+    const state = createInitialState({ scenario: seekScenario(candidate('proud', 0)) })
+    seekTalent(state, fixedRandom([0, 0.99]), 'a')
+    expect(state.contactedCandidates.liubei).toEqual([{ characterId: 'candidate', siteId: 'a' }])
+
+    // 州中只剩他一名在野者；若还入池必被抽中，被拒说明他已在寻访范围之外。
+    expect(seekTalent(state, fixedRandom([0, 0.99]), 'a')).toEqual({
+      ok: false,
+      reason: '此处已无可寻之人',
+    })
+  })
+
+  it('会面之处易主后他重归寻访池，可在别处再遇上', () => {
+    const state = createInitialState({ scenario: seekScenario(candidate('proud', 0)) })
+    seekTalent(state, fixedRandom([0, 0.99]), 'a')
+
+    // 甲城失守，但本州另有丙城在手。
+    const third = {
+      id: 'c',
+      name: '丙城',
+      type: 'city' as const,
+      provinceId: 'jing',
+      owner: 'liubei',
+      neighbors: ['a'],
+    }
+    state.geography.sites.push(third)
+    const siteA = state.geography.sites.find((item) => item.id === 'a')
+    if (siteA !== undefined) {
+      siteA.owner = 'caocao'
+    }
+
+    const result = seekTalent(state, fixedRandom([0, 0.99]), 'c')
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.record.outcome).toContain('客')
+    }
+    expect(state.contactedCandidates.liubei).toEqual([{ characterId: 'candidate', siteId: 'c' }])
+  })
+
+  it('他方把人招走后，他从我的待招募里消失', () => {
+    const state = createInitialState({ scenario: seekScenario(candidate('proud', 0)) })
+    seekTalent(state, fixedRandom([0, 0.99]), 'a')
+    expect(state.contactedCandidates.liubei).toHaveLength(1)
+
+    // 曹操在自己的乙城寻访同一州的人才，抽中即入仕。
+    const result = seekTalent(state, fixedRandom([0, 0]), 'b', 'caocao')
+
+    expect(result.ok).toBe(true)
+    expect(characterOf(state, 'candidate').factionId).toBe('caocao')
+    expect(state.contactedCandidates.liubei ?? []).toEqual([])
+  })
+})

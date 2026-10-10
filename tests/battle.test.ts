@@ -639,20 +639,20 @@ describe('被俘与招降', () => {
     }
   })
 
-  it('被打灭的一方，其营中俘虏交由攻方处置', () => {
+  it('被打灭的一方，其营中俘虏一概开释为在野', () => {
     const state = scene({ attackerTroops: 20000, defenderTroops: 1000 })
-    const returnee = characterOf(state, 'attacker2')
-    takeCaptive(state, returnee, 'caocao')
+    const prisoner = characterOf(state, 'attacker2')
+    takeCaptive(state, prisoner, 'caocao')
 
     const result = attack(state, { commander: 'attacker' }, 'b')
 
     expect(result.ok).toBe(true)
-    // 刘备正是他的旧主，直接回归。
-    expect(returnee.status).toBe('serving')
-    expect(returnee.factionId).toBe('liubei')
+    // 旧主虽是攻方，也不自动回来；他流落为在野。
+    expect(prisoner.status).toBe('wild')
+    expect(prisoner.factionId).toBeNull()
     expect(state.captives.caocao).toHaveLength(0)
     if (result.ok) {
-      expect(result.record.outcome).toContain('重归旧主')
+      expect(result.record.outcome).toContain('流落为在野')
     }
   })
 })

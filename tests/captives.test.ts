@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  absorbCaptives,
   attitudeOf,
   captivesOf,
   captorOf,
@@ -9,6 +8,7 @@ import {
   joinLoyalty,
   persuade,
   releaseCaptive,
+  releaseCaptives,
   takeCaptive,
   WILLING_THRESHOLD,
 } from '../src/core/captives'
@@ -223,41 +223,41 @@ describe('关押、劝降与斩杀', () => {
 })
 
 describe('覆灭时营中俘虏的归处', () => {
-  it('旧主正是攻方的直接回归，其余转入攻方的营', () => {
+  it('一律开释为在野，旧主正是攻方者也不例外', () => {
     const zhangfei = officer({ id: 'zhangfei', name: '张飞', factionId: 'liubei', stationedSiteId: 'a' })
-    const guanyu = officer({ id: 'guanyu', name: '关羽' })
-    const state = scene([zhangfei, guanyu])
+    const simayi = officer({ id: 'simayi', name: '司马懿' })
+    const state = scene([zhangfei, simayi])
 
-    // 关羽为刘备所擒；张飞为曹操所擒。
-    takeCaptive(state, characterOf(state, 'guanyu'), 'liubei')
+    // 张飞为曹操所擒（旧主正是攻方），司马懿为孙权所擒。
     takeCaptive(state, characterOf(state, 'zhangfei'), 'caocao')
+    takeCaptive(state, characterOf(state, 'simayi'), 'sunquan')
 
-    const notes = absorbCaptives(state, 'caocao', 'liubei')
+    const notes = releaseCaptives(state, 'caocao')
 
-    // 张飞的旧主就是攻方，直接回归；曹操的营随之清空。
-    expect(characterOf(state, 'zhangfei').status).toBe('serving')
-    expect(characterOf(state, 'zhangfei').factionId).toBe('liubei')
+    expect(characterOf(state, 'zhangfei').status).toBe('wild')
+    expect(characterOf(state, 'zhangfei').factionId).toBeNull()
+    expect(characterOf(state, 'zhangfei').loyalty).toBe(0)
+    // 曹操的营随之清空；别家的营不受影响。
     expect(captivesOf(state, 'caocao')).toHaveLength(0)
-    // 刘备营中原有的关羽不受影响。
-    expect(captivesOf(state, 'liubei').map((view) => view.character.id)).toEqual(['guanyu'])
+    expect(captivesOf(state, 'sunquan')).toHaveLength(1)
     expect(notes).toHaveLength(1)
   })
 
-  it('旧主并非攻方的，转入攻方的营、意愿沿用', () => {
-    const simayi = officer({ id: 'simayi', name: '司马懿' })
+  it('开释者按能力重定卡池层级，可再被寻访', () => {
+    const simayi = officer({ id: 'simayi', name: '司马懿', intellect: 96, might: 60 })
     const state = scene([simayi])
-    const prisoner = characterOf(state, 'simayi')
 
-    // 司马懿为孙权所擒；孙权覆灭于刘备之手，他转入刘备营。
-    takeCaptive(state, prisoner, 'sunquan')
-    const will = state.captives.sunquan[0].will
+    takeCaptive(state, characterOf(state, 'simayi'), 'sunquan')
+    const notes = releaseCaptives(state, 'sunquan')
 
-    const notes = absorbCaptives(state, 'sunquan', 'liubei')
+    expect(characterOf(state, 'simayi').tier).toBe('second')
+    expect(notes).toEqual(['司马懿 流落为在野'])
+  })
 
-    expect(prisoner.status).toBe('captured')
-    expect(captivesOf(state, 'liubei')).toHaveLength(1)
-    expect(state.captives.liubei[0].will).toBe(will)
-    expect(notes).toHaveLength(1)
+  it('空营无事发生', () => {
+    const state = scene([officer({ id: 'zhangfei', name: '张飞' })])
+
+    expect(releaseCaptives(state, 'caocao')).toEqual([])
   })
 })
 
@@ -290,19 +290,5 @@ describe('麾下上限与俘虏归附', () => {
     expect(characterOf(state, 'guanyu').factionId).toBeNull()
     expect(countServing(state.characters, 'liubei')).toBe(CHARACTER_LIMIT)
     expect(captivesOf(state, 'liubei')).toHaveLength(0)
-  })
-
-  it('覆灭时重归旧主者遇满员，转为在野', () => {
-    const zhangfei = officer({ id: 'zhangfei', name: '张飞', factionId: 'liubei', stationedSiteId: 'a' })
-    const state = scene([...fullRoster(), zhangfei])
-
-    takeCaptive(state, characterOf(state, 'zhangfei'), 'caocao')
-    expect(countServing(state.characters, 'liubei')).toBe(CHARACTER_LIMIT)
-
-    const notes = absorbCaptives(state, 'caocao', 'liubei')
-
-    expect(characterOf(state, 'zhangfei').status).toBe('wild')
-    expect(characterOf(state, 'zhangfei').factionId).toBeNull()
-    expect(notes).toHaveLength(1)
   })
 })

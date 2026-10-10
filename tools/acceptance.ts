@@ -9,6 +9,7 @@ import {
   partySide,
   type AttackParty,
 } from '../src/core/battle'
+import { isRecruitable } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import {
   factionTroops,
@@ -22,9 +23,9 @@ import {
   transfer,
 } from '../src/core/military'
 import type { Character, FactionId, GameState, Season, Site, SiteId, SiteType } from '../src/core/model'
-import { createRandom } from '../src/core/random'
+import { createRandom, type Random } from '../src/core/random'
 import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
-import { seekTalent } from '../src/core/seekTalent'
+import { recruitChance, seekTalent, visit } from '../src/core/seekTalent'
 import { endTurn } from '../src/core/turn'
 
 /**
@@ -32,8 +33,8 @@ import { endTurn } from '../src/core/turn'
  * 输出逐季日志与汇总，供调数值后复跑对照。运行方式见 npm run acceptance。
  *
  * 推演用一个规则驱动的「玩家」代理，策略如下：
- *   寻访（前期攒人）→ 进攻（安全边际内挑价值最高者）→ 征兵（交给统率最高者）→ 征粮（交给内政最高者）
- *   → 调兵（朝最弱目标集结）。
+ *   寻访（前期攒人）→ 进攻（安全边际内挑价值最高者）→ 征兵（交给统率最高者）
+ *   → 拜访（寻访到头后登门争取已认得路的人）→ 征粮（交给内政最高者）→ 调兵（朝最弱目标集结）。
  * 其他势力由 factionAi 自主行动，走与实机相同的回合收尾流程。
  * 它不代表最优打法，只用来观察数值松紧与局势走向；判断「好不好玩」仍要看实玩。
  */
@@ -112,6 +113,26 @@ function pickPrimaryTarget(state: GameState): Site | null {
   return targets.reduce((best, site) =>
     defenderPowerOf(state, site.id) < defenderPowerOf(state, best.id) ? site : best,
   )
+}
+
+/**
+ * 拜访一位已接触的在野者：在会面之处仍在自己手里的人里，挑当前最可能应允的一位登门。
+ * 寻访到头之后，招人便靠这一步继续推进。返回本季的记录条目；无人可访时返回 null。
+ */
+function visitContact(state: GameState, random: Random): string | null {
+  const player = state.playerFaction
+  const target = (state.contactedCandidates[player] ?? [])
+    .filter((contact) => siteOf(state, contact.siteId).owner === player)
+    .map((contact) => state.characters.find((item) => item.id === contact.characterId))
+    .filter((item): item is Character => item !== undefined && isRecruitable(item))
+    .sort((a, b) => recruitChance(b, player) - recruitChance(a, player))[0]
+
+  if (target === undefined) {
+    return null
+  }
+
+  const result = visit(state, random, target.id)
+  return result.ok ? result.record.outcome : null
 }
 
 /**
@@ -335,6 +356,14 @@ function runPlaythrough(): Playthrough {
       const result = recruit(state, recruiter.id)
       if (result.ok) {
         actions.push(result.record.outcome)
+      }
+    }
+
+    // 招人未尽时的余力用来登门：寻访到头后，仍可拜访已认得路的人，直到人满或行动力不足。
+    if (servingCount(state, player) < 8 && state.actionPoints[player] >= ACTION_COSTS.visit) {
+      const visited = visitContact(state, drawRandom)
+      if (visited !== null) {
+        actions.push(visited)
       }
     }
 

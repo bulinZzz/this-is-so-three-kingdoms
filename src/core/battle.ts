@@ -1,5 +1,5 @@
 import { runAction, type ActionResult } from './actions'
-import { absorbCaptives, attitudeOf, takeCaptive } from './captives'
+import { attitudeOf, releaseCaptives, takeCaptive } from './captives'
 import { isServing } from './characters'
 import { resolveProvinceOwners } from './geography'
 import { LOYALTY_LOSS, loseLoyalty, maybeDefect, wildTierFor } from './loyalty'
@@ -803,7 +803,7 @@ export function attack(
       }
 
       let defenderFates: string[] = []
-      let absorbedNotes: string[] = []
+      let releasedNotes: string[] = []
 
       if (attackerWins) {
         if (!undefended) {
@@ -823,13 +823,13 @@ export function attack(
         defenderFates = captured.fates
         report.captives = captured.captives
         resolveProvinceOwners(current.geography)
-        // 就此打灭的一方，其营中俘虏交由攻方处置。
+        // 就此打灭的一方，其营中俘虏一概开释为在野。
         if (
           previousOwner !== null &&
           previousOwner !== factionId &&
           isFactionDestroyed(current, previousOwner)
         ) {
-          absorbedNotes = absorbCaptives(current, previousOwner, factionId)
+          releasedNotes = releaseCaptives(current, previousOwner)
         }
       } else {
         for (const member of fighters) {
@@ -852,12 +852,12 @@ export function attack(
 
       const duelLead = duel === null ? '' : `${duelHeadline(duel)}；`
       const fateNote = defenderFates.length > 0 ? `；守将 ${defenderFates.join('、')}` : ''
-      const absorbNote = absorbedNotes.length > 0 ? `；${absorbedNotes.join('、')}` : ''
+      const releaseNote = releasedNotes.length > 0 ? `；${releasedNotes.join('、')}` : ''
 
       return {
         targetId: target.id,
         outcome: attackerWins
-          ? `${duelLead}${generalNames} 攻占 ${target.name}${fateNote}${absorbNote}`
+          ? `${duelLead}${generalNames} 攻占 ${target.name}${fateNote}${releaseNote}`
           : `${duelLead}${generalNames} 进攻 ${target.name} 失利`,
         battle: report,
       }

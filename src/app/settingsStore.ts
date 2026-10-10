@@ -6,12 +6,15 @@ export const SETTINGS_KEY = 'this-is-so-three-kingdoms/settings'
 export interface Settings {
   /** 是否在地图上显示战略点之间的全部连线。 */
   showStrategicLinks: boolean
+  /** 是否在各处行动按钮上标出行动力消耗。 */
+  showActionCosts: boolean
   /** 开发者模式：显示全部武将所在的位置等调试信息。 */
   developerMode: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   showStrategicLinks: false,
+  showActionCosts: true,
   developerMode: false,
 }
 
@@ -35,6 +38,10 @@ function toSettings(value: unknown): Settings {
       typeof candidate.showStrategicLinks === 'boolean'
         ? candidate.showStrategicLinks
         : DEFAULT_SETTINGS.showStrategicLinks,
+    showActionCosts:
+      typeof candidate.showActionCosts === 'boolean'
+        ? candidate.showActionCosts
+        : DEFAULT_SETTINGS.showActionCosts,
     developerMode:
       typeof candidate.developerMode === 'boolean'
         ? candidate.developerMode

@@ -127,14 +127,14 @@ function becomeWild(state: GameState, character: Character): void {
 type ServeOutcome = 'serving' | 'wild' | 'none'
 
 /**
- * 入仕某势力并驻守其一处理得的战略点：兵力从零起，忠诚取给定值（传 null 则沿用当前值）。
+ * 入仕某势力并驻守其一处理得的战略点：兵力从零起，忠诚取给定值。
  * 该势力已无寸土时无处安置，返回 `none`；麾下武将已达上限时不再接收，转为在野，返回 `wild`。
  */
 function serveUnder(
   state: GameState,
   character: Character,
   factionId: FactionId,
-  loyalty: number | null,
+  loyalty: number,
 ): ServeOutcome {
   const site = state.geography.sites.find((item) => item.owner === factionId)
   if (site === undefined) {
@@ -150,9 +150,7 @@ function serveUnder(
   character.factionId = factionId
   character.stationedSiteId = site.id
   character.troops = 0
-  if (loyalty !== null) {
-    character.loyalty = loyalty
-  }
+  character.loyalty = loyalty
   clearContacts(state, character.id)
 
   return 'serving'
@@ -161,18 +159,6 @@ function serveUnder(
 /** 归附：入仕俘获方，忠诚按对俘获方的偏好给一个不高不低的初值。 */
 function joinCaptive(state: GameState, character: Character, factionId: FactionId): ServeOutcome {
   const result = serveUnder(state, character, factionId, joinLoyalty(character, factionId))
-  if (result === 'none') {
-    return 'none'
-  }
-
-  removeCaptive(state, factionId, character.id)
-
-  return result
-}
-
-/** 回归旧主：释放或攻方正是其旧主时入仕，忠诚沿用被俘前之值。 */
-function rejoinLord(state: GameState, character: Character, factionId: FactionId): ServeOutcome {
-  const result = serveUnder(state, character, factionId, null)
   if (result === 'none') {
     return 'none'
   }
@@ -321,45 +307,25 @@ export function releaseCaptive(
 }
 
 /**
- * 某势力覆灭时，其营中俘虏交由攻方处置：旧主正是攻方的直接回归，其余转入攻方的俘虏营。
+ * 某势力覆灭时，其营中俘虏一概开释为在野：看守既失，他们各自散去，日后仍可被任何势力寻访。
  * 返回去向说明，供写入战报。
  */
-export function absorbCaptives(
-  state: GameState,
-  fromFactionId: FactionId,
-  toFactionId: FactionId,
-): string[] {
-  const records = [...(state.captives[fromFactionId] ?? [])]
+export function releaseCaptives(state: GameState, factionId: FactionId): string[] {
+  const records = [...(state.captives[factionId] ?? [])]
   const notes: string[] = []
 
   for (const record of records) {
     const character = state.characters.find((item) => item.id === record.characterId)
-    removeCaptive(state, fromFactionId, record.characterId)
+    removeCaptive(state, factionId, record.characterId)
     if (character === undefined) {
       continue
     }
 
-    if (record.formerFactionId === toFactionId) {
-      const result = rejoinLord(state, character, toFactionId)
-      if (result === 'serving') {
-        notes.push(`${character.name} 重归旧主`)
-      } else if (result === 'wild') {
-        notes.push(`麾下已满，${character.name} 未能重归旧主，转为在野`)
-      } else {
-        notes.push(`${character.name} 无处安置`)
-      }
-    } else {
-      state.captives[toFactionId] = [...(state.captives[toFactionId] ?? []), record]
-      notes.push(`${character.name} 转入${factionNameOf(state, toFactionId)}营`)
-    }
+    becomeWild(state, character)
+    notes.push(`${character.name} 流落为在野`)
   }
 
   return notes
-}
-
-/** 势力名；查不到时退回标识。 */
-function factionNameOf(state: GameState, factionId: FactionId): string {
-  return state.factions.find((faction) => faction.id === factionId)?.name ?? factionId
 }
 
 /** 其他势力关着的人：到「愿降」档即入仕；本版 AI 不主动劝降，未到者一直关着。 */

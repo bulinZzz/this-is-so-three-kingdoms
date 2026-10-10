@@ -6,11 +6,13 @@ import type { Character } from './model'
  * 在野者标注寻访卡池层级：荆襄名士置于基础池，保证刘备据江夏时可在荆州寻得；名将置于高层。
  * 势力倾向记各将对各势力的偏好（0–100，50 为中性），只记非中性者；忠诚与性格另按人给定，与偏好无关。
  * 能力与兵力取自演义印象，年龄按史书推算，具体平衡待核心玩法验证后再调。
+ * 生年无明文者依人物关系估定：凡人物之间的次序（如刘关张的结义之序）在数据里必须立得住，
+ * 不为某家推算让路。
  */
 export const CHARACTERS_SANGUO: Character[] = [
   // 刘备（荆州）
   { id: 'liubei', name: '刘备', status: 'serving', factionId: 'liubei', provinceId: 'jing', might: 73, command: 75, intellect: 76, politics: 80, age: 47, personality: 'open', affinities: { liubei: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'jiangxia', troops: 5000, tier: null },
-  { id: 'guanyu', name: '关羽', status: 'serving', factionId: 'liubei', provinceId: 'jing', might: 97, command: 95, intellect: 75, politics: 45, age: 48, personality: 'proud', affinities: { liubei: 96, caocao: 70, sunquan: 30 }, loyalty: 98, isMonarch: false, stationedSiteId: 'jiangxia', troops: 8000, tier: null },
+  { id: 'guanyu', name: '关羽', status: 'serving', factionId: 'liubei', provinceId: 'jing', might: 97, command: 95, intellect: 75, politics: 45, age: 46, personality: 'proud', affinities: { liubei: 96, caocao: 70, sunquan: 30 }, loyalty: 98, isMonarch: false, stationedSiteId: 'jiangxia', troops: 8000, tier: null },
   { id: 'zhangfei', name: '张飞', status: 'serving', factionId: 'liubei', provinceId: 'jing', might: 98, command: 85, intellect: 40, politics: 30, age: 42, personality: 'brave', affinities: { liubei: 95 }, loyalty: 96, isMonarch: false, stationedSiteId: 'jiangxia', troops: 6000, tier: null },
   { id: 'zhaoyun', name: '赵云', status: 'serving', factionId: 'liubei', provinceId: 'jing', might: 96, command: 91, intellect: 76, politics: 50, age: 40, personality: 'steady', affinities: { liubei: 90 }, loyalty: 97, isMonarch: false, stationedSiteId: 'jiangxia', troops: 4000, tier: null },
   { id: 'zhugeliang', name: '诸葛亮', status: 'serving', factionId: 'liubei', provinceId: 'jing', might: 38, command: 92, intellect: 100, politics: 95, age: 27, personality: 'cautious', affinities: { liubei: 92 }, loyalty: 100, isMonarch: false, stationedSiteId: 'jiangxia', troops: 2000, tier: null },

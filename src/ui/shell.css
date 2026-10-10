@@ -635,46 +635,6 @@
   cursor: not-allowed;
 }
 
-.officer-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px;
-  border: 1px solid #2a241c;
-  border-radius: 6px;
-  background: #201a13;
-}
-
-.officer-card__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.officer-card__name {
-  font-size: 14px;
-  color: #e8d9b5;
-}
-
-.officer-card__flag {
-  padding: 1px 8px;
-  border: 1px solid #574a36;
-  border-radius: 999px;
-  font-size: 11px;
-  color: #c8b48c;
-}
-
-.officer-card__meta {
-  font-size: 12px;
-  color: #9a8b70;
-}
-
-.officer-card__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 .officer-action {
   display: inline-flex;
   align-items: center;
@@ -765,9 +725,9 @@
   color: #c8b48c;
 }
 
-/* 征兵按钮本身是细边药丸，角标收一点内边距以免顶到边缘。 */
-.officer-action .action-cost {
-  padding: 1px 8px;
+/* 关闭「显示行动力消耗」时角标留空，整枚隐去，免得留一个空圈。 */
+.action-cost:empty {
+  display: none;
 }
 
 .site-panel__status {
@@ -843,8 +803,195 @@
 }
 
 .roster__dev[hidden],
-.roster__officers-title[hidden] {
+.roster__officers-title[hidden],
+.roster__list[hidden],
+.roster__detail[hidden] {
   display: none;
+}
+
+/* 外层列表与内层详情互斥显示，同用一个纵向排布。 */
+.roster__list,
+.roster__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.roster__table-wrap {
+  overflow-x: auto;
+}
+
+.roster__table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+/* 两张表前八列相同，故共用列宽，便于上下对照；末列各自定。 */
+.roster__table th:nth-child(1) {
+  width: 14%;
+}
+
+.roster__table th:nth-child(2) {
+  width: 10%;
+}
+
+/* 兵力是「当前/上限」，五位数并排也要放得下，故给得比其余数值列宽。 */
+.roster__table th:nth-child(3) {
+  width: 16%;
+}
+
+.roster__table th:nth-child(4),
+.roster__table th:nth-child(5),
+.roster__table th:nth-child(6),
+.roster__table th:nth-child(7) {
+  width: 6%;
+}
+
+/* 忠诚给数值，三位数也要放得下。 */
+.roster__table th:nth-child(8) {
+  width: 10%;
+}
+
+/* 麾下：「操作」放征兵与征粮两枚按钮，已行动者则写「已行动」。 */
+.roster__table th:nth-child(9) {
+  width: 26%;
+}
+
+/* 全部武将：末两列是状态与所属君主，替代麾下的操作列。 */
+.roster__table--all th:nth-child(9),
+.roster__table--all th:nth-child(10) {
+  width: 13%;
+}
+
+.roster__table th {
+  padding: 4px 8px;
+  border-bottom: 1px solid #2a241c;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: #9a8b70;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.roster__table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #201a13;
+  overflow: hidden;
+  color: #e8d9b5;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.roster__table tbody tr:hover {
+  background: #211b14;
+}
+
+/* 本季已行动者整行压暗，与「已行动」标牌一同提示。 */
+.roster__row--acted td {
+  color: #9a8b70;
+}
+
+.roster__name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.roster__name:hover {
+  color: #f0e2bd;
+  text-decoration: underline;
+}
+
+.roster__muted {
+  color: #6f6250;
+}
+
+.roster__ops {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.roster__back {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border: 1px solid #6b5c42;
+  border-radius: 999px;
+  background: #2a2219;
+  color: #e8d9b5;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.roster__back:hover {
+  background: #362c20;
+}
+
+.roster__detail .officer-detail__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* 头像位：暂以姓名首字占位，将来换作立绘。 */
+.officer-detail__portrait {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border: 1px solid #3a3128;
+  border-radius: 8px;
+  background: #241d15;
+  font-size: 28px;
+  color: #c8b48c;
+}
+
+.officer-detail__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.officer-detail__name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 400;
+  color: #e8d9b5;
+}
+
+.officer-detail__role {
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.officer-detail__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.officer-detail__facts dt {
+  color: #9a8b70;
+}
+
+.officer-detail__facts dd {
+  margin: 0;
+  color: #e8d9b5;
 }
 
 .roster__section-title {
@@ -861,46 +1008,6 @@
 .roster__count {
   font-size: 11px;
   letter-spacing: 0;
-  color: #9a8b70;
-}
-
-.roster__officers {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.roster__all {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.roster__all-item {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 5px 8px;
-  border-radius: 5px;
-  font-size: 13px;
-}
-
-.roster__all-item:nth-child(odd) {
-  background: #201a13;
-}
-
-.roster__all-name {
-  color: #e8d9b5;
-}
-
-.roster__all-meta {
-  font-size: 12px;
   color: #9a8b70;
 }
 
@@ -931,6 +1038,11 @@
 /* 选将列表带有兵力与能力摘要，比其余弹窗更宽。 */
 .order {
   width: min(520px, 100% - 32px);
+}
+
+/* 武将表列数较多（能力四项与操作），给到更宽的一档。 */
+.roster {
+  width: min(680px, 100% - 32px);
 }
 
 /* 战斗演出的结果要并列攻守双方，同样宽一些。 */

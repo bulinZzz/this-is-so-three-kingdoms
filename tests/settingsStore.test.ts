@@ -22,6 +22,19 @@ describe('SettingsStore', () => {
     expect(new SettingsStore(storage).get().developerMode).toBe(true)
   })
 
+  it('显示行动力消耗默认开启，可独立关闭并持久化', () => {
+    const storage = new MemoryStorage()
+    const store = new SettingsStore(storage)
+
+    expect(store.get().showActionCosts).toBe(true)
+
+    store.update({ showActionCosts: false })
+
+    expect(store.get().showActionCosts).toBe(false)
+    expect(store.get().developerMode).toBe(false)
+    expect(new SettingsStore(storage).get().showActionCosts).toBe(false)
+  })
+
   it('更新后写入存储并可再次读回', () => {
     const storage = new MemoryStorage()
     const store = new SettingsStore(storage)

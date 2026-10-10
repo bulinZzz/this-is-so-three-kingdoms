@@ -38,13 +38,32 @@ export function recruitChance(character: Character, factionId: FactionId): numbe
   return Math.max(0, Math.min(1, chance))
 }
 
-/** 该州该层级中可供寻访的在野者。 */
+/**
+ * 已经认得路的人：接触过、且会面之处仍在自己手里。他们从「待招募」里登门即可，
+ * 不再进寻访的抽取池；会面之处易主后重归池中，日后在别处还可能再遇上。
+ */
+function reachableContacts(state: GameState, factionId: FactionId): Set<CharacterId> {
+  const owned = new Set(
+    state.geography.sites.filter((site) => site.owner === factionId).map((site) => site.id),
+  )
+
+  return new Set(
+    (state.contactedCandidates[factionId] ?? [])
+      .filter((candidate) => owned.has(candidate.siteId))
+      .map((candidate) => candidate.characterId),
+  )
+}
+
+/** 该州该层级中可供寻访的在野者：认得路的除外。 */
 function candidatesAt(state: GameState, site: Site, factionId: FactionId): Character[] {
+  const known = reachableContacts(state, factionId)
+
   return state.characters.filter(
     (character) =>
       isRecruitable(character) &&
       character.provinceId === site.provinceId &&
-      isTierAvailable(character.tier, provinceControl(state, site.provinceId, factionId)),
+      isTierAvailable(character.tier, provinceControl(state, site.provinceId, factionId)) &&
+      !known.has(character.id),
   )
 }
 
@@ -92,7 +111,8 @@ function join(state: GameState, character: Character, factionId: FactionId, site
 }
 
 /**
- * 人才寻访：在指定势力自有的战略点就地发起，候选取自该战略点所在的州中层级已放出的在野者。
+ * 人才寻访：在指定势力自有的战略点就地发起，候选取自该战略点所在的州中层级已放出的在野者，
+ * 已经认得路的（接触过、会面之处仍在手）不再入池，那些人走「拜访」。
  * 抽到一人后判定招聘——性格基准 × 偏好系数：成则入仕，败则记下会面之处，可日后再次拜访。
  * 抽取与判定只消耗传入的抽卡随机源，与模拟随机源互不干扰。缺省为玩家势力发起。
  */
