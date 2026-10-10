@@ -49,6 +49,7 @@ import {
   isTransferTarget,
   MAX_TRANSFER_PARTY,
   transferCandidates,
+  troopGrowthBaseline,
   troopLimit,
 } from '../core/military'
 import { relationBetween } from '../core/relations'
@@ -171,18 +172,28 @@ const SHELL_HTML = `
         <button type="button" class="saves__close" data-action="close-domestic">关闭</button>
       </div>
       <div class="domestic__body">
-        <div class="domestic__row">
-          <span class="domestic__label">兵力</span>
-          <span class="domestic__value domestic__troops"></span>
-        </div>
-        <div class="domestic__row">
-          <span class="domestic__label">粮食</span>
-          <span class="domestic__value domestic__grain"></span>
-        </div>
-        <div class="domestic__row">
-          <span class="domestic__label">每季粮产</span>
-          <span class="domestic__value domestic__grain-yield"></span>
-        </div>
+        <section class="domestic__section">
+          <h3 class="domestic__heading">当前</h3>
+          <div class="domestic__row">
+            <span class="domestic__label">兵力</span>
+            <span class="domestic__value domestic__troops"></span>
+          </div>
+          <div class="domestic__row">
+            <span class="domestic__label">粮食</span>
+            <span class="domestic__value domestic__grain"></span>
+          </div>
+        </section>
+        <section class="domestic__section">
+          <h3 class="domestic__heading">每季增加</h3>
+          <div class="domestic__row">
+            <span class="domestic__label">兵力</span>
+            <span class="domestic__value domestic__troop-growth"></span>
+          </div>
+          <div class="domestic__row">
+            <span class="domestic__label">粮食</span>
+            <span class="domestic__value domestic__grain-yield"></span>
+          </div>
+        </section>
       </div>
     </dialog>
     <dialog class="order">
@@ -213,7 +224,7 @@ const SHELL_HTML = `
     </dialog>
     <dialog class="prison">
       <div class="saves__head">
-        <h2 class="saves__title">降将</h2>
+        <h2 class="saves__title">俘虏</h2>
         <button type="button" class="saves__close" data-action="close-prison">关闭</button>
       </div>
       <p class="prison__status"></p>
@@ -262,7 +273,7 @@ const ACTION_BAR_HTML = `
   <nav class="action-bar">
     <button type="button" class="action-bar__button" data-action="open-roster">武将</button>
     <button type="button" class="action-bar__button" data-action="open-domestic">内政</button>
-    <button type="button" class="action-bar__button" data-action="open-prison">降将</button>
+    <button type="button" class="action-bar__button" data-action="open-prison">俘虏</button>
     <button type="button" class="action-bar__button" data-action="open-history">历史</button>
   </nav>
 `
@@ -405,7 +416,7 @@ function renderActionPoints(label: Element, state: GameState): void {
   label.textContent = `行动力 ${remaining} / ${ACTION_POINTS_PER_TURN}`
 }
 
-/** 内政弹窗：玩家势力的兵力与粮食；后续经营类信息也放这里。 */
+/** 内政弹窗：上半记当前资源，下半记每季增加；后续经营类信息也放这里。 */
 function renderDomestic(dialog: HTMLElement, state: GameState): void {
   const faction = state.factions.find((item) => item.id === state.playerFaction)
 
@@ -413,9 +424,14 @@ function renderDomestic(dialog: HTMLElement, state: GameState): void {
     factionTroops(state, state.playerFaction),
   )
   requireElement<HTMLElement>(dialog, '.domestic__grain').textContent = String(faction?.grain ?? 0)
-  requireElement<HTMLElement>(dialog, '.domestic__grain-yield').textContent = String(
-    grainYield(state, state.playerFaction),
-  )
+  requireElement<HTMLElement>(dialog, '.domestic__troop-growth').textContent = `+${troopGrowthBaseline(
+    state,
+    state.playerFaction,
+  )}`
+  requireElement<HTMLElement>(dialog, '.domestic__grain-yield').textContent = `+${grainYield(
+    state,
+    state.playerFaction,
+  )}`
 }
 
 const SITE_TYPE_LABELS: Record<SiteType, string> = {
@@ -1295,7 +1311,7 @@ const PERSONALITY_LABELS: Record<Personality, string> = {
 }
 
 /**
- * 武将详情：表格之外的记录性信息——头像位、身份、年龄、性格、对己方态度与所在州。
+ * 武将详情：表格之外的记录性信息——头像位、身份、年龄、性格与对己方态度。
  * 头像暂以姓名首字占位，将来换作正式立绘。
  */
 function renderOfficerDetail(container: Element, state: GameState, character: Character): void {
@@ -1326,14 +1342,10 @@ function renderOfficerDetail(container: Element, state: GameState, character: Ch
   title.append(name, role)
   head.append(portrait, title)
 
-  const provinceName =
-    state.geography.provinces.find((province) => province.id === character.provinceId)?.name ??
-    character.provinceId
   const facts: readonly [string, string][] = [
     ['年龄', ageText(character.age)],
     ['性格', PERSONALITY_LABELS[character.personality]],
     ['对己方态度', affinityAttitude(affinityToward(character, state.playerFaction))],
-    ['所在州', provinceName],
   ]
 
   const list = document.createElement('dl')

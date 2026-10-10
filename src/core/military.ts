@@ -190,6 +190,21 @@ export function harvestGrain(
 }
 
 /**
+ * 某势力每季的兵力自然增长基准：在仕而未满员的武将按统率累加，不含浮动。
+ * 与 `growTroops` 同一口径，供界面预览「每季增加」。
+ */
+export function troopGrowthBaseline(state: GameState, factionId: FactionId): number {
+  return state.characters
+    .filter(
+      (character) =>
+        isServing(character) &&
+        character.factionId === factionId &&
+        character.troops < troopLimit(character),
+    )
+    .reduce((total, character) => total + character.command * TROOPS_GROWTH_PER_COMMAND, 0)
+}
+
+/**
  * 每季结算兵力自然增长：各势力在仕武将按统率获得一笔带浮动的补充，补到带兵上限为止。
  * 增量只与统率有关、与当前兵力无关，各方并行增长，差距不随回合放大。
  */
