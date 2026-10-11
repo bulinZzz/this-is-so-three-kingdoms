@@ -7,8 +7,8 @@ import type { FactionId, GameState } from './model'
  */
 export const GRAIN_PER_POPULATION = 0.004
 
-/** 每名士兵每季消耗的粮食。维持军队是一项长期负担，兵力越多、粮耗越大。 */
-export const GRAIN_UPKEEP_PER_TROOP = 0.05
+/** 每名士兵每季消耗的粮食。维持军队本身是一项长期负担，但真正的开销在征兵与出征。 */
+export const GRAIN_UPKEEP_PER_TROOP = 0.01
 
 /** 人口每季的自然增长比例：各战略点按同一比例缓增，取整入账。 */
 export const POPULATION_GROWTH_PER_SEASON = 0.002
@@ -36,6 +36,14 @@ export function troopUpkeep(state: GameState, factionId: FactionId): number {
 /** 某势力每季的粮食净收支：粮产减军粮，可为负。 */
 export function grainBalance(state: GameState, factionId: FactionId): number {
   return grainYield(state, factionId) - troopUpkeep(state, factionId)
+}
+
+/**
+ * 该势力本季是否有余粮供养新兵：粮产不减军粮即算有余。
+ * 兵力自然增长以此为条件，军队因而停在养得起的规模，不会因无度的自然增兵把粮仓吃空。
+ */
+export function canAffordTroopGrowth(state: GameState, factionId: FactionId): boolean {
+  return grainBalance(state, factionId) >= 0
 }
 
 /**

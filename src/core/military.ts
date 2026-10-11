@@ -258,12 +258,20 @@ export function troopGrowthBaseline(state: GameState, factionId: FactionId): num
 /**
  * 每季结算兵力自然增长：各势力在仕武将按统率获得一笔带浮动的补充，补到带兵上限为止。
  * 增量只与统率有关、与当前兵力无关，各方并行增长，差距不随回合放大。
+ * 只有 `canGrow` 许可的势力才增长：缺粮的势力养不起新兵，军队因而停在养得起的规模。
  */
-export function growTroops(state: GameState): void {
+export function growTroops(
+  state: GameState,
+  canGrow: (factionId: FactionId) => boolean = () => true,
+): void {
   const random = createRandom(state.randomState)
 
   for (const character of state.characters) {
-    if (!isServing(character)) {
+    if (
+      !isServing(character) ||
+      character.factionId === null ||
+      !canGrow(character.factionId)
+    ) {
       continue
     }
 

@@ -577,7 +577,7 @@ function j8Scenario(): Scenario {
       // 征粮靠内政、征兵靠统率、出征靠兵力——三件事各是不同的人，一季正好排满。
       serving({ id: 'farmer', name: '屯田', factionId: 'liubei', stationedSiteId: 'a', troops: 500, command: 40, politics: 80 }),
       serving({ id: 'recruiter', name: '招兵', factionId: 'liubei', stationedSiteId: 'a', troops: 1000, command: 90, politics: 30 }),
-      serving({ id: 'warrior', name: '战将', factionId: 'liubei', stationedSiteId: 'a', troops: 5000, command: 80, might: 90 }),
+      serving({ id: 'warrior', name: '战将', factionId: 'liubei', stationedSiteId: 'a', troops: 12000, command: 80, might: 90 }),
       serving({ id: 'defender', name: '守将', factionId: 'caocao', stationedSiteId: 'b', troops: 300, command: 60 }),
     ],
   }
@@ -643,7 +643,7 @@ describe('迭代 8 全链（无画面）', () => {
     const attack = session.attack({ commander: 'warrior' }, 'b')
     expect(attack.ok).toBe(true)
     expect(attack.ok && attack.record.battle !== undefined).toBe(true)
-    expect(playerGrain(state)).toBe(beforeAttack - attackGrainCost(5000))
+    expect(playerGrain(state)).toBe(beforeAttack - attackGrainCost(12000))
     expect(siteOwner(state, 'b')).toBe('liubei')
 
     // 结束回合：军队规模压过粮产，净收支为负、粮食随之下降；人口缓增。

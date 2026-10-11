@@ -119,7 +119,7 @@ describe('advanceTurn', () => {
     expect(faction.grain).toBe(before + yieldPerSeason - upkeep)
   })
 
-  it('结束回合在仕武将按统率自然增长，各方一视同仁', () => {
+  it('结束回合在仕武将按统率自然增长，有余粮的势力一视同仁', () => {
     const state = createInitialState({ seed: 208 })
     const serving = state.characters.filter((character) => character.status === 'serving')
     const before = new Map(serving.map((character) => [character.id, character.troops]))
@@ -156,6 +156,26 @@ describe('advanceTurn', () => {
 
     for (const site of state.geography.sites) {
       expect(site.population).toBeGreaterThan(before.get(site.id) ?? 0)
+    }
+  })
+
+  it('缺粮的势力不自然增兵', () => {
+    const state = createInitialState({ seed: 208 })
+    // 断掉粮源并掏空粮仓：本季既付不出军粮，也养不起新兵。
+    for (const site of state.geography.sites) {
+      site.owner = null
+    }
+    const faction = state.factions.find((item) => item.id === 'liubei')
+    if (faction === undefined) {
+      throw new Error('势力不存在：liubei')
+    }
+    faction.grain = 0
+    const before = new Map(state.characters.map((character) => [character.id, character.troops]))
+
+    advanceTurn(state)
+
+    for (const character of state.characters) {
+      expect(character.troops).toBeLessThanOrEqual(before.get(character.id) ?? 0)
     }
   })
 
