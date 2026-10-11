@@ -19,7 +19,7 @@ import {
 } from '../src/core/battle'
 import { takeCaptive } from '../src/core/captives'
 import { createInitialState } from '../src/core/createInitialState'
-import { hasActedThisTurn, markActed } from '../src/core/military'
+import { attackGrainCost, hasActedThisTurn, markActed } from '../src/core/military'
 import type { BattleReport, Character, GameState, Scenario } from '../src/core/model'
 import type { Random } from '../src/core/random'
 import { beginTurn, endTurn } from '../src/core/turn'
@@ -58,15 +58,15 @@ function scene(options: {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 1000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 1000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 100000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 100000 },
     ],
     relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile' }],
     geography: {
       provinces: [{ id: 'jing', name: '荆州', owner: null }],
       sites: [
-        { id: 'a', name: '甲', type: 'city', provinceId: 'jing', owner: 'liubei', neighbors: ['b'] },
-        { id: 'b', name: '乙', type: 'city', provinceId: 'jing', owner: 'caocao', neighbors: ['a'] },
+        { id: 'a', name: '甲', type: 'city', population: 50000, provinceId: 'jing', owner: 'liubei', neighbors: ['b'] },
+        { id: 'b', name: '乙', type: 'city', population: 50000, provinceId: 'jing', owner: 'caocao', neighbors: ['a'] },
       ],
     },
     characters: [
@@ -395,6 +395,33 @@ describe('进攻', () => {
       ok: false,
       reason: '关羽 本回合已行动',
     })
+  })
+
+  it('出征按投入兵力耗粮，粮草不足则不能出征', () => {
+    const state = scene({ attackerTroops: 10000, defenderTroops: 0 })
+    const faction = state.factions.find((item) => item.id === 'liubei')
+    if (faction === undefined) {
+      throw new Error('势力不存在：liubei')
+    }
+    const before = faction.grain
+
+    expect(attack(state, { commander: 'attacker' }, 'b').ok).toBe(true)
+    expect(faction.grain).toBe(before - attackGrainCost(10000))
+  })
+
+  it('粮草不足时拒绝出征，不扣行动力', () => {
+    const state = scene({ attackerTroops: 10000, defenderTroops: 0 })
+    const faction = state.factions.find((item) => item.id === 'liubei')
+    if (faction === undefined) {
+      throw new Error('势力不存在：liubei')
+    }
+    faction.grain = attackGrainCost(10000) - 1
+
+    expect(attack(state, { commander: 'attacker' }, 'b')).toEqual({
+      ok: false,
+      reason: '粮草不足，不能出征',
+    })
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
   })
 
   it('进攻不改变地理结构', () => {

@@ -237,24 +237,41 @@
   color: #e8d9b5;
 }
 
+/* 战略点面板自上而下：名称与归属、类别与人口、驻守、行动。 */
+.site-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .site-panel__name {
   margin: 0;
   font-size: 17px;
   color: #e8d9b5;
 }
 
+.site-panel__owner,
 .site-panel__meta,
-.site-panel__owner {
-  margin: 4px 0 0;
+.site-panel__label {
+  margin: 0;
   font-size: 12px;
   color: #9a8b70;
+}
+
+.site-panel__meta {
+  margin-top: 4px;
+}
+
+.site-panel__label {
+  margin-top: 10px;
 }
 
 .site-panel__officers {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 10px 0 0;
+  margin: 6px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -678,66 +695,45 @@
   cursor: not-allowed;
 }
 
-.site-panel__order {
+/* 行动按钮：小尺寸、成排排列，按用兵、调兵、招人的顺序。 */
+.site-panel__actions {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 12px;
-  padding: 10px 14px;
+}
+
+.site-panel__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
   border: 1px solid #7a6746;
   border-radius: 8px;
   background: linear-gradient(180deg, #33291c, #2a2219);
   color: #f0e2bd;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 12px;
   cursor: pointer;
 }
 
-.site-panel__order:hover {
+.site-panel__action:hover {
   border-color: #8f7a53;
   background: linear-gradient(180deg, #3d3122, #322819);
 }
 
-.site-panel__order[hidden] {
-  display: none;
-}
-
-.site-panel__seek {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
-  margin-top: 12px;
-  padding: 10px 14px;
-  border: 1px solid #7a6746;
-  border-radius: 8px;
-  background: linear-gradient(180deg, #33291c, #2a2219);
-  color: #f0e2bd;
-  font-family: inherit;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.site-panel__seek:hover {
-  border-color: #8f7a53;
-  background: linear-gradient(180deg, #3d3122, #322819);
-}
-
-.site-panel__seek:active {
+.site-panel__action:active {
   transform: translateY(1px);
 }
 
-.site-panel__seek[hidden] {
+.site-panel__action[hidden] {
   display: none;
 }
 
-/* 行动力消耗：寻访、进攻、调动与征兵都以同一枚角标标注。 */
+/* 行动力消耗：寻访、进攻与调动都以同一枚角标标注。 */
 .action-cost {
   flex: none;
-  padding: 2px 9px;
+  padding: 1px 7px;
   border: 1px solid #574a36;
   border-radius: 999px;
   font-size: 11px;

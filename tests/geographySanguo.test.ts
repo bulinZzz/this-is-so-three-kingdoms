@@ -93,6 +93,26 @@ describe('三国地理数据', () => {
     expect(types).toEqual(new Set(['city', 'pass', 'field']))
   })
 
+  it('每个战略点都有人口，为合理的正整数', () => {
+    for (const site of GEOGRAPHY_SANGUO.sites) {
+      expect(Number.isInteger(site.population)).toBe(true)
+      expect(site.population).toBeGreaterThan(0)
+    }
+  })
+
+  it('人口按类型定档：城市多于关隘，关隘多于野地，且城市内部有高低之别', () => {
+    const populationOf = (type: string): number[] =>
+      GEOGRAPHY_SANGUO.sites.filter((site) => site.type === type).map((site) => site.population)
+    const cities = populationOf('city')
+    const passes = populationOf('pass')
+    const fields = populationOf('field')
+
+    expect(Math.min(...cities)).toBeGreaterThan(Math.max(...passes))
+    expect(Math.min(...passes)).toBeGreaterThan(Math.max(...fields))
+    // 类型只定档，同是城市也有大城与小城之别。
+    expect(Math.min(...cities)).toBeLessThan(Math.max(...cities))
+  })
+
   it('刘备开局只据江夏，且江夏有可进军的相邻点', () => {
     expect(sitesOwnedBy('liubei')).toEqual(['jiangxia'])
 

@@ -85,9 +85,18 @@ describe('解耦回归', () => {
       advanceTurn(state)
     }
 
-    // 同一个对象、同样的内容：地理结构既没被替换，也没被就地改写。
+    // 同一个对象、结构不变：地理的标识、邻接、州与归属不因回合推进而改（人口另按季缓增，见下）。
+    const structure = (geography: typeof snapshot) => ({
+      provinces: geography.provinces,
+      sites: geography.sites.map((site) => ({ ...site, population: 0 })),
+    })
     expect(state.geography).toBe(geographyRef)
-    expect(state.geography).toEqual(snapshot)
+    expect(structure(state.geography)).toEqual(structure(snapshot))
+
+    // 人口是随季结算的活数据，不在地理结构的承诺之内：每季只增不减。
+    expect(
+      state.geography.sites.every((site, index) => site.population > snapshot.sites[index].population),
+    ).toBe(true)
   })
 
   it('规则层不依赖 Phaser', () => {

@@ -1,6 +1,6 @@
 import { ACTION_COSTS, runAction, type ActionResult } from './actions'
 import { isServing } from './characters'
-import type { Character, CharacterId, FactionId, GameState, SiteId } from './model'
+import type { Character, CharacterId, FactionId, GameState, Site, SiteId } from './model'
 import { createRandom, type Random } from './random'
 
 /** 每季自然增长的基准：每点统率带来的兵力。 */
@@ -9,12 +9,16 @@ export const TROOPS_GROWTH_PER_COMMAND = 2
 export const RECRUIT_TROOPS_PER_COMMAND = 10
 /** 带兵上限的基准：每点统率可带的兵力。兵力堆在一人身上会撞顶，多带一将才有意义。 */
 export const TROOPS_LIMIT_PER_COMMAND = 150
+/** 一次征兵至多从驻地人口中抽走的比例，即当地丁口。 */
+export const RECRUIT_POPULATION_SHARE = 0.01
 /** 征粮产量的基准：每点内政征得的粮食。 */
 export const GRAIN_HARVEST_PER_POLITICS = 10
 /** 征粮产量的地盘加成：每处自有战略点带来的粮食。 */
 export const GRAIN_HARVEST_PER_SITE = 200
 /** 征兵时每名士兵所需的粮食。 */
 export const GRAIN_PER_TROOP = 1
+/** 出征时每名士兵所需的粮食，一次行军按投入兵力换算。 */
+export const GRAIN_PER_ATTACK_TROOP = 0.05
 /** 自然增长、征兵与征粮产量的浮动幅度：实际产量落在基准的 1±此值 之间。 */
 const AMOUNT_VARIANCE = 0.25
 /** 一次调动最多派出的武将数。 */
@@ -30,11 +34,43 @@ export function troopLimit(character: Character): number {
   return character.command * TROOPS_LIMIT_PER_COMMAND
 }
 
+/** 一处战略点可征的丁口：人口乘以抽丁比例，向下取整。 */
+export function sitePopulationCap(site: Site): number {
+  return Math.floor(site.population * RECRUIT_POPULATION_SHARE)
+}
+
+/** 该武将驻地一次可抽的丁口；没有驻地时为 0。 */
+export function recruitPopulationCap(state: GameState, character: Character): number {
+  const site = state.geography.sites.find((item) => item.id === character.stationedSiteId)
+
+  return site === undefined ? 0 : sitePopulationCap(site)
+}
+
 /** 某势力当前的总兵力，为其在仕武将所统率部队之和；退场者不计入。 */
 export function factionTroops(state: GameState, factionId: FactionId): number {
   return state.characters
     .filter((character) => isServing(character) && character.factionId === factionId)
     .reduce((total, character) => total + character.troops, 0)
+}
+
+/**
+ * 缺粮减员：该势力各在仕部队按同一比例逃散，返回逃散的总兵力。
+ * 比例由缺口占应支军粮的份额决定，取 0–1；兵力不会被减成负数。
+ */
+export function disbandTroops(state: GameState, factionId: FactionId, ratio: number): number {
+  let lost = 0
+
+  for (const character of state.characters) {
+    if (!isServing(character) || character.factionId !== factionId || character.troops <= 0) {
+      continue
+    }
+
+    const remaining = Math.max(0, Math.round(character.troops * (1 - ratio)))
+    lost += character.troops - remaining
+    character.troops = remaining
+  }
+
+  return lost
 }
 
 /** 势力是否已覆灭：失去全部战略点，或麾下不再有任何在仕武将。 */
@@ -80,9 +116,15 @@ export function recruitGrainCost(character: Character): number {
   return Math.round(character.command * RECRUIT_TROOPS_PER_COMMAND * GRAIN_PER_TROOP)
 }
 
+/** 一次出征消耗的粮食，按投入兵力换算。 */
+export function attackGrainCost(troops: number): number {
+  return Math.round(troops * GRAIN_PER_ATTACK_TROOP)
+}
+
 /**
- * 在武将驻地就地补充兵力：消耗粮食与行动力，粮不足、已达带兵上限或该武将本季已行动时拒绝且不扣行动力。
- * 兵力按统兵者的统率浮动，补到带兵上限为止；粮食按统率基准固定消耗；征兵占用该武将本季的行动。
+ * 在武将驻地就地补充兵力：消耗粮食与行动力，粮不足、已达带兵上限、驻地丁口不足或该武将本季已行动时
+ * 拒绝且不扣行动力。兵力按统兵者的统率浮动，并以驻地丁口为上限，补到带兵上限为止；
+ * 所征之兵自驻地人口中扣除，粮耗按统率基准固定；征兵占用该武将本季的行动。
  */
 export function recruit(
   state: GameState,
@@ -106,6 +148,9 @@ export function recruit(
       if (character !== null && character.troops >= troopLimit(character)) {
         return `${character.name} 已达带兵上限`
       }
+      if (character !== null && recruitPopulationCap(current, character) < 1) {
+        return '驻地丁口不足，无可征之兵'
+      }
       const faction = current.factions.find((item) => item.id === factionId)
       if (faction === undefined || faction.grain < cost) {
         return '粮食不足'
@@ -114,7 +159,11 @@ export function recruit(
     },
     execute: (current) => {
       const faction = current.factions.find((item) => item.id === factionId)
-      if (character === null || faction === undefined) {
+      const site =
+        character === null
+          ? undefined
+          : current.geography.sites.find((item) => item.id === character.stationedSiteId)
+      if (character === null || faction === undefined || site === undefined) {
         return { outcome: '征兵未生效' }
       }
 
@@ -122,10 +171,12 @@ export function recruit(
       const gained = Math.min(
         rollAmount(character.command * RECRUIT_TROOPS_PER_COMMAND, random),
         troopLimit(character) - character.troops,
+        recruitPopulationCap(current, character),
       )
       current.randomState = random.getState()
 
       character.troops += gained
+      site.population -= gained
       faction.grain -= cost
       markActed(current, character.id)
 

@@ -66,6 +66,7 @@ describe('createInitialState', () => {
             id: 'xinye',
             name: '新野',
             type: 'city',
+            population: 80000,
             provinceId: 'jing',
             owner: 'liubei',
             neighbors: [],

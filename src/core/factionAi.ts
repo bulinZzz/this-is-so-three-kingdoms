@@ -13,10 +13,12 @@ import {
 import { recruitWillingCaptives } from './captives'
 import { isServing } from './characters'
 import {
+  attackGrainCost,
   hasActedThisTurn,
   isFactionDestroyed,
   recruit,
   recruitGrainCost,
+  recruitPopulationCap,
   troopLimit,
 } from './military'
 import type {
@@ -127,6 +129,7 @@ function* attackOnce(
     return
   }
 
+  const grain = state.factions.find((item) => item.id === factionId)?.grain ?? 0
   const plans = state.geography.sites
     .filter((site) => isAttackable(state, site.id, factionId))
     .filter((site) => site.owner === null || areHostile(state, factionId, site.owner))
@@ -135,15 +138,19 @@ function* attackOnce(
       if (party === null) {
         return null
       }
+      const side = partySide(state, party)
       return {
         site,
         party,
-        power: battlePower(partySide(state, party)),
+        power: battlePower(side),
+        cost: attackGrainCost(side.troops),
         defence: battlePower(garrisonAt(state, site.id).side, { defending: true }),
       }
     })
     .filter((plan): plan is NonNullable<typeof plan> => plan !== null)
     .filter((plan) => plan.power > plan.defence * ATTACK_MARGIN)
+    // 出征用粮由前置条件把关；此处先滤掉出不起兵的，免得挑中一个打不成的目标。
+    .filter((plan) => plan.cost <= grain)
     .sort((a, b) => {
       const value = SITE_VALUE[b.site.type] - SITE_VALUE[a.site.type]
       return value !== 0 ? value : a.defence - b.defence
@@ -177,7 +184,7 @@ function* attackOnce(
   }
 }
 
-/** 把余下的行动力用于征兵，直到用尽、无人可补或粮尽。 */
+/** 把余下的行动力用于征兵，直到用尽、无人可补、粮尽或驻地丁口已枯。 */
 function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
   while (state.actionPoints[factionId] >= ACTION_COSTS.recruit) {
     const grain = state.factions.find((faction) => faction.id === factionId)?.grain ?? 0
@@ -186,7 +193,8 @@ function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
         (character) =>
           !hasActedThisTurn(state, character.id) &&
           character.troops < troopLimit(character) &&
-          grain >= recruitGrainCost(character),
+          grain >= recruitGrainCost(character) &&
+          recruitPopulationCap(state, character) >= 1,
       )
       .sort((a, b) => b.command - a.command)[0]
 

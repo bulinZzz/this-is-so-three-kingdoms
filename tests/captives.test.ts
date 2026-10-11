@@ -64,8 +64,8 @@ function scene(characters: Character[]): GameState {
     geography: {
       provinces: [{ id: 'jing', name: '荆州', owner: null }],
       sites: [
-        { id: 'a', name: '甲城', type: 'city', provinceId: 'jing', owner: 'liubei', neighbors: ['b'] },
-        { id: 'b', name: '乙城', type: 'city', provinceId: 'jing', owner: 'caocao', neighbors: ['a'] },
+        { id: 'a', name: '甲城', type: 'city', population: 50000, provinceId: 'jing', owner: 'liubei', neighbors: ['b'] },
+        { id: 'b', name: '乙城', type: 'city', population: 50000, provinceId: 'jing', owner: 'caocao', neighbors: ['a'] },
       ],
     },
     characters,

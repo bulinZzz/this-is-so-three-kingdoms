@@ -62,6 +62,8 @@ export interface Site {
   owner: FactionId | null
   /** 相邻战略点，用于表达地缘与行军路径。 */
   neighbors: SiteId[]
+  /** 人口，粮食生产与兵源的共同基础；随地块走，不因易主而清空。 */
+  population: number
 }
 
 /** 天下地理结构。 */
@@ -171,8 +173,8 @@ export type ActionKind =
   | 'executeCaptive'
   | 'releaseCaptive'
 
-/** 写入历史的记录类型：行动之外，世界结算（如叛离）也占一条。 */
-export type ActionRecordKind = ActionKind | 'defect'
+/** 写入历史的记录类型：行动之外，世界结算（如叛离、缺粮逃散）也占一条。 */
+export type ActionRecordKind = ActionKind | 'defect' | 'disband'
 
 /** 战报中一方的要点。 */
 export interface BattleReportSide {

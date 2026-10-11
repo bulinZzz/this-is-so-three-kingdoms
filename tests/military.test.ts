@@ -12,6 +12,7 @@ import {
   RECRUIT_TROOPS_PER_COMMAND,
   recruit,
   recruitGrainCost,
+  recruitPopulationCap,
   transfer,
   transferCandidates,
   troopLimit,
@@ -44,11 +45,12 @@ function caocaoTurn(): GameState {
 }
 
 describe('征兵', () => {
-  it('在驻地补兵，兵力按统率浮动、粮食按统率基准扣除，扣行动力并写记录', () => {
+  it('在驻地补兵：兵力按统率浮动并以丁口为上限、粮食按统率基准扣除，扣行动力并写记录', () => {
     const state = createInitialState({ seed: 208 })
     const guanyu = characterOf(state, 'guanyu')
     const grainBefore = factionOf(state, 'liubei').grain
     const baseline = guanyu.command * RECRUIT_TROOPS_PER_COMMAND
+    const cap = recruitPopulationCap(state, guanyu)
 
     const result = recruit(state, 'guanyu')
 
@@ -59,9 +61,43 @@ describe('征兵', () => {
     }
     expect(guanyu.troops).toBeGreaterThanOrEqual(8000 + Math.round(baseline * 0.75))
     expect(guanyu.troops).toBeLessThanOrEqual(8000 + Math.round(baseline * 1.25))
+    expect(guanyu.troops - 8000).toBeLessThanOrEqual(cap)
     expect(factionOf(state, 'liubei').grain).toBe(grainBefore - recruitGrainCost(guanyu))
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
     expect(state.history).toHaveLength(1)
+  })
+
+  it('一次征兵至多抽走驻地人口的丁口，所征之兵自驻地人口中扣除', () => {
+    const state = createInitialState({ seed: 208 })
+    const guanyu = characterOf(state, 'guanyu')
+    const site = state.geography.sites.find((item) => item.id === 'jiangxia')
+    if (site === undefined) {
+      throw new Error('战略点不存在：jiangxia')
+    }
+    // 人口压到低于一次征兵的产量，使丁口成为实际上限。
+    site.population = 20000
+    const cap = recruitPopulationCap(state, guanyu)
+
+    expect(cap).toBe(200)
+    expect(cap).toBeLessThan(guanyu.command * RECRUIT_TROOPS_PER_COMMAND * 0.75)
+
+    expect(recruit(state, 'guanyu').ok).toBe(true)
+    expect(guanyu.troops).toBe(8000 + cap)
+    expect(site.population).toBe(20000 - cap)
+  })
+
+  it('驻地丁口不足时拒绝，不扣行动力也不改兵力', () => {
+    const state = createInitialState({ seed: 208 })
+    const site = state.geography.sites.find((item) => item.id === 'jiangxia')
+    if (site === undefined) {
+      throw new Error('战略点不存在：jiangxia')
+    }
+    site.population = 50
+
+    expect(recruitPopulationCap(state, characterOf(state, 'guanyu'))).toBe(0)
+    expect(recruit(state, 'guanyu')).toEqual({ ok: false, reason: '驻地丁口不足，无可征之兵' })
+    expect(characterOf(state, 'guanyu').troops).toBe(8000)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
   })
 
   it('粮食不足时拒绝，不扣行动力也不改兵力', () => {

@@ -4,6 +4,7 @@ import { isServing } from './characters'
 import { resolveProvinceOwners } from './geography'
 import { LOYALTY_LOSS, loseLoyalty, maybeDefect, wildTierFor } from './loyalty'
 import {
+  attackGrainCost,
   hasActedThisTurn,
   isFactionDestroyed,
   markActed,
@@ -641,14 +642,20 @@ export function attackBlockReason(
     }
   }
 
+  // 出征另需用粮：粮草不足则不能出阵，且不扣行动力。
+  const faction = state.factions.find((item) => item.id === factionId)
+  if (faction === undefined || faction.grain < attackGrainCost(partySide(state, party).troops)) {
+    return '粮草不足，不能出征'
+  }
+
   return null
 }
 
 /**
  * 合攻相邻的一个他方或无主战略点，自动结算。
  * 主将、副将与军师的兵力合计为投入兵力，智谋加成取三人中最高者；士气是战斗属性，
- * 双方从满值起，由单挑按方增减。胜则战略点归攻方、参战部队一同前移进驻，
- * 败则各自退回原驻地并受损。随机数取自随存档落盘的模拟流。
+ * 双方从满值起，由单挑按方增减。出征按投入兵力耗粮，粮草不足则不能出阵。
+ * 胜则战略点归攻方、参战部队一同前移进驻，败则各自退回原驻地并受损。随机数取自随存档落盘的模拟流。
  * 单挑可由任一方提出：`party.challenger` 是攻方出马者，`defense` 是守方的迎战编成与出马者。
  */
 export function attack(
@@ -737,6 +744,12 @@ export function attack(
       const side: BattleSide = {
         ...partySide(current, party),
         morale: clampBattleMorale(MORALE_FULL + attackerMoraleDelta),
+      }
+
+      // 出征即耗粮：不论胜败，行军与交战的开销都已付出。
+      const attackerFaction = current.factions.find((item) => item.id === factionId)
+      if (attackerFaction !== undefined) {
+        attackerFaction.grain -= attackGrainCost(side.troops)
       }
 
       const defenders = defendersAt(current, target)

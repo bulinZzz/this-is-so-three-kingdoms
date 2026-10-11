@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
-import { grainYield } from '../src/core/economy'
+import { grainYield, troopUpkeep } from '../src/core/economy'
 import { TROOPS_GROWTH_PER_COMMAND, troopLimit } from '../src/core/military'
 import { advanceTurn, resolveFactionOrder } from '../src/core/turn'
 
@@ -102,7 +102,7 @@ describe('advanceTurn', () => {
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
   })
 
-  it('结束回合按自有战略点收取粮产', () => {
+  it('结束回合结算粮食收支：粮产减军粮', () => {
     const state = createInitialState({ seed: 208 })
     const faction = state.factions.find((item) => item.id === 'liubei')
     if (faction === undefined) {
@@ -110,11 +110,13 @@ describe('advanceTurn', () => {
     }
     const before = faction.grain
     const yieldPerSeason = grainYield(state, 'liubei')
+    const upkeep = troopUpkeep(state, 'liubei')
 
     advanceTurn(state)
 
     expect(yieldPerSeason).toBeGreaterThan(0)
-    expect(faction.grain).toBe(before + yieldPerSeason)
+    expect(upkeep).toBeGreaterThan(0)
+    expect(faction.grain).toBe(before + yieldPerSeason - upkeep)
   })
 
   it('结束回合在仕武将按统率自然增长，各方一视同仁', () => {
@@ -144,6 +146,17 @@ describe('advanceTurn', () => {
     advanceTurn(state)
 
     expect(wild.every((character) => character.troops === 0)).toBe(true)
+  })
+
+  it('结束回合后各战略点人口缓增', () => {
+    const state = createInitialState({ seed: 208 })
+    const before = new Map(state.geography.sites.map((site) => [site.id, site.population]))
+
+    advanceTurn(state)
+
+    for (const site of state.geography.sites) {
+      expect(site.population).toBeGreaterThan(before.get(site.id) ?? 0)
+    }
   })
 
   it('结束回合保留行动历史', () => {

@@ -4,7 +4,9 @@ import { ACTION_COSTS } from '../src/core/actions'
 import { stationedDefendersAt } from '../src/core/battle'
 import { validateCharacters } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
+import { grainYield, troopUpkeep } from '../src/core/economy'
 import { LocalSaveStore } from '../src/core/localSaveStore'
+import { attackGrainCost, factionTroops, recruitPopulationCap } from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
 import { MemoryStorage } from './memoryStorage'
@@ -74,9 +76,9 @@ function loopScenario(): Scenario {
     geography: {
       provinces: [{ id: 'p', name: '州', owner: 'caocao' }],
       sites: [
-        { id: 'a', name: '甲城', type: 'city', provinceId: 'p', owner: 'liubei', neighbors: ['b'] },
-        { id: 'b', name: '乙城', type: 'city', provinceId: 'p', owner: 'caocao', neighbors: ['a', 'c'] },
-        { id: 'c', name: '丙城', type: 'city', provinceId: 'p', owner: 'caocao', neighbors: ['b'] },
+        { id: 'a', name: '甲城', type: 'city', population: 50000, provinceId: 'p', owner: 'liubei', neighbors: ['b'] },
+        { id: 'b', name: '乙城', type: 'city', population: 50000, provinceId: 'p', owner: 'caocao', neighbors: ['a', 'c'] },
+        { id: 'c', name: '丙城', type: 'city', population: 50000, provinceId: 'p', owner: 'caocao', neighbors: ['b'] },
       ],
     },
     characters: [
@@ -256,10 +258,10 @@ function j7Scenario(): Scenario {
         { id: 'p2', name: '州二', owner: 'liubei' },
       ],
       sites: [
-        { id: 'a', name: '甲城', type: 'city', provinceId: 'p1', owner: 'liubei', neighbors: ['b', 'c'] },
-        { id: 'b', name: '乙城', type: 'city', provinceId: 'p1', owner: 'caocao', neighbors: ['a', 'c'] },
-        { id: 'c', name: '丙城', type: 'city', provinceId: 'p1', owner: 'caocao', neighbors: ['a', 'b'] },
-        { id: 'd', name: '丁城', type: 'city', provinceId: 'p2', owner: 'liubei', neighbors: ['a'] },
+        { id: 'a', name: '甲城', type: 'city', population: 50000, provinceId: 'p1', owner: 'liubei', neighbors: ['b', 'c'] },
+        { id: 'b', name: '乙城', type: 'city', population: 50000, provinceId: 'p1', owner: 'caocao', neighbors: ['a', 'c'] },
+        { id: 'c', name: '丙城', type: 'city', population: 50000, provinceId: 'p1', owner: 'caocao', neighbors: ['a', 'b'] },
+        { id: 'd', name: '丁城', type: 'city', population: 50000, provinceId: 'p2', owner: 'liubei', neighbors: ['a'] },
       ],
     },
     characters: [
@@ -525,5 +527,175 @@ describe('迭代 7 全链（无画面）', () => {
         state.geography,
       ),
     ).toEqual([])
+  })
+})
+
+/**
+ * 迭代 8 全链的无画面验证：征粮 → 征兵（受丁口与粮食约束）→ 出征（耗粮、交战、占领）
+ * → 结束回合（粮收支、人口缓增、缺粮逃散）。全程只跑规则层与装配层。
+ */
+
+/** 甲、乙两城相邻；甲城人口 2 万（丁口 200），乙城由曹操一名弱将驻守。 */
+function j8Scenario(): Scenario {
+  const serving = (
+    over: Partial<Character> &
+      Pick<Character, 'id' | 'name' | 'factionId' | 'stationedSiteId' | 'troops'>,
+  ): Character => ({
+    status: 'serving',
+    provinceId: 'p1',
+    might: 50,
+    command: 50,
+    intellect: 50,
+    politics: 50,
+    age: 40,
+    personality: 'steady',
+    affinities: {},
+    loyalty: 90,
+    isMonarch: false,
+    tier: null,
+    ...over,
+  })
+
+  return {
+    id: 'iteration8-loop',
+    name: '迭代 8 全链',
+    startDate: { era: '建安', year: 13, season: 'autumn' },
+    playerFaction: 'liubei',
+    factions: [
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 5000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 5000 },
+    ],
+    relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile' }],
+    geography: {
+      provinces: [{ id: 'p1', name: '州一', owner: null }],
+      sites: [
+        { id: 'a', name: '甲城', type: 'city', population: 20000, provinceId: 'p1', owner: 'liubei', neighbors: ['b'] },
+        { id: 'b', name: '乙城', type: 'city', population: 10000, provinceId: 'p1', owner: 'caocao', neighbors: ['a'] },
+      ],
+    },
+    characters: [
+      // 征粮靠内政、征兵靠统率、出征靠兵力——三件事各是不同的人，一季正好排满。
+      serving({ id: 'farmer', name: '屯田', factionId: 'liubei', stationedSiteId: 'a', troops: 500, command: 40, politics: 80 }),
+      serving({ id: 'recruiter', name: '招兵', factionId: 'liubei', stationedSiteId: 'a', troops: 1000, command: 90, politics: 30 }),
+      serving({ id: 'warrior', name: '战将', factionId: 'liubei', stationedSiteId: 'a', troops: 5000, command: 80, might: 90 }),
+      serving({ id: 'defender', name: '守将', factionId: 'caocao', stationedSiteId: 'b', troops: 300, command: 60 }),
+    ],
+  }
+}
+
+function createJ8Session(seed: number): GameSession {
+  const store = new LocalSaveStore(new MemoryStorage())
+  store.save(AUTO_SAVE_KEY, createInitialState({ scenario: j8Scenario(), seed }))
+
+  return new GameSession(store, { drawSeed: seed })
+}
+
+/** 走完第一季：征粮 → 征兵 → 出征乙城 → 结束回合。 */
+function runJ8Chain(session: GameSession): GameState {
+  const state = session.getState()
+
+  session.harvestGrain('farmer')
+  session.recruit('recruiter')
+  session.attack({ commander: 'warrior' }, 'b')
+  session.endTurn()
+
+  return state
+}
+
+function siteOf(state: GameState, id: string) {
+  const site = state.geography.sites.find((item) => item.id === id)
+  if (site === undefined) {
+    throw new Error(`战略点不存在：${id}`)
+  }
+  return site
+}
+
+function playerGrain(state: GameState): number {
+  const faction = state.factions.find((item) => item.id === state.playerFaction)
+  if (faction === undefined) {
+    throw new Error(`势力不存在：${state.playerFaction}`)
+  }
+  return faction.grain
+}
+
+describe('迭代 8 全链（无画面）', () => {
+  it('征粮 → 征兵受丁口所限 → 出征耗粮并占领 → 结束回合结算收支与人口', () => {
+    const session = createJ8Session(208)
+    const state = session.getState()
+
+    // 征粮：粮食入库，屯田占用本季行动。
+    const grainBefore = playerGrain(state)
+    expect(session.harvestGrain('farmer').ok).toBe(true)
+    expect(playerGrain(state)).toBeGreaterThan(grainBefore)
+
+    // 征兵：产量本为统率 × 10，但甲城丁口只有 200，兵力按丁口截断，人口相应减少。
+    const recruiter = characterOf(state, 'recruiter')
+    const troopsBefore = recruiter.troops
+    const cap = recruitPopulationCap(state, recruiter)
+    expect(cap).toBe(200)
+    expect(session.recruit('recruiter').ok).toBe(true)
+    expect(recruiter.troops - troopsBefore).toBe(cap)
+    expect(recruiter.troops - troopsBefore).toBeLessThan(recruiter.command * 10)
+    expect(siteOf(state, 'a').population).toBe(20000 - cap)
+
+    // 出征：按投入兵力耗粮，交战并攻下乙城。
+    const beforeAttack = playerGrain(state)
+    const attack = session.attack({ commander: 'warrior' }, 'b')
+    expect(attack.ok).toBe(true)
+    expect(attack.ok && attack.record.battle !== undefined).toBe(true)
+    expect(playerGrain(state)).toBe(beforeAttack - attackGrainCost(5000))
+    expect(siteOwner(state, 'b')).toBe('liubei')
+
+    // 结束回合：军队规模压过粮产，净收支为负、粮食随之下降；人口缓增。
+    const populationBefore = siteOf(state, 'a').population
+    const beforeSettle = playerGrain(state)
+    const yieldPerSeason = grainYield(state, 'liubei')
+    const upkeep = troopUpkeep(state, 'liubei')
+
+    session.endTurn()
+
+    expect(yieldPerSeason - upkeep).toBeLessThan(0)
+    expect(playerGrain(state)).toBe(beforeSettle + yieldPerSeason - upkeep)
+    expect(siteOf(state, 'a').population).toBeGreaterThan(populationBefore)
+  })
+
+  it('粮尽时部队按缺口逃散，兵力不被减成负数', () => {
+    const session = createJ8Session(208)
+    const state = session.getState()
+    // 断掉粮源并掏空粮仓，使本季军粮无从支付。
+    for (const site of state.geography.sites) {
+      site.population = 0
+    }
+    const faction = state.factions.find((item) => item.id === 'liubei')
+    if (faction === undefined) {
+      throw new Error('势力不存在：liubei')
+    }
+    faction.grain = 0
+    const troopsBefore = factionTroops(state, 'liubei')
+
+    session.endTurn()
+
+    expect(troopsBefore).toBeGreaterThan(0)
+    expect(
+      state.history.some((record) => record.kind === 'disband' && record.factionId === 'liubei'),
+    ).toBe(true)
+    expect(factionTroops(state, 'liubei')).toBeGreaterThanOrEqual(0)
+    expect(factionTroops(state, 'liubei')).toBeLessThan(troopsBefore)
+  })
+
+  it('固定种子下整条链可复现', () => {
+    const first = runJ8Chain(createJ8Session(208))
+    const second = runJ8Chain(createJ8Session(208))
+
+    expect(first.history).toEqual(second.history)
+    expect(first.geography.sites.map((site) => site.population)).toEqual(
+      second.geography.sites.map((site) => site.population),
+    )
+    expect(first.factions.map((faction) => faction.grain)).toEqual(
+      second.factions.map((faction) => faction.grain),
+    )
+    expect(first.characters.map((character) => character.troops)).toEqual(
+      second.characters.map((character) => character.troops),
+    )
   })
 })

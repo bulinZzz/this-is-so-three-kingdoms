@@ -3,6 +3,9 @@ import type { FactionId, Geography } from './model'
 /** 空的地理结构，新开局克隆它，不直接持有。 */
 export const EMPTY_GEOGRAPHY: Geography = { provinces: [], sites: [] }
 
+/** 战略点人口的合法上界，仅用于数据自洽校验。 */
+const POPULATION_CEILING = 10_000_000
+
 export function cloneGeography(geography: Geography): Geography {
   return {
     provinces: geography.provinces.map((province) => ({ ...province })),
@@ -47,6 +50,9 @@ export function validateGeography(
     }
     if (site.owner !== null && !factionIdSet.has(site.owner)) {
       problems.push(`战略点 ${site.id} 的归属势力不存在：${site.owner}`)
+    }
+    if (!Number.isInteger(site.population) || site.population < 0 || site.population > POPULATION_CEILING) {
+      problems.push(`战略点 ${site.id} 的人口不合法：${site.population}`)
     }
   }
 

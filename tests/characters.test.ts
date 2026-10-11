@@ -19,8 +19,8 @@ const GEOGRAPHY: Geography = {
     { id: 'yu', name: '豫州', owner: null },
   ],
   sites: [
-    { id: 'jiangxia', name: '江夏', type: 'city', provinceId: 'jing', owner: 'liubei', neighbors: [] },
-    { id: 'xudu', name: '许都', type: 'city', provinceId: 'yu', owner: 'caocao', neighbors: [] },
+    { id: 'jiangxia', name: '江夏', type: 'city', population: 80000, provinceId: 'jing', owner: 'liubei', neighbors: [] },
+    { id: 'xudu', name: '许都', type: 'city', population: 120000, provinceId: 'yu', owner: 'caocao', neighbors: [] },
   ],
 }
 

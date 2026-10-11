@@ -21,6 +21,7 @@ function createGeography(): Geography {
         id: 'xinye',
         name: '新野',
         type: 'city',
+        population: 80000,
         provinceId: 'jing',
         owner: 'liubei',
         neighbors: ['wancheng'],
@@ -29,6 +30,7 @@ function createGeography(): Geography {
         id: 'wancheng',
         name: '宛',
         type: 'city',
+        population: 120000,
         provinceId: 'jing',
         owner: 'caocao',
         neighbors: ['xinye', 'hulao'],
@@ -37,6 +39,7 @@ function createGeography(): Geography {
         id: 'hulao',
         name: '虎牢关',
         type: 'pass',
+        population: 20000,
         provinceId: 'yu',
         owner: null,
         neighbors: ['wancheng'],
@@ -89,6 +92,20 @@ describe('validateGeography', () => {
 
     expect(validateGeography(geography, FACTION_IDS)).toEqual([
       '州 jing 的归属势力不存在：yuanshao',
+    ])
+  })
+
+  it('指出不合法的人口（负数或非整数）', () => {
+    const negative = createGeography()
+    negative.sites[0].population = -1
+
+    expect(validateGeography(negative, FACTION_IDS)).toEqual(['战略点 xinye 的人口不合法：-1'])
+
+    const fractional = createGeography()
+    fractional.sites[0].population = 1000.5
+
+    expect(validateGeography(fractional, FACTION_IDS)).toEqual([
+      '战略点 xinye 的人口不合法：1000.5',
     ])
   })
 
@@ -153,6 +170,7 @@ function geographyWith(
       id: `site-${index}`,
       name: `战略点${index}`,
       type: 'city',
+      population: 50000,
       provinceId: 'jing',
       owner,
       neighbors: [],

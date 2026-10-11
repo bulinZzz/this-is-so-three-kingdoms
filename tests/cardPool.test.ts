@@ -42,11 +42,12 @@ function poolScene(owned: 1 | 2 | 3): GameState {
     geography: {
       provinces: [{ id: 'p', name: '州', owner: owned >= 2 ? 'liubei' : 'caocao' }],
       sites: [
-        { id: 'a', name: '甲城', type: 'city', provinceId: 'p', owner: 'liubei', neighbors: ['b'] },
+        { id: 'a', name: '甲城', type: 'city', population: 50000, provinceId: 'p', owner: 'liubei', neighbors: ['b'] },
         {
           id: 'b',
           name: '乙城',
           type: 'city',
+          population: 50000,
           provinceId: 'p',
           owner: owned >= 2 ? 'liubei' : 'caocao',
           neighbors: ['a', 'c'],
@@ -55,6 +56,7 @@ function poolScene(owned: 1 | 2 | 3): GameState {
           id: 'c',
           name: '丙城',
           type: 'city',
+          population: 50000,
           provinceId: 'p',
           owner: owned >= 3 ? 'liubei' : 'caocao',
           neighbors: ['b'],

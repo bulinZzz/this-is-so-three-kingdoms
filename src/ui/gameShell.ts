@@ -36,7 +36,7 @@ import {
 } from '../core/battle'
 import { isRecruitable, isRetired, isServing } from '../core/characters'
 import { captivesOf } from '../core/captives'
-import { grainYield } from '../core/economy'
+import { grainBalance, grainYield, troopUpkeep } from '../core/economy'
 import { duelLineOf, duelResponseLineOf } from '../core/duelLines'
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
@@ -48,6 +48,7 @@ import {
   isFactionDestroyed,
   isTransferTarget,
   MAX_TRANSFER_PARTY,
+  sitePopulationCap,
   transferCandidates,
   troopGrowthBaseline,
   troopLimit,
@@ -77,22 +78,27 @@ const SHELL_HTML = `
     </section>
     <section class="shell__section site-panel" hidden>
       <h2 class="shell__title">战略点</h2>
-      <p class="site-panel__name"></p>
+      <div class="site-panel__head">
+        <p class="site-panel__name"></p>
+        <p class="site-panel__owner"></p>
+      </div>
       <p class="site-panel__meta"></p>
-      <p class="site-panel__owner"></p>
+      <p class="site-panel__label">驻守</p>
       <ul class="site-panel__officers"></ul>
-      <button type="button" class="site-panel__order" data-action="attack-here" hidden>
-        <span>进攻此地</span>
-        <span class="action-cost"></span>
-      </button>
-      <button type="button" class="site-panel__order" data-action="transfer-here" hidden>
-        <span>调动到此地</span>
-        <span class="action-cost"></span>
-      </button>
-      <button type="button" class="site-panel__seek" data-action="seek-here" hidden>
-        <span>在此寻访</span>
-        <span class="action-cost"></span>
-      </button>
+      <div class="site-panel__actions">
+        <button type="button" class="site-panel__action" data-action="attack-here" hidden>
+          <span>进攻此地</span>
+          <span class="action-cost"></span>
+        </button>
+        <button type="button" class="site-panel__action" data-action="transfer-here" hidden>
+          <span>调动到此地</span>
+          <span class="action-cost"></span>
+        </button>
+        <button type="button" class="site-panel__action" data-action="seek-here" hidden>
+          <span>在此寻访</span>
+          <span class="action-cost"></span>
+        </button>
+      </div>
       <p class="site-panel__status" role="status"></p>
     </section>
     <section class="shell__section recruit-panel" hidden>
@@ -182,16 +188,28 @@ const SHELL_HTML = `
             <span class="domestic__label">粮食</span>
             <span class="domestic__value domestic__grain"></span>
           </div>
+          <div class="domestic__row">
+            <span class="domestic__label">人口</span>
+            <span class="domestic__value domestic__population"></span>
+          </div>
         </section>
         <section class="domestic__section">
-          <h3 class="domestic__heading">每季增加</h3>
+          <h3 class="domestic__heading">每季收支</h3>
           <div class="domestic__row">
             <span class="domestic__label">兵力</span>
             <span class="domestic__value domestic__troop-growth"></span>
           </div>
           <div class="domestic__row">
-            <span class="domestic__label">粮食</span>
+            <span class="domestic__label">粮产</span>
             <span class="domestic__value domestic__grain-yield"></span>
+          </div>
+          <div class="domestic__row">
+            <span class="domestic__label">军粮</span>
+            <span class="domestic__value domestic__grain-upkeep"></span>
+          </div>
+          <div class="domestic__row">
+            <span class="domestic__label">净收支</span>
+            <span class="domestic__value domestic__grain-balance"></span>
           </div>
         </section>
       </div>
@@ -416,14 +434,23 @@ function renderActionPoints(label: Element, state: GameState): void {
   label.textContent = `行动力 ${remaining} / ${ACTION_POINTS_PER_TURN}`
 }
 
-/** 内政弹窗：上半记当前资源，下半记每季增加；后续经营类信息也放这里。 */
+/** 带符号的数量：非负加「+」，负数带「-」。 */
+function formatSigned(value: number): string {
+  return value >= 0 ? `+${value}` : String(value)
+}
+
+/** 内政弹窗：上半记当前资源，下半记每季收支（粮产减军粮）；后续经营类信息也放这里。 */
 function renderDomestic(dialog: HTMLElement, state: GameState): void {
   const faction = state.factions.find((item) => item.id === state.playerFaction)
+  const population = state.geography.sites
+    .filter((site) => site.owner === state.playerFaction)
+    .reduce((total, site) => total + site.population, 0)
 
   requireElement<HTMLElement>(dialog, '.domestic__troops').textContent = String(
     factionTroops(state, state.playerFaction),
   )
   requireElement<HTMLElement>(dialog, '.domestic__grain').textContent = String(faction?.grain ?? 0)
+  requireElement<HTMLElement>(dialog, '.domestic__population').textContent = String(population)
   requireElement<HTMLElement>(dialog, '.domestic__troop-growth').textContent = `+${troopGrowthBaseline(
     state,
     state.playerFaction,
@@ -432,6 +459,13 @@ function renderDomestic(dialog: HTMLElement, state: GameState): void {
     state,
     state.playerFaction,
   )}`
+  requireElement<HTMLElement>(dialog, '.domestic__grain-upkeep').textContent = `-${troopUpkeep(
+    state,
+    state.playerFaction,
+  )}`
+  requireElement<HTMLElement>(dialog, '.domestic__grain-balance').textContent = formatSigned(
+    grainBalance(state, state.playerFaction),
+  )
 }
 
 const SITE_TYPE_LABELS: Record<SiteType, string> = {
@@ -491,7 +525,7 @@ function renderSitePanel(
 
   panel.hidden = false
   requireElement<HTMLElement>(panel, '.site-panel__name').textContent = site.name
-  requireElement<HTMLElement>(panel, '.site-panel__meta').textContent = SITE_TYPE_LABELS[site.type]
+  requireElement<HTMLElement>(panel, '.site-panel__meta').textContent = `${SITE_TYPE_LABELS[site.type]} · 人口 ${site.population} · 丁口 ${sitePopulationCap(site)}`
 
   const ownerName =
     site.owner === null
@@ -516,7 +550,7 @@ function renderSitePanel(
   )
   requireElement<HTMLButtonElement>(panel, '[data-action="transfer-here"]').hidden =
     !isTransferTarget(state, site.id)
-  requireElement<HTMLButtonElement>(panel, '.site-panel__seek').hidden = !isOwn
+  requireElement<HTMLButtonElement>(panel, '[data-action="seek-here"]').hidden = !isOwn
   requireElement<HTMLElement>(panel, '.site-panel__status').textContent = message
 }
 
@@ -1938,7 +1972,7 @@ export function mountGameShell(
     battleStage = null
     battlePlanDialog.close()
     const state = session.getState()
-    statusLabel.textContent = `新回合开始：${formatDate(state)}，粮产 +${grainYield(state, state.playerFaction)}，已自动保存`
+    statusLabel.textContent = `新回合开始：${formatDate(state)}，粮食 ${formatSigned(grainBalance(state, state.playerFaction))}，已自动保存`
   }
 
   /** 迎战编成既定：进入防守演出（情报与选择 → 单挑 → 交战与结果）。 */
