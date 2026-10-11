@@ -36,7 +36,7 @@ import {
 } from '../core/battle'
 import { isRecruitable, isRetired, isServing } from '../core/characters'
 import { captivesOf } from '../core/captives'
-import { grainBalance, grainYield, troopUpkeep } from '../core/economy'
+import { canAffordTroopGrowth, grainBalance, grainYield, troopUpkeep } from '../core/economy'
 import { duelLineOf, duelResponseLineOf } from '../core/duelLines'
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
@@ -91,7 +91,7 @@ const SHELL_HTML = `
           <span class="action-cost"></span>
         </button>
         <button type="button" class="site-panel__action" data-action="transfer-here" hidden>
-          <span>调动到此地</span>
+          <span>调兵至此</span>
           <span class="action-cost"></span>
         </button>
         <button type="button" class="site-panel__action" data-action="seek-here" hidden>
@@ -200,16 +200,8 @@ const SHELL_HTML = `
             <span class="domestic__value domestic__troop-growth"></span>
           </div>
           <div class="domestic__row">
-            <span class="domestic__label">粮产</span>
-            <span class="domestic__value domestic__grain-yield"></span>
-          </div>
-          <div class="domestic__row">
-            <span class="domestic__label">军粮</span>
-            <span class="domestic__value domestic__grain-upkeep"></span>
-          </div>
-          <div class="domestic__row">
-            <span class="domestic__label">净收支</span>
-            <span class="domestic__value domestic__grain-balance"></span>
+            <span class="domestic__label">粮食</span>
+            <span class="domestic__value domestic__grain-flow"></span>
           </div>
         </section>
       </div>
@@ -434,9 +426,9 @@ function renderActionPoints(label: Element, state: GameState): void {
   label.textContent = `行动力 ${remaining} / ${ACTION_POINTS_PER_TURN}`
 }
 
-/** 带符号的数量：非负加「+」，负数带「-」。 */
+/** 带符号的数量：非负加「+」，负数带「−」。 */
 function formatSigned(value: number): string {
-  return value >= 0 ? `+${value}` : String(value)
+  return value >= 0 ? `+${value}` : `−${Math.abs(value)}`
 }
 
 /** 内政弹窗：上半记当前资源，下半记每季收支（粮产减军粮）；后续经营类信息也放这里。 */
@@ -451,21 +443,15 @@ function renderDomestic(dialog: HTMLElement, state: GameState): void {
   )
   requireElement<HTMLElement>(dialog, '.domestic__grain').textContent = String(faction?.grain ?? 0)
   requireElement<HTMLElement>(dialog, '.domestic__population').textContent = String(population)
-  requireElement<HTMLElement>(dialog, '.domestic__troop-growth').textContent = `+${troopGrowthBaseline(
-    state,
-    state.playerFaction,
-  )}`
-  requireElement<HTMLElement>(dialog, '.domestic__grain-yield').textContent = `+${grainYield(
-    state,
-    state.playerFaction,
-  )}`
-  requireElement<HTMLElement>(dialog, '.domestic__grain-upkeep').textContent = `-${troopUpkeep(
-    state,
-    state.playerFaction,
-  )}`
-  requireElement<HTMLElement>(dialog, '.domestic__grain-balance').textContent = formatSigned(
-    grainBalance(state, state.playerFaction),
-  )
+  // 缺粮的势力养不起新兵，自然增长不生效，预览也照实为零。
+  const troopGrowth = canAffordTroopGrowth(state, state.playerFaction)
+    ? troopGrowthBaseline(state, state.playerFaction)
+    : 0
+  requireElement<HTMLElement>(dialog, '.domestic__troop-growth').textContent = `+${troopGrowth}`
+  requireElement<HTMLElement>(dialog, '.domestic__grain-flow').textContent =
+    `+${grainYield(state, state.playerFaction)} − ${troopUpkeep(state, state.playerFaction)} = ${formatSigned(
+      grainBalance(state, state.playerFaction),
+    )}`
 }
 
 const SITE_TYPE_LABELS: Record<SiteType, string> = {
@@ -498,14 +484,28 @@ function ageText(age: number): string {
   return age < 20 ? '未冠' : `${age} 岁`
 }
 
-/** 武将的兵力（连同带兵上限）、能力、对某势力的态度与年龄，供选将条目统一显示。 */
-function officerMetaText(character: Character, factionId: FactionId): string {
-  const summary = `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
-  const attitude = affinityAttitude(affinityToward(character, factionId))
-  const hint = loyaltyHint(character.loyalty, defectThresholdFor(character, factionId))
-  const loyalty = hint === null ? '' : ` · ${hint}`
+/** 武将的即战摘要：兵力（连同带兵上限）与四项能力。 */
+function officerSummaryText(character: Character): string {
+  return `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
+}
 
-  return `${summary} · ${attitude} · ${ageText(character.age)}${loyalty}`
+/** 忠诚提示（「离心」「不满」）；忠心无提示时为空串。 */
+function loyaltyHintText(character: Character, factionId: FactionId): string {
+  const hint = loyaltyHint(character.loyalty, defectThresholdFor(character, factionId))
+
+  return hint === null ? '' : ` · ${hint}`
+}
+
+/** 编成条目的摘要：只给即战信息与忠诚提示，不带态度与年龄。 */
+function partyMetaText(character: Character, factionId: FactionId): string {
+  return `${officerSummaryText(character)}${loyaltyHintText(character, factionId)}`
+}
+
+/** 武将详情与调动条目：兵力、能力、对某势力的态度与年龄。 */
+function officerMetaText(character: Character, factionId: FactionId): string {
+  const attitude = affinityAttitude(affinityToward(character, factionId))
+
+  return `${officerSummaryText(character)} · ${attitude} · ${ageText(character.age)}${loyaltyHintText(character, factionId)}`
 }
 
 /** 侧栏战略点面板：所选战略点的名称、类型、归属与驻守武将；按接壤情况提供进攻、调动与寻访。 */
@@ -601,33 +601,31 @@ function renderContacts(
       (character): character is Character => character !== undefined && isRecruitable(character),
     )
 
-  panel.hidden = candidates.length === 0 && message === ''
+  panel.hidden = candidates.length === 0
 
   const list = requireElement<HTMLElement>(panel, '.recruit-panel__list')
   list.replaceChildren(
-    ...(candidates.length === 0
-      ? [createListItem('recruit-panel__empty', '暂无待招募之人')]
-      : candidates.map((character) => {
-          const item = document.createElement('li')
-          item.className = 'recruit-panel__item'
+    ...candidates.map((character) => {
+      const item = document.createElement('li')
+      item.className = 'recruit-panel__item'
 
-          const name = document.createElement('span')
-          name.className = 'recruit-panel__name'
-          name.textContent = character.name
+      const name = document.createElement('span')
+      name.className = 'recruit-panel__name'
+      name.textContent = character.name
 
-          const button = document.createElement('button')
-          button.type = 'button'
-          button.className = 'recruit-panel__visit'
-          button.dataset.action = 'visit-character'
-          button.dataset.character = character.id
-          button.textContent = showCosts
-            ? `再次拜访 · ${ACTION_COSTS.visit} 行动力`
-            : '再次拜访'
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'recruit-panel__visit'
+      button.dataset.action = 'visit-character'
+      button.dataset.character = character.id
+      button.textContent = showCosts
+        ? `再次拜访 · ${ACTION_COSTS.visit} 行动力`
+        : '再次拜访'
 
-          item.append(name, button)
+      item.append(name, button)
 
-          return item
-        })),
+      return item
+    }),
   )
 
   requireElement<HTMLElement>(panel, '.recruit-panel__status').textContent = message
@@ -1090,7 +1088,7 @@ function createOrderOfficerItem(
 
   const meta = document.createElement('span')
   meta.className = 'picker__meta'
-  meta.textContent = officerMetaText(character, factionId)
+  meta.textContent = partyMetaText(character, factionId)
 
   item.append(name, meta)
 

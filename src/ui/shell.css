@@ -795,11 +795,6 @@
   transform: translateY(1px);
 }
 
-.recruit-panel__empty {
-  font-size: 13px;
-  color: #9a8b70;
-}
-
 .recruit-panel__status {
   min-height: 16px;
   margin: 8px 0 0;
