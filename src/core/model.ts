@@ -151,8 +151,10 @@ export interface Character {
    * 未记时按统率折算（剧本数据可省略）。
    */
   troopLimit?: number
-  /** 累计出战次数（进攻与防守），每出战若干次可强化一次。 */
-  battles?: number
+  /**
+   * 累计出战经验：胜 +2、败 +3（败仗反而长进更多），每若干点可强化一次。
+   */
+  exp?: number
   /** 已用掉的强化次数，累计有上限。 */
   boosts?: number
   /** 在野者所属的寻访卡池层级；非在野者不参与寻访，为 null。 */

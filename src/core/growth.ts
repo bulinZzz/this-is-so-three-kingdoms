@@ -3,12 +3,19 @@ import { isServing } from './characters'
 import type { AbilityKind, Character, CharacterId, FactionId, GameState } from './model'
 
 /**
- * 武将成长：核心武将起步偏低、上限较高，成长只靠出战积累。
- * 每出战若干次得一次强化额度（额度可累积），攒够即可选一项能力 +1，累计有上限。
+ * 武将成长：核心武将起步偏低、上限较高，成长只靠出战的积累。
+ * 每参战一次按胜负得经验——胜 +2、败 +3（败仗反而长进更多）；经验攒够即可强化一项能力。
  */
 
-/** 每累积多少次出战可得一次强化额度。 */
-export const BATTLES_PER_BOOST = 3
+/** 每获得一次强化额度所需的经验值。 */
+export const EXP_PER_BOOST = 5
+
+/** 出战胜、败各自的经验值。 */
+export const WIN_EXP = 2
+export const LOSS_EXP = 3
+
+/** 一次强化提升的能力点数。 */
+export const BOOST_GAIN = 2
 
 /** 每名武将累计可强化的次数上限。 */
 export const BOOST_MAX = 10
@@ -34,11 +41,11 @@ export function abilityOf(character: Character, kind: AbilityKind): number {
 
 /** 该武将已攒下、尚未用掉的强化额度。 */
 export function boostCredits(character: Character): number {
-  return Math.floor((character.battles ?? 0) / BATTLES_PER_BOOST) - (character.boosts ?? 0)
+  return Math.floor((character.exp ?? 0) / EXP_PER_BOOST) - (character.boosts ?? 0)
 }
 
 /**
- * 强化：把一次出战累积的额度用在某项能力上，使其 +1，消耗行动力。
+ * 强化：把一次经验积累的额度用在某项能力上，使其提高一档，消耗行动力。
  * 额度不足、该项已至上限或累计强化已满时拒绝且不扣行动力；与本人本季是否已行动无关。
  */
 export function strengthen(
@@ -66,7 +73,7 @@ export function strengthen(
         return `${ABILITY_LABELS[kind]} 已达上限`
       }
       if (boostCredits(character) < 1) {
-        return '出战累积不足，尚不能强化'
+        return '经验不足，尚不能强化'
       }
       return null
     },
@@ -75,7 +82,7 @@ export function strengthen(
         return { outcome: '强化未生效' }
       }
 
-      character[kind] = abilityOf(character, kind) + 1
+      character[kind] = Math.min(ABILITY_MAX, abilityOf(character, kind) + BOOST_GAIN)
       character.boosts = (character.boosts ?? 0) + 1
 
       return {

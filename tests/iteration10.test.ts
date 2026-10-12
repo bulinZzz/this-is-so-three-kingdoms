@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { GameSession } from '../src/app/gameSession'
 import { createInitialState } from '../src/core/createInitialState'
 import { granaryOf } from '../src/core/granary'
-import { BATTLES_PER_BOOST, boostCredits, strengthen } from '../src/core/growth'
+import { BOOST_GAIN, EXP_PER_BOOST, LOSS_EXP, WIN_EXP, boostCredits, strengthen } from '../src/core/growth'
 import { factionTroops } from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
 import { LocalSaveStore } from '../src/core/localSaveStore'
@@ -125,12 +125,13 @@ describe('迭代 10 全链（无画面）', () => {
     expect(recruiter.troops).toBeGreaterThan(troopsBefore)
     expect(site.population).toBeLessThan(populationBefore)
 
-    // 出征：参战者累计出战一次。
+    // 出征：胜方参战者得经验，败方守军得更多（败仗长进更多）。
     const warrior = characterOf(state, 'warrior')
-    expect(hitCount(warrior)).toBe(0)
+    expect(expOf(warrior)).toBe(0)
     expect(session.attack({ commander: 'warrior' }, 'b').ok).toBe(true)
     expect(siteOf(state, 'b').owner).toBe('liubei')
-    expect(hitCount(warrior)).toBe(1)
+    expect(expOf(warrior)).toBe(WIN_EXP)
+    expect(expOf(characterOf(state, 'defender'))).toBe(LOSS_EXP)
 
     // 结束回合：缺粮也不减员，行动历史里没有逃散。
     const troopsBeforeSettle = factionTroops(state, 'liubei')
@@ -153,23 +154,23 @@ describe('迭代 10 全链（无画面）', () => {
   })
 })
 
-/** 出战次数的口径：武将身上的累计值，未记时为零。 */
-function hitCount(character: Character): number {
-  return character.battles ?? 0
+/** 出战经验的口径：武将身上的累计值，未记时为零。 */
+function expOf(character: Character): number {
+  return character.exp ?? 0
 }
 
 describe('武将成长', () => {
-  it('每出战若干次得一次强化额度，额度换能力且可累积、不越上限', () => {
+  it('经验攒够得一次强化额度，额度换能力且可累积、不越上限', () => {
     const state = createInitialState({ seed: 208 })
     const guanyu = characterOf(state, 'guanyu')
 
     expect(boostCredits(guanyu)).toBe(0)
-    guanyu.battles = BATTLES_PER_BOOST
+    guanyu.exp = EXP_PER_BOOST
     expect(boostCredits(guanyu)).toBe(1)
 
     const mightBefore = guanyu.might
     expect(strengthen(state, 'guanyu', 'might').ok).toBe(true)
-    expect(guanyu.might).toBe(mightBefore + 1)
+    expect(guanyu.might).toBe(mightBefore + BOOST_GAIN)
     expect(boostCredits(guanyu)).toBe(0)
   })
 
@@ -180,10 +181,10 @@ describe('武将成长', () => {
 
     expect(strengthen(state, 'guanyu', 'might')).toEqual({
       ok: false,
-      reason: '出战累积不足，尚不能强化',
+      reason: '经验不足，尚不能强化',
     })
 
-    guanyu.battles = BATTLES_PER_BOOST
+    guanyu.exp = EXP_PER_BOOST
     guanyu.might = 100
     expect(strengthen(state, 'guanyu', 'might')).toEqual({ ok: false, reason: '武力 已达上限' })
     expect(state.actionPoints[state.playerFaction]).toBe(apBefore)

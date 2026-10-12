@@ -1,7 +1,9 @@
 import { runAction, type ActionResult } from './actions'
 import { attitudeOf, releaseCaptives, takeCaptive } from './captives'
 import { isServing } from './characters'
+import { damageOnCapture, DEVELOPMENT_LABELS } from './development'
 import { resolveProvinceOwners } from './geography'
+import { LOSS_EXP, WIN_EXP } from './growth'
 import { LOYALTY_LOSS, loseLoyalty, maybeDefect, wildTierFor } from './loyalty'
 import {
   attackGrainCost,
@@ -16,6 +18,7 @@ import type {
   CaptiveReport,
   Character,
   CharacterId,
+  DevelopmentKind,
   DuelReport,
   FactionId,
   GameState,
@@ -817,13 +820,16 @@ export function attack(
 
       let defenderFates: string[] = []
       let releasedNotes: string[] = []
+      let damaged: DevelopmentKind[] = []
 
-      // 出战计数只落在实际接战的双方：进攻方与迎战的守军各计一次，供成长累积强化额度。
+      // 出战经验只落在实际接战的双方：胜 +2、败 +3（败仗反而长进更多），供成长累积强化额度。
+      const attackerExp = attackerWins ? WIN_EXP : LOSS_EXP
+      const defenderExp = attackerWins ? LOSS_EXP : WIN_EXP
       for (const member of fighters) {
-        member.battles = (member.battles ?? 0) + 1
+        member.exp = (member.exp ?? 0) + attackerExp
       }
       for (const defender of garrison.members) {
-        defender.battles = (defender.battles ?? 0) + 1
+        defender.exp = (defender.exp ?? 0) + defenderExp
       }
 
       if (attackerWins) {
@@ -837,6 +843,8 @@ export function attack(
         }
         const previousOwner = target.owner
         target.owner = factionId
+        // 易主时的战火损耗：前任的开发设施随机降 1–2 项。
+        damaged = damageOnCapture(target, random)
         for (const member of fighters) {
           member.stationedSiteId = target.id
         }
@@ -874,11 +882,15 @@ export function attack(
       const duelLead = duel === null ? '' : `${duelHeadline(duel)}；`
       const fateNote = defenderFates.length > 0 ? `；守将 ${defenderFates.join('、')}` : ''
       const releaseNote = releasedNotes.length > 0 ? `；${releasedNotes.join('、')}` : ''
+      const damageNote =
+        attackerWins && damaged.length > 0
+          ? `；战火波及，${damaged.map((kind) => DEVELOPMENT_LABELS[kind]).join('、')} 各降一级`
+          : ''
 
       return {
         targetId: target.id,
         outcome: attackerWins
-          ? `${duelLead}${generalNames} 攻占 ${target.name}${fateNote}${releaseNote}`
+          ? `${duelLead}${generalNames} 攻占 ${target.name}${fateNote}${releaseNote}${damageNote}`
           : `${duelLead}${generalNames} 进攻 ${target.name} 失利`,
         battle: report,
       }

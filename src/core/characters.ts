@@ -103,7 +103,7 @@ export function validateCharacters(
 
     for (const [label, value] of [
       ['带兵上限', character.troopLimit],
-      ['出战次数', character.battles],
+      ['经验值', character.exp],
       ['强化次数', character.boosts],
     ] as const) {
       if (value !== undefined && (!Number.isInteger(value) || value < 0)) {

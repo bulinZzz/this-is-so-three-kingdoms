@@ -1,5 +1,6 @@
 import { runAction, type ActionResult } from './actions'
 import type { DevelopmentKind, FactionId, GameState, Site, SiteDevelopment, SiteType } from './model'
+import type { Random } from './random'
 
 /**
  * 内政建设：在自有战略点逐项投资农田、市集与民居，分别经营粮、金、人。
@@ -126,4 +127,33 @@ export function build(
       }
     },
   })
+}
+
+/**
+ * 战略点易主时的战火损耗：在前任已开发的设施里随机挑 1–2 项，各降一级（最低归零）。
+ * 得城不是白得，前任的经营未必留得住。返回被降级的项，供行动记录展示；无可降者返回空。
+ */
+export function damageOnCapture(site: Site, random: Random): DevelopmentKind[] {
+  const leveled = DEVELOPMENT_KINDS.filter((kind) => developmentLevel(site, kind) > 0)
+  if (leveled.length === 0) {
+    return []
+  }
+
+  const count = Math.min(leveled.length, 1 + Math.floor(random.next() * 2))
+  const remaining = [...leveled]
+  const damaged: DevelopmentKind[] = []
+
+  for (let picked = 0; picked < count; picked += 1) {
+    const index = Math.floor(random.next() * remaining.length)
+    const kind = remaining.splice(index, 1)[0]
+    if (kind === undefined) {
+      break
+    }
+
+    site.development = developmentOf(site)
+    site.development[kind] -= 1
+    damaged.push(kind)
+  }
+
+  return damaged
 }

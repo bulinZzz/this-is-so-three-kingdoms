@@ -23,9 +23,9 @@
 
 .shell__header {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
 }
 
 .shell__heading {
@@ -34,7 +34,7 @@
 
 .shell__menu {
   display: flex;
-  flex: none;
+  align-self: flex-end;
   gap: 12px;
 }
 
@@ -1190,6 +1190,13 @@
 .officer-detail__actions .officer-action {
   padding: 2px 8px;
   font-size: 11px;
+}
+
+/* 强化：四项能力横排，随栏宽换行。 */
+.officer-detail__boosts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .disband__target {

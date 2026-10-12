@@ -4,6 +4,8 @@ import { createInitialState } from '../src/core/createInitialState'
 import {
   build,
   buildCost,
+  damageOnCapture,
+  DEVELOPMENT_KINDS,
   developmentLevel,
   developmentLimit,
   populationCap,
@@ -11,6 +13,7 @@ import {
 import { growPopulation, moneyYield } from '../src/core/economy'
 import { granaryGrowth } from '../src/core/granary'
 import type { GameState, Site } from '../src/core/model'
+import { createRandom } from '../src/core/random'
 
 function siteOf(state: GameState, id: string): Site {
   const site = state.geography.sites.find((item) => item.id === id)
@@ -132,6 +135,38 @@ describe('建设行动', () => {
 
     expect(result.ok).toBe(false)
     expect(state.actionPoints.liubei).toBe(apBefore)
+  })
+})
+
+describe('易主损耗', () => {
+  it('随机令 1–2 项已开发的设施各降一级', () => {
+    const state = richState()
+    const site = siteOf(state, 'jiangxia')
+    for (const kind of DEVELOPMENT_KINDS) {
+      build(state, site.id, kind)
+    }
+    const totalBefore = DEVELOPMENT_KINDS.reduce(
+      (total, kind) => total + developmentLevel(site, kind),
+      0,
+    )
+
+    const damaged = damageOnCapture(site, createRandom(7))
+
+    expect(damaged.length).toBeGreaterThanOrEqual(1)
+    expect(damaged.length).toBeLessThanOrEqual(2)
+    const totalAfter = DEVELOPMENT_KINDS.reduce(
+      (total, kind) => total + developmentLevel(site, kind),
+      0,
+    )
+    // 每降一项正好掉一级，且被降的项不影响未列出的项。
+    expect(totalBefore - totalAfter).toBe(damaged.length)
+    expect(new Set(damaged).size).toBe(damaged.length)
+  })
+
+  it('无可降的设施时什么也不改', () => {
+    const state = richState()
+
+    expect(damageOnCapture(siteOf(state, 'jiangxia'), createRandom(7))).toEqual([])
   })
 })
 

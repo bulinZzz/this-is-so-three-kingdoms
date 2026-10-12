@@ -54,7 +54,7 @@ import { grainBalance, granaryIncome, moneyYield, troopUpkeep } from '../core/ec
 import { ALLIANCE_FAVOR, GIFT_MONEY, PEACE_FAVOR } from '../core/diplomacy'
 import { duelLineOf, duelResponseLineOf } from '../core/duelLines'
 import { granaryOf } from '../core/granary'
-import { ABILITY_KINDS, ABILITY_LABELS, BATTLES_PER_BOOST, boostCredits } from '../core/growth'
+import { ABILITY_KINDS, ABILITY_LABELS, BOOST_GAIN, boostCredits, EXP_PER_BOOST } from '../core/growth'
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
@@ -77,15 +77,15 @@ import './shell.css'
 const SHELL_HTML = `
   <div class="shell">
     <header class="shell__header">
-      <div class="shell__heading">
-        <p class="shell__date"></p>
-        <p class="shell__turn"></p>
-        <p class="shell__action-points"></p>
-      </div>
       <div class="shell__menu">
         <button type="button" class="shell__link" data-action="open-new-game">新游戏</button>
         <button type="button" class="shell__link" data-action="open-saves">存档</button>
         <button type="button" class="shell__link" data-action="open-settings">设置</button>
+      </div>
+      <div class="shell__heading">
+        <p class="shell__date"></p>
+        <p class="shell__turn"></p>
+        <p class="shell__action-points"></p>
       </div>
     </header>
     <section class="shell__section">
@@ -1588,9 +1588,9 @@ function renderOfficerDetail(
   const facts: readonly [string, string][] = [
     ['年龄', ageText(character.age)],
     ['性格', PERSONALITY_LABELS[character.personality]],
-    ['出战', `${character.battles ?? 0} 次（每 ${BATTLES_PER_BOOST} 次得一次强化，现有 ${credits} 次）`],
     ['忠诚', character.isMonarch ? '君主不计' : `${character.loyalty}${hint === null ? '' : `（${hint}）`}`],
     ['对己方态度', affinityAttitude(affinityToward(character, state.playerFaction))],
+    ['经验', `${character.exp ?? 0}（每 ${EXP_PER_BOOST} 点得一次强化，现有 ${credits} 次）`],
   ]
 
   const list = document.createElement('dl')
@@ -1609,26 +1609,29 @@ function renderOfficerDetail(
 
   const parts: HTMLElement[] = [back, head, list]
 
-  // 强化：攒够出战额度时，选一项能力提升一级。
+  // 强化：攒够出战额度时，横排四项能力，选一项提升一级。消耗已在标题行说明，按钮不再重复。
   if (credits > 0) {
     const boosts = document.createElement('div')
     boosts.className = 'officer-detail__actions'
     const lead = document.createElement('span')
     lead.className = 'officer-detail__hint'
     lead.textContent = showCosts ? `强化 · ${ACTION_COSTS.strengthen} 行动力` : '强化'
-    boosts.append(lead)
 
+    const row = document.createElement('div')
+    row.className = 'officer-detail__boosts'
     for (const kind of ABILITY_KINDS) {
       const button = createRosterAction(
-        `${ABILITY_LABELS[kind]} ${character[kind]}`,
+        `${ABILITY_LABELS[kind]} +${BOOST_GAIN}`,
         'strengthen',
         character.id,
-        ACTION_COSTS.strengthen,
-        showCosts,
+        0,
+        false,
       )
       button.dataset.kind = kind
-      boosts.append(button)
+      row.append(button)
     }
+
+    boosts.append(lead, row)
     parts.push(boosts)
   }
 
