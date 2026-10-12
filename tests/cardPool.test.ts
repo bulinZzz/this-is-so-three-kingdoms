@@ -36,8 +36,8 @@ function poolScene(owned: 1 | 2 | 3): GameState {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 1000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 1000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 1000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 1000 },
     ],
     geography: {
       provinces: [{ id: 'p', name: '州', owner: owned >= 2 ? 'liubei' : 'caocao' }],

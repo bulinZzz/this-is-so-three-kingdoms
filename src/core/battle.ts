@@ -818,6 +818,14 @@ export function attack(
       let defenderFates: string[] = []
       let releasedNotes: string[] = []
 
+      // 出战计数只落在实际接战的双方：进攻方与迎战的守军各计一次，供成长累积强化额度。
+      for (const member of fighters) {
+        member.battles = (member.battles ?? 0) + 1
+      }
+      for (const defender of garrison.members) {
+        defender.battles = (defender.battles ?? 0) + 1
+      }
+
       if (attackerWins) {
         if (!undefended) {
           for (const member of fighters) {

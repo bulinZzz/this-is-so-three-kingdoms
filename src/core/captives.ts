@@ -2,6 +2,7 @@ import { runAction, type ActionResult } from './actions'
 import { affinityToward, joinLoyaltyFor, recruitmentFactor } from './affinity'
 import { CHARACTER_LIMIT, countServing } from './characters'
 import { wildTierFor } from './loyalty'
+import { TROOPS_LIMIT_PER_COMMAND } from './military'
 import type { CaptiveAttitude, CaptiveRecord, Character, CharacterId, FactionId, GameState } from './model'
 import type { Random } from './random'
 import { baseRecruitRate, clearContacts } from './seekTalent'
@@ -112,8 +113,8 @@ function removeCaptive(state: GameState, factionId: FactionId, characterId: Char
   )
 }
 
-/** 转为在野：脱去势力与部队，忠诚清零，按能力重定卡池层级，并清出接触名单。 */
-function becomeWild(state: GameState, character: Character): void {
+/** 转为在野：脱去势力与部队，忠诚清零，按能力重定卡池层级，并清出接触名单。解任与俘虏释放共用。 */
+export function becomeWild(state: GameState, character: Character): void {
   character.status = 'wild'
   character.factionId = null
   character.stationedSiteId = null
@@ -150,6 +151,7 @@ function serveUnder(
   character.factionId = factionId
   character.stationedSiteId = site.id
   character.troops = 0
+  character.troopLimit = character.command * TROOPS_LIMIT_PER_COMMAND
   character.loyalty = loyalty
   clearContacts(state, character.id)
 

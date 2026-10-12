@@ -3,8 +3,8 @@ import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import {
   factionTroops,
+  GRAIN_HARVEST_FULL_TROOPS,
   GRAIN_HARVEST_PER_POLITICS,
-  GRAIN_HARVEST_PER_SITE,
   harvestGrain,
   harvestGrainBaseline,
   hasActedThisTurn,
@@ -17,6 +17,7 @@ import {
   transferCandidates,
   troopLimit,
 } from '../src/core/military'
+import { granaryOf } from '../src/core/granary'
 import type { FactionId, GameState } from '../src/core/model'
 import { advanceTurn } from '../src/core/turn'
 
@@ -128,28 +129,34 @@ describe('征兵', () => {
     expect(recruit(state, 'guanyu')).toEqual({ ok: false, reason: '关羽 本回合已行动' })
   })
 
-  it('补到统率所限的带兵上限为止，满员后不再能征兵', () => {
+  it('补到带兵上限为止本季不能再征；上限随季增长后可再征', () => {
     const state = createInitialState({ seed: 208 })
     const guanyu = characterOf(state, 'guanyu')
     const limit = troopLimit(guanyu)
-    guanyu.troops = limit - 1
+    guanyu.troops = limit
 
-    expect(recruit(state, 'guanyu').ok).toBe(true)
-    expect(guanyu.troops).toBe(limit)
+    expect(recruit(state, 'guanyu')).toEqual({ ok: false, reason: '关羽 已达带兵上限' })
 
     advanceTurn(state)
 
-    expect(recruit(state, 'guanyu')).toEqual({ ok: false, reason: '关羽 已达带兵上限' })
+    // 上限随季小幅提高，兵力却一兵不增，于是又能再征。
+    expect(troopLimit(guanyu)).toBeGreaterThan(limit)
+    expect(guanyu.troops).toBe(limit)
+    expect(recruit(state, 'guanyu').ok).toBe(true)
   })
 })
 
 describe('征粮', () => {
-  it('派部属征粮：粮食入库、占用该武将本季行动、扣行动力并写记录', () => {
+  it('派部属自驻地存粮取粮：入库、占用该武将本季行动、扣行动力并写记录', () => {
     const state = createInitialState({ seed: 208 })
     const zhugeliang = characterOf(state, 'zhugeliang')
+    const site = state.geography.sites.find((item) => item.id === 'jiangxia')
+    if (site === undefined) {
+      throw new Error('战略点不存在：jiangxia')
+    }
     const grainBefore = factionOf(state, 'liubei').grain
-    const sites = state.geography.sites.filter((site) => site.owner === 'liubei').length
-    const baseline = harvestGrainBaseline(state, zhugeliang)
+    const granaryBefore = granaryOf(site)
+    const baseline = harvestGrainBaseline(zhugeliang)
 
     const result = harvestGrain(state, 'zhugeliang')
 
@@ -159,30 +166,27 @@ describe('征粮', () => {
       expect(result.record.targetId).toBe('jiangxia')
     }
     expect(baseline).toBe(
-      zhugeliang.politics * GRAIN_HARVEST_PER_POLITICS + sites * GRAIN_HARVEST_PER_SITE,
+      Math.round(zhugeliang.politics * GRAIN_HARVEST_PER_POLITICS * Math.min(1, zhugeliang.troops / GRAIN_HARVEST_FULL_TROOPS)),
     )
-    expect(factionOf(state, 'liubei').grain).toBeGreaterThanOrEqual(
-      grainBefore + Math.round(baseline * 0.75),
-    )
-    expect(factionOf(state, 'liubei').grain).toBeLessThanOrEqual(
-      grainBefore + Math.round(baseline * 1.25),
-    )
+    const gained = factionOf(state, 'liubei').grain - grainBefore
+    // 取量不超过该点当前存粮，并自存粮中扣除。
+    expect(gained).toBeGreaterThan(0)
+    expect(gained).toBeLessThanOrEqual(granaryBefore)
+    expect(granaryOf(site)).toBe(granaryBefore - gained)
     expect(hasActedThisTurn(state, 'zhugeliang')).toBe(true)
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.harvestGrain)
   })
 
-  it('产量随自有战略点数增长', () => {
+  it('产量随兵力增长，兵力清零者几乎征不到粮', () => {
     const state = createInitialState({ seed: 208 })
     const zhugeliang = characterOf(state, 'zhugeliang')
-    const before = harvestGrainBaseline(state, zhugeliang)
+    const withTroops = harvestGrainBaseline(zhugeliang)
 
-    const extra = state.geography.sites.find((site) => site.owner === 'caocao')
-    if (extra === undefined) {
-      throw new Error('没有可改归属的战略点')
-    }
-    extra.owner = 'liubei'
+    zhugeliang.troops = 0
+    expect(harvestGrainBaseline(zhugeliang)).toBe(0)
 
-    expect(harvestGrainBaseline(state, zhugeliang)).toBe(before + GRAIN_HARVEST_PER_SITE)
+    zhugeliang.troops = GRAIN_HARVEST_FULL_TROOPS
+    expect(harvestGrainBaseline(zhugeliang)).toBeGreaterThan(withTroops)
   })
 
   it('已行动的武将不能再征粮，他势力武将也不可征粮', () => {

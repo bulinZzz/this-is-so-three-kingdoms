@@ -5,7 +5,7 @@ import { CHARACTER_LIMIT, countServing } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import type { Character, GameState, Personality, Scenario } from '../src/core/model'
 import { createRandom, type Random } from '../src/core/random'
-import { RECRUIT_INITIAL_TROOPS, recruitChance, seekTalent, visit } from '../src/core/seekTalent'
+import { recruitChance, seekTalent, visit } from '../src/core/seekTalent'
 
 /** 取一个 [0,1) 序列固定的随机源，供判定可控的用例。 */
 function fixedRandom(values: number[]): Random {
@@ -48,8 +48,8 @@ function seekScenario(character: Character, ...others: Character[]): Scenario {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 1000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 1000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 1000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 1000 },
     ],
     geography: {
       provinces: [{ id: 'jing', name: '荆州', owner: null }],
@@ -96,7 +96,8 @@ describe('seekTalent', () => {
     expect(recruited.status).toBe('serving')
     expect(recruited.factionId).toBe('liubei')
     expect(recruited.stationedSiteId).toBe('a')
-    expect(recruited.troops).toBe(RECRUIT_INITIAL_TROOPS)
+    // 入仕不带兵：兵力自零起，须自行征兵；带兵上限按统率给。
+    expect(recruited.troops).toBe(0)
     // 入仕者的忠诚按其对主家的偏好定初值，不会一入仕就「离心」。
     expect(recruited.loyalty).toBe(joinLoyaltyFor(100))
     expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)

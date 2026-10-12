@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { attack, isAttackable } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
-import { areAllied, areHostile, relationBetween } from '../src/core/relations'
+import {
+  adjustFavor,
+  areAllied,
+  areHostile,
+  favorBetween,
+  NEUTRAL,
+  NEUTRAL_FAVOR,
+  relationBetween,
+  setRelation,
+} from '../src/core/relations'
 import { SANGUO_208 } from '../src/core/scenarios'
 
 describe('势力关系', () => {
@@ -23,5 +32,37 @@ describe('势力关系', () => {
       ok: false,
       reason: '与对方同盟，不能进攻',
     })
+  })
+})
+
+describe('好感与状态', () => {
+  it('未记录的势力对为中立、好感取中性', () => {
+    const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
+
+    expect(relationBetween(state, 'liubei', 'liubei')).toBe(NEUTRAL)
+    expect(favorBetween(state, 'liubei', 'sunquan')).toBe(70)
+  })
+
+  it('调整好感并夹在 0–100；未记录的对以中性为起点新建', () => {
+    const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
+    state.relations = []
+
+    expect(adjustFavor(state, 'liubei', 'caocao', 10)).toBe(NEUTRAL_FAVOR + 10)
+    expect(favorBetween(state, 'liubei', 'caocao')).toBe(NEUTRAL_FAVOR + 10)
+    expect(relationBetween(state, 'liubei', 'caocao')).toBe(NEUTRAL)
+
+    expect(adjustFavor(state, 'liubei', 'caocao', 999)).toBe(100)
+    expect(adjustFavor(state, 'liubei', 'caocao', -999)).toBe(0)
+  })
+
+  it('设置状态保留现有好感；未记录者新建，好感取中性', () => {
+    const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
+
+    setRelation(state, 'liubei', 'caocao', 'neutral')
+    expect(relationBetween(state, 'liubei', 'caocao')).toBe('neutral')
+    expect(favorBetween(state, 'liubei', 'caocao')).toBe(25)
+
+    setRelation(state, 'liubei', 'sunquan', 'ally')
+    expect(areAllied(state, 'liubei', 'sunquan')).toBe(true)
   })
 })

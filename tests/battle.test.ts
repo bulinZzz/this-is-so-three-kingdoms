@@ -58,10 +58,10 @@ function scene(options: {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 100000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 100000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 100000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 100000 },
     ],
-    relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile' }],
+    relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
     geography: {
       provinces: [{ id: 'jing', name: '荆州', owner: null }],
       sites: [
@@ -333,7 +333,7 @@ describe('进攻', () => {
   it('兵力为三人之和，智谋取三人中最高，士气为战斗默认满值', () => {
     const state = createInitialState({ seed: 208 })
 
-    // 关羽智谋 75、张飞 40，取最高 75；带军师诸葛亮时取 100。
+    // 关羽智谋 75、张飞 40，取最高 75；带军师诸葛亮时取其压到起步上限后的 90。
     expect(partySide(state, { commander: 'guanyu', deputy: 'zhangfei' })).toEqual({
       troops: 14000,
       intellect: 75,
@@ -341,7 +341,7 @@ describe('进攻', () => {
     })
     expect(
       partySide(state, { commander: 'guanyu', deputy: 'zhangfei', strategist: 'zhugeliang' }),
-    ).toEqual({ troops: 16000, intellect: 100, morale: MORALE_FULL })
+    ).toEqual({ troops: 16000, intellect: 90, morale: MORALE_FULL })
   })
 
   it('编成不合规时拒绝', () => {

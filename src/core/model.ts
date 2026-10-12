@@ -21,17 +21,21 @@ export interface Faction {
   id: FactionId
   name: string
   color: string
-  /** 粮食，初版唯一的资源，征兵与维持部队所用。 */
+  /** 粮食，征兵与维持部队所用。 */
   grain: number
+  /** 金钱，经营与外交的专用资源；军队维持仍只吃粮。 */
+  money: number
 }
 
-/** 势力之间的关系：同盟或敌对；未声明的势力对为中立。 */
-export type RelationKind = 'ally' | 'hostile'
+/** 势力之间的关系：同盟、敌对或中立；未声明的势力对为中立。 */
+export type RelationKind = 'ally' | 'hostile' | 'neutral'
 
 /** 一对势力之间的关系，顺序不计。 */
 export interface FactionRelation {
   factions: [FactionId, FactionId]
   kind: RelationKind
+  /** 好感，0–100，50 为中性；由外交动作增减，结盟与停战以它为门槛。 */
+  favor: number
 }
 
 export type ProvinceId = string
@@ -49,6 +53,16 @@ export type SiteId = string
 /** 战略点的类型，决定其定位与所携带的属性。 */
 export type SiteType = 'city' | 'pass' | 'field'
 
+/** 战略点的三项开发等级：农田提高粮产、市集提高金钱产出、民居增加人口与人口上限。 */
+export interface SiteDevelopment {
+  farm: number
+  market: number
+  housing: number
+}
+
+/** 可建设的开发项。 */
+export type DevelopmentKind = keyof SiteDevelopment
+
 /**
  * 战略点：领土与进攻的基本单位。
  * 不以行政级别为限，城市、关隘、野地皆可成为战略点。
@@ -64,6 +78,13 @@ export interface Site {
   neighbors: SiteId[]
   /** 人口，粮食生产与兵源的共同基础；随地块走，不因易主而清空。 */
   population: number
+  /**
+   * 存粮，粮食落到地块上：每季增加、有上限，征粮自此一次性取走，势力每季另运回一部分。
+   * 随地块走，易主后归新主；剧本数据可省略，开局时补上。
+   */
+  granary?: number
+  /** 三项开发等级；剧本数据可省略，开局时补为全 0。 */
+  development?: SiteDevelopment
 }
 
 /** 天下地理结构。 */
@@ -125,9 +146,21 @@ export interface Character {
   stationedSiteId: SiteId | null
   /** 所统率部队的兵力；未出仕者为 0。 */
   troops: number
+  /**
+   * 带兵上限，随季小幅增长；开局与入仕时取统率 × 150，硬上限 99999。
+   * 未记时按统率折算（剧本数据可省略）。
+   */
+  troopLimit?: number
+  /** 累计出战次数（进攻与防守），每出战若干次可强化一次。 */
+  battles?: number
+  /** 已用掉的强化次数，累计有上限。 */
+  boosts?: number
   /** 在野者所属的寻访卡池层级；非在野者不参与寻访，为 null。 */
   tier: CharacterTier | null
 }
+
+/** 可强化的能力项，取自武将的几项数值。 */
+export type AbilityKind = 'might' | 'intellect' | 'command' | 'politics'
 
 /** 一位已被某势力接触、尚未入仕的在野者，并记下他是在哪个自有战略点被遇到的。 */
 export interface ContactedCandidate {
@@ -167,14 +200,24 @@ export type ActionKind =
   | 'visit'
   | 'recruit'
   | 'harvestGrain'
+  | 'build'
   | 'transfer'
   | 'attack'
+  | 'declareWar'
+  | 'makePeace'
+  | 'alliance'
+  | 'gift'
+  | 'demand'
+  | 'dismiss'
+  | 'reward'
+  | 'strengthen'
+  | 'disband'
   | 'persuade'
   | 'executeCaptive'
   | 'releaseCaptive'
 
-/** 写入历史的记录类型：行动之外，世界结算（如叛离、缺粮逃散）也占一条。 */
-export type ActionRecordKind = ActionKind | 'defect' | 'disband'
+/** 写入历史的记录类型：行动之外，世界结算（如叛离）也占一条。 */
+export type ActionRecordKind = ActionKind | 'defect'
 
 /** 战报中一方的要点。 */
 export interface BattleReportSide {

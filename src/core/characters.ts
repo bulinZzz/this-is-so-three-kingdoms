@@ -101,6 +101,16 @@ export function validateCharacters(
       problems.push(`武将 ${character.id} 的兵力超出范围：${character.troops}`)
     }
 
+    for (const [label, value] of [
+      ['带兵上限', character.troopLimit],
+      ['出战次数', character.battles],
+      ['强化次数', character.boosts],
+    ] as const) {
+      if (value !== undefined && (!Number.isInteger(value) || value < 0)) {
+        problems.push(`武将 ${character.id} 的${label}不合法：${value}`)
+      }
+    }
+
     for (const [factionId, affinity] of Object.entries(character.affinities)) {
       if (!factionIdSet.has(factionId)) {
         problems.push(`武将 ${character.id} 的势力倾向指向不存在的势力：${factionId}`)

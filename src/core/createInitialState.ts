@@ -26,6 +26,7 @@ export function createInitialState(options: NewGameOptions = {}): GameState {
     relations: (scenario.relations ?? []).map((relation) => ({
       factions: [...relation.factions] as [FactionId, FactionId],
       kind: relation.kind,
+      favor: relation.favor,
     })),
     playerFaction: scenario.playerFaction,
     geography: cloneGeography(scenario.geography ?? EMPTY_GEOGRAPHY),

@@ -8,8 +8,10 @@ import type { Character } from './model'
  * 能力与兵力取自演义印象，年龄按史书推算，具体平衡待核心玩法验证后再调。
  * 生年无明文者依人物关系估定：凡人物之间的次序（如刘关张的结义之序）在数据里必须立得住，
  * 不为某家推算让路。
+ *
+ * 迭代 10 起，四项能力在载入时按统一口径压缩：起步偏低、上限较高，成长靠出战积累（见 growth）。
  */
-export const CHARACTERS_SANGUO: Character[] = [
+const RAW_CHARACTERS: Character[] = [
   // 刘备（荆州）
   { id: 'liubei', name: '刘备', status: 'serving', factionId: 'liubei', provinceId: 'jing', might: 73, command: 75, intellect: 76, politics: 80, age: 47, personality: 'open', affinities: { liubei: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'jiangxia', troops: 5000, tier: null },
   { id: 'guanyu', name: '关羽', status: 'serving', factionId: 'liubei', provinceId: 'jing', might: 97, command: 95, intellect: 75, politics: 45, age: 46, personality: 'proud', affinities: { liubei: 96, caocao: 70, sunquan: 30 }, loyalty: 98, isMonarch: false, stationedSiteId: 'jiangxia', troops: 8000, tier: null },
@@ -93,3 +95,20 @@ export const CHARACTERS_SANGUO: Character[] = [
   { id: 'zhangyan', name: '张燕', status: 'wild', factionId: null, provinceId: 'bing', might: 80, command: 78, intellect: 62, politics: 55, age: 48, personality: 'brave', affinities: { caocao: 65 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
   { id: 'shixie', name: '士燮', status: 'wild', factionId: null, provinceId: 'jiao', might: 50, command: 68, intellect: 76, politics: 80, age: 71, personality: 'cautious', affinities: {}, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
 ]
+
+/** 能力起步的上限：高于它的数值一并压到此处，其余的相对高低保持不变。 */
+const ABILITY_CEILING = 90
+
+/** 把一项能力压到起步上限之内，留出靠出战成长的空间。 */
+function softenAbility(value: number): number {
+  return Math.min(value, ABILITY_CEILING)
+}
+
+/** 起步偏低、上限较高的武将数据；压缩只作用于四项能力，兵力与其余字段照旧。 */
+export const CHARACTERS_SANGUO: Character[] = RAW_CHARACTERS.map((character) => ({
+  ...character,
+  might: softenAbility(character.might),
+  command: softenAbility(character.command),
+  intellect: softenAbility(character.intellect),
+  politics: softenAbility(character.politics),
+}))

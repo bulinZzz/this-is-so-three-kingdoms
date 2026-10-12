@@ -4,19 +4,23 @@ import type { SettingsStore } from '../app/settingsStore'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../core/actions'
 import { affinityAttitude, affinityToward } from '../core/affinity'
 import type {
+  AbilityKind,
   BattleReport,
   BattleReportSide,
   CaptiveReport,
   Character,
   CharacterId,
   CharacterStatus,
+  DevelopmentKind,
   DuelReport,
   Faction,
   FactionId,
   GameDate,
   GameState,
   Personality,
+  RelationKind,
   Season,
+  Site,
   SiteId,
   SiteType,
 } from '../core/model'
@@ -36,8 +40,21 @@ import {
 } from '../core/battle'
 import { isRecruitable, isRetired, isServing } from '../core/characters'
 import { captivesOf } from '../core/captives'
-import { canAffordTroopGrowth, grainBalance, grainYield, troopUpkeep } from '../core/economy'
+import {
+  buildCost,
+  developmentLevel,
+  developmentLimit,
+  DEVELOPMENT_KINDS,
+  DEVELOPMENT_LABELS,
+  GRAIN_BONUS_PER_FARM_LEVEL,
+  MONEY_BONUS_PER_MARKET_LEVEL,
+  POPULATION_PER_HOUSING,
+} from '../core/development'
+import { grainBalance, granaryIncome, moneyYield, troopUpkeep } from '../core/economy'
+import { ALLIANCE_FAVOR, GIFT_MONEY, PEACE_FAVOR } from '../core/diplomacy'
 import { duelLineOf, duelResponseLineOf } from '../core/duelLines'
+import { granaryOf } from '../core/granary'
+import { ABILITY_KINDS, ABILITY_LABELS, BATTLES_PER_BOOST, boostCredits } from '../core/growth'
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
@@ -50,10 +67,9 @@ import {
   MAX_TRANSFER_PARTY,
   sitePopulationCap,
   transferCandidates,
-  troopGrowthBaseline,
   troopLimit,
 } from '../core/military'
-import { relationBetween } from '../core/relations'
+import { favorBetween, relationBetween } from '../core/relations'
 import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
 import './shell.css'
@@ -89,6 +105,9 @@ const SHELL_HTML = `
         <button type="button" class="site-panel__action" data-action="attack-here" hidden>
           <span>进攻此地</span>
           <span class="action-cost"></span>
+        </button>
+        <button type="button" class="site-panel__action" data-action="site-info" hidden>
+          <span>进入</span>
         </button>
         <button type="button" class="site-panel__action" data-action="transfer-here" hidden>
           <span>调兵至此</span>
@@ -130,7 +149,6 @@ const SHELL_HTML = `
                     <th>统</th>
                     <th>智</th>
                     <th>政</th>
-                    <th>忠诚</th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -151,7 +169,6 @@ const SHELL_HTML = `
                     <th>统</th>
                     <th>智</th>
                     <th>政</th>
-                    <th>忠诚</th>
                     <th>状态</th>
                     <th>君主</th>
                   </tr>
@@ -189,21 +206,34 @@ const SHELL_HTML = `
             <span class="domestic__value domestic__grain"></span>
           </div>
           <div class="domestic__row">
+            <span class="domestic__label">黄金</span>
+            <span class="domestic__value domestic__money"></span>
+          </div>
+          <div class="domestic__row">
             <span class="domestic__label">人口</span>
             <span class="domestic__value domestic__population"></span>
+          </div>
+          <div class="domestic__row">
+            <span class="domestic__label">存量</span>
+            <span class="domestic__value domestic__granary"></span>
           </div>
         </section>
         <section class="domestic__section">
           <h3 class="domestic__heading">每季收支</h3>
           <div class="domestic__row">
-            <span class="domestic__label">兵力</span>
-            <span class="domestic__value domestic__troop-growth"></span>
-          </div>
-          <div class="domestic__row">
             <span class="domestic__label">粮食</span>
             <span class="domestic__value domestic__grain-flow"></span>
           </div>
+          <div class="domestic__row">
+            <span class="domestic__label">黄金</span>
+            <span class="domestic__value domestic__money-flow"></span>
+          </div>
         </section>
+        <section class="domestic__section">
+          <h3 class="domestic__heading">行动</h3>
+          <button type="button" class="domestic__action" data-action="harvest-here"></button>
+        </section>
+        <p class="domestic__status" role="status"></p>
       </div>
     </dialog>
     <dialog class="order">
@@ -213,9 +243,9 @@ const SHELL_HTML = `
       </div>
       <div class="order__body">
         <p class="order__target"></p>
-        <p class="order__status" role="status"></p>
         <ul class="order__officers"></ul>
         <button type="button" class="order__submit" data-action="order-go"></button>
+        <p class="order__status" role="status"></p>
       </div>
     </dialog>
     <dialog class="battle-plan">
@@ -237,8 +267,58 @@ const SHELL_HTML = `
         <h2 class="saves__title">俘虏</h2>
         <button type="button" class="saves__close" data-action="close-prison">关闭</button>
       </div>
-      <p class="prison__status"></p>
       <ul class="prison__list"></ul>
+      <p class="prison__status" role="status"></p>
+    </dialog>
+    <dialog class="diplomacy">
+      <div class="saves__head">
+        <h2 class="saves__title">外交</h2>
+        <div class="saves__head-actions">
+          <button type="button" class="saves__close" data-action="diplomacy-back" hidden>返回</button>
+          <button type="button" class="saves__close" data-action="close-diplomacy">关闭</button>
+        </div>
+      </div>
+      <p class="diplomacy__target"></p>
+      <ul class="diplomacy__list"></ul>
+      <p class="diplomacy__status" role="status"></p>
+    </dialog>
+    <dialog class="disband">
+      <div class="saves__head">
+        <h2 class="saves__title">遣散</h2>
+        <button type="button" class="saves__close" data-action="close-disband">关闭</button>
+      </div>
+      <p class="disband__target"></p>
+      <div class="disband__body">
+        <span class="disband__label"></span>
+        <input type="range" class="disband__slider" min="0" />
+      </div>
+      <div class="disband__actions">
+        <button type="button" class="disband__submit" data-action="disband-confirm">遣散</button>
+      </div>
+      <p class="disband__status" role="status"></p>
+    </dialog>
+    <dialog class="confirm">
+      <div class="saves__head">
+        <h2 class="saves__title">解任</h2>
+        <button type="button" class="saves__close" data-action="close-confirm">关闭</button>
+      </div>
+      <p class="confirm__text"></p>
+      <div class="confirm__actions">
+        <button type="button" class="confirm__button" data-action="dismiss-cancel">取消</button>
+        <button type="button" class="confirm__button confirm__button--primary" data-action="dismiss-confirm">解任</button>
+      </div>
+    </dialog>
+    <dialog class="site-info">
+      <div class="saves__head">
+        <h2 class="saves__title site-info__title">战略点</h2>
+        <button type="button" class="saves__close" data-action="close-site-info">关闭</button>
+      </div>
+      <div class="site-info__body">
+        <dl class="site-info__facts"></dl>
+        <h3 class="site-info__heading">建设</h3>
+        <ul class="site-info__list"></ul>
+      </div>
+      <p class="site-info__status" role="status"></p>
     </dialog>
     <dialog class="settings">
       <div class="saves__head">
@@ -283,6 +363,7 @@ const ACTION_BAR_HTML = `
   <nav class="action-bar">
     <button type="button" class="action-bar__button" data-action="open-roster">武将</button>
     <button type="button" class="action-bar__button" data-action="open-domestic">内政</button>
+    <button type="button" class="action-bar__button" data-action="open-diplomacy">外交</button>
     <button type="button" class="action-bar__button" data-action="open-prison">俘虏</button>
     <button type="button" class="action-bar__button" data-action="open-history">历史</button>
   </nav>
@@ -362,6 +443,17 @@ function formatSlotSummary(summary: SaveSummary): string {
   return `${era}${toChineseNumeral(year)}年${SEASON_CHARACTERS[season]} · 第${summary.turn}回合`
 }
 
+/** 关系状态的中文名。 */
+function relationLabel(kind: RelationKind): string {
+  if (kind === 'ally') {
+    return '同盟'
+  }
+  if (kind === 'hostile') {
+    return '敌对'
+  }
+  return '中立'
+}
+
 function renderFactions(list: Element, state: GameState): void {
   const factionsById = new Map(state.factions.map((faction) => [faction.id, faction]))
   const ordered = resolveFactionOrder(state)
@@ -389,12 +481,10 @@ function renderFactions(list: Element, state: GameState): void {
       item.append(badge)
     } else {
       const relation = relationBetween(state, state.playerFaction, faction.id)
-      if (relation !== null) {
-        const badge = document.createElement('span')
-        badge.className = `shell__badge shell__badge--${relation}`
-        badge.textContent = relation === 'ally' ? '同盟' : '敌对'
-        item.append(badge)
-      }
+      const badge = document.createElement('span')
+      badge.className = `shell__badge shell__badge--${relation}`
+      badge.textContent = relationLabel(relation)
+      item.append(badge)
     }
 
     if (isFactionDestroyed(state, faction.id)) {
@@ -431,27 +521,35 @@ function formatSigned(value: number): string {
   return value >= 0 ? `+${value}` : `−${Math.abs(value)}`
 }
 
-/** 内政弹窗：上半记当前资源，下半记每季收支（粮产减军粮）；后续经营类信息也放这里。 */
-function renderDomestic(dialog: HTMLElement, state: GameState): void {
+/** 内政弹窗：上半记当前资源，下半记每季收支（运回减军粮、金钱收入）；征粮派将也在这里。 */
+function renderDomestic(
+  dialog: HTMLElement,
+  state: GameState,
+  showCosts: boolean,
+  message: string,
+): void {
   const faction = state.factions.find((item) => item.id === state.playerFaction)
-  const population = state.geography.sites
-    .filter((site) => site.owner === state.playerFaction)
-    .reduce((total, site) => total + site.population, 0)
+  const ownSites = state.geography.sites.filter((site) => site.owner === state.playerFaction)
+  const population = ownSites.reduce((total, site) => total + site.population, 0)
+  const granary = ownSites.reduce((total, site) => total + granaryOf(site), 0)
 
   requireElement<HTMLElement>(dialog, '.domestic__troops').textContent = String(
     factionTroops(state, state.playerFaction),
   )
   requireElement<HTMLElement>(dialog, '.domestic__grain').textContent = String(faction?.grain ?? 0)
+  requireElement<HTMLElement>(dialog, '.domestic__money').textContent = String(faction?.money ?? 0)
   requireElement<HTMLElement>(dialog, '.domestic__population').textContent = String(population)
-  // 缺粮的势力养不起新兵，自然增长不生效，预览也照实为零。
-  const troopGrowth = canAffordTroopGrowth(state, state.playerFaction)
-    ? troopGrowthBaseline(state, state.playerFaction)
-    : 0
-  requireElement<HTMLElement>(dialog, '.domestic__troop-growth').textContent = `+${troopGrowth}`
+  requireElement<HTMLElement>(dialog, '.domestic__granary').textContent = String(granary)
   requireElement<HTMLElement>(dialog, '.domestic__grain-flow').textContent =
-    `+${grainYield(state, state.playerFaction)} − ${troopUpkeep(state, state.playerFaction)} = ${formatSigned(
+    `+${granaryIncome(state, state.playerFaction)} − ${troopUpkeep(state, state.playerFaction)} = ${formatSigned(
       grainBalance(state, state.playerFaction),
     )}`
+  requireElement<HTMLElement>(dialog, '.domestic__money-flow').textContent =
+    `+${moneyYield(state, state.playerFaction)}`
+  requireElement<HTMLButtonElement>(dialog, '[data-action="harvest-here"]').textContent = showCosts
+    ? `征粮 · ${ACTION_COSTS.harvestGrain} 行动力`
+    : '征粮'
+  requireElement<HTMLElement>(dialog, '.domestic__status').textContent = message
 }
 
 const SITE_TYPE_LABELS: Record<SiteType, string> = {
@@ -460,7 +558,7 @@ const SITE_TYPE_LABELS: Record<SiteType, string> = {
   field: '野地',
 }
 
-/** 表格行内的行动按钮；开启「显示行动力消耗」时把消耗并入名称。 */
+/** 表格行内的行动按钮；开启「显示行动力消耗」时把消耗并入名称（不耗行动力的不标）。 */
 function createRosterAction(
   label: string,
   action: string,
@@ -473,8 +571,10 @@ function createRosterAction(
   button.className = 'officer-action'
   button.dataset.action = action
   button.dataset.character = characterId
-  button.title = `消耗 ${cost} 行动力`
-  button.textContent = showCosts ? `${label} ${cost}` : label
+  if (cost > 0) {
+    button.title = `消耗 ${cost} 行动力`
+  }
+  button.textContent = showCosts && cost > 0 ? `${label} ${cost}` : label
 
   return button
 }
@@ -496,16 +596,9 @@ function loyaltyHintText(character: Character, factionId: FactionId): string {
   return hint === null ? '' : ` · ${hint}`
 }
 
-/** 编成条目的摘要：只给即战信息与忠诚提示，不带态度与年龄。 */
+/** 编成与选将条目的摘要：只给即战信息与忠诚提示，不带态度与年龄。 */
 function partyMetaText(character: Character, factionId: FactionId): string {
   return `${officerSummaryText(character)}${loyaltyHintText(character, factionId)}`
-}
-
-/** 武将详情与调动条目：兵力、能力、对某势力的态度与年龄。 */
-function officerMetaText(character: Character, factionId: FactionId): string {
-  const attitude = affinityAttitude(affinityToward(character, factionId))
-
-  return `${officerSummaryText(character)} · ${attitude} · ${ageText(character.age)}${loyaltyHintText(character, factionId)}`
 }
 
 /** 侧栏战略点面板：所选战略点的名称、类型、归属与驻守武将；按接壤情况提供进攻、调动与寻访。 */
@@ -525,7 +618,7 @@ function renderSitePanel(
 
   panel.hidden = false
   requireElement<HTMLElement>(panel, '.site-panel__name').textContent = site.name
-  requireElement<HTMLElement>(panel, '.site-panel__meta').textContent = `${SITE_TYPE_LABELS[site.type]} · 人口 ${site.population} · 丁口 ${sitePopulationCap(site)}`
+  requireElement<HTMLElement>(panel, '.site-panel__meta').textContent = SITE_TYPE_LABELS[site.type]
 
   const ownerName =
     site.owner === null
@@ -550,14 +643,102 @@ function renderSitePanel(
   )
   requireElement<HTMLButtonElement>(panel, '[data-action="transfer-here"]').hidden =
     !isTransferTarget(state, site.id)
+  // 「进入」只对自家领地开放；建设也在那个窗口里办。
+  requireElement<HTMLButtonElement>(panel, '[data-action="site-info"]').hidden = !isOwn
   requireElement<HTMLButtonElement>(panel, '[data-action="seek-here"]').hidden = !isOwn
   requireElement<HTMLElement>(panel, '.site-panel__status').textContent = message
 }
 
-/** 命令弹窗的当前请求：进攻、调动或防守，都以目标战略点为起点。 */
+/**
+ * 战略点窗口：列出类型、归属、人口与丁口，并给出一处建设入口——
+ * 只有自家领地能进入，故建设区总是可用。
+ */
+function renderSiteInfoDialog(
+  dialog: HTMLElement,
+  state: GameState,
+  siteId: SiteId | null,
+  message: string,
+): void {
+  const site =
+    siteId === null ? undefined : state.geography.sites.find((item) => item.id === siteId)
+  if (site === undefined) {
+    return
+  }
+
+  const ownerName =
+    site.owner === null
+      ? '无归属'
+      : (state.factions.find((faction) => faction.id === site.owner)?.name ?? site.owner)
+
+  const facts: readonly [string, string][] = [
+    ['类型', SITE_TYPE_LABELS[site.type]],
+    ['归属', ownerName],
+    ['人口', String(site.population)],
+    ['丁口', String(sitePopulationCap(site))],
+    ['存粮', String(granaryOf(site))],
+  ]
+
+  requireElement<HTMLElement>(dialog, '.site-info__title').textContent = site.name
+  requireElement<HTMLElement>(dialog, '.site-info__status').textContent = message
+
+  const list = requireElement<HTMLElement>(dialog, '.site-info__facts')
+  list.replaceChildren(
+    ...facts.flatMap(([label, value]) => {
+      const term = document.createElement('dt')
+      term.textContent = label
+      const detail = document.createElement('dd')
+      detail.textContent = value
+      return [term, detail]
+    }),
+  )
+
+  renderDevelopmentList(requireElement<HTMLElement>(dialog, '.site-info__list'), state, site)
+}
+
+/** 建设列表：三项开发的等级、上限、效果与下一级花费；满级或钱不够时按钮不可点。 */
+function renderDevelopmentList(list: Element, state: GameState, site: Site): void {
+  const faction = state.factions.find((item) => item.id === state.playerFaction)
+  const limit = developmentLimit(site)
+
+  list.replaceChildren(
+    ...DEVELOPMENT_KINDS.map((kind) => {
+      const level = developmentLevel(site, kind)
+      const atLimit = level >= limit
+      const cost = buildCost(site, kind)
+      const affordable = (faction?.money ?? 0) >= cost
+
+      const item = document.createElement('li')
+      item.className = 'site-info__item'
+
+      const info = document.createElement('div')
+      info.className = 'site-info__info'
+      const name = document.createElement('span')
+      name.className = 'site-info__name'
+      name.textContent = DEVELOPMENT_LABELS[kind]
+      const meta = document.createElement('span')
+      meta.className = 'site-info__meta'
+      meta.textContent = `${level} / ${limit}　${developmentEffectText(kind)}${atLimit ? '' : `　下一级 ${cost} 金`}`
+      info.append(name, meta)
+
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'site-info__button'
+      button.dataset.action = 'build-item'
+      button.dataset.kind = kind
+      button.textContent = atLimit ? '已满级' : '建设'
+      button.disabled = atLimit || !affordable
+
+      item.append(info, button)
+      return item
+    }),
+  )
+}
+
+/** 命令弹窗的当前请求：进攻、调动、防守与征粮，都以选将框为入口。 */
 interface OrderRequest {
-  kind: 'attack' | 'transfer' | 'defense'
-  siteId: SiteId
+  kind: 'attack' | 'transfer' | 'defense' | 'harvest'
+  /** 目标战略点；征粮不针对具体战略点，故可省略。 */
+  siteId?: SiteId
   /** 防守时随附来犯的势力与编成，供编成弹窗显示敌情。 */
   defense?: DefenseRequest
 }
@@ -631,16 +812,30 @@ function renderContacts(
   requireElement<HTMLElement>(panel, '.recruit-panel__status').textContent = message
 }
 
+/** 可派去征粮的部属：麾下有驻地的在仕武将。 */
+function harvestCandidates(state: GameState): Character[] {
+  return state.characters.filter(
+    (character) =>
+      isServing(character) &&
+      character.factionId === state.playerFaction &&
+      character.stationedSiteId !== null,
+  )
+}
+
 /**
- * 命令弹窗：进攻时逐行列出候选武将，点选行内的主将、副将与军师标记；
- * 调动与防守时列出候选武将供勾选。本季已行动（或进攻时无兵）者标出且不可选。
+ * 命令弹窗：进攻、调动、防守与征粮共用同一套选将框。
+ * 进攻与防守排编成（主将、副将、军师），调动勾选多人，征粮单选一人；
+ * 本季已行动（或进攻时无兵）者标出且不可选。
  */
 function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRequest | null): void {
   if (request === null) {
     return
   }
 
-  const target = state.geography.sites.find((site) => site.id === request.siteId)
+  const target =
+    request.siteId === undefined
+      ? undefined
+      : state.geography.sites.find((site) => site.id === request.siteId)
   const name = target?.name ?? ''
   const raiders = request.defense
   const defenseTarget =
@@ -648,21 +843,36 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
       ? name
       : `${factionName(state, raiders.attackerId)} 来攻 ${name}　${partySummary(state, raiders.party)}`
 
-  requireElement<HTMLElement>(root, '.order__title').textContent =
-    request.kind === 'attack' ? '进攻' : request.kind === 'transfer' ? '调动' : '防守'
-  requireElement<HTMLElement>(root, '.order__target').textContent =
-    request.kind === 'attack'
-      ? `进攻 ${name}`
-      : request.kind === 'transfer'
-        ? `调动到 ${name}`
-        : defenseTarget
-  requireElement<HTMLButtonElement>(root, '.order__submit').textContent =
-    request.kind === 'attack' ? '进入战斗' : request.kind === 'transfer' ? '调动' : '迎战'
+  const titles: Record<OrderRequest['kind'], string> = {
+    attack: '进攻',
+    transfer: '调动',
+    defense: '防守',
+    harvest: '征粮',
+  }
+  const targets: Record<OrderRequest['kind'], string> = {
+    attack: `进攻 ${name}`,
+    transfer: `调动到 ${name}`,
+    defense: defenseTarget,
+    harvest: '派一名部属征粮',
+  }
+  const submits: Record<OrderRequest['kind'], string> = {
+    attack: '进入战斗',
+    transfer: '调动',
+    defense: '迎战',
+    harvest: '征粮',
+  }
+
+  requireElement<HTMLElement>(root, '.order__title').textContent = titles[request.kind]
+  requireElement<HTMLElement>(root, '.order__target').textContent = targets[request.kind]
+  requireElement<HTMLButtonElement>(root, '.order__submit').textContent = submits[request.kind]
+  // 征粮自内政面板进入，关掉时回到内政，而不是丢掉这个入口。
+  requireElement<HTMLButtonElement>(root, '[data-action="close-order"]').textContent =
+    request.kind === 'harvest' ? '返回内政' : '关闭'
 
   const list = requireElement<HTMLElement>(root, '.order__officers')
 
   if (request.kind === 'attack') {
-    const candidates = attackCandidates(state, request.siteId)
+    const candidates = attackCandidates(state, request.siteId ?? '')
     if (candidates.length === 0) {
       list.replaceChildren(createListItem('order__empty', '暂无可出战的武将'))
       return
@@ -673,11 +883,12 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
     )
     list.replaceChildren(
       ...candidates.map((character) =>
-        createOrderOfficerItem(
+        createSelectionItem(
           character,
           state.playerFaction,
+          'roles',
           attackDisabledReason(state, character),
-          character.id === defaultCommander?.id,
+          { isDefaultCommander: character.id === defaultCommander?.id },
         ),
       ),
     )
@@ -685,31 +896,50 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
   }
 
   if (request.kind === 'defense') {
-    const members = [...stationedDefendersAt(state, request.siteId)].sort(
+    const members = [...stationedDefendersAt(state, request.siteId ?? '')].sort(
       (a, b) => b.troops - a.troops,
     )
     // 与进攻同构：主将必选，副将与军师可选；已行动者也可以出战，只是兵力减半。
-    const defaultCommander = garrisonCommanderAt(state, request.siteId)
+    const defaultCommander = garrisonCommanderAt(state, request.siteId ?? '')
     list.replaceChildren(
       ...members.map((member) =>
-        createOrderOfficerItem(
-          member,
-          state.playerFaction,
-          member.troops > 0 ? null : '无兵力',
-          member.id === defaultCommander?.id,
-          hasActedThisTurn(state, member.id) ? '已行动 · 兵力减半' : null,
-        ),
+        createSelectionItem(member, state.playerFaction, 'roles', member.troops > 0 ? null : '无兵力', {
+          isDefaultCommander: member.id === defaultCommander?.id,
+          note: hasActedThisTurn(state, member.id) ? '已行动 · 兵力减半' : null,
+        }),
       ),
     )
     return
   }
 
-  const candidates = transferCandidates(state, request.siteId)
+  if (request.kind === 'harvest') {
+    const candidates = harvestCandidates(state)
+    list.replaceChildren(
+      ...(candidates.length === 0
+        ? [createListItem('order__empty', '暂无可征粮的武将')]
+        : candidates.map((character) =>
+            createSelectionItem(
+              character,
+              state.playerFaction,
+              'single',
+              hasActedThisTurn(state, character.id) ? '已行动' : null,
+            ),
+          )),
+    )
+    return
+  }
+
+  const candidates = transferCandidates(state, request.siteId ?? '')
   list.replaceChildren(
     ...(candidates.length === 0
       ? [createListItem('order__empty', '暂无可调动的武将')]
       : candidates.map((character) =>
-          createPickerItem(character, state.playerFaction, transferDisabledReason(state, character)),
+          createSelectionItem(
+            character,
+            state.playerFaction,
+            'multi',
+            transferDisabledReason(state, character),
+          ),
         )),
   )
 }
@@ -1068,16 +1298,22 @@ function renderBattleStage(root: HTMLElement, state: GameState, stage: BattleSta
   )
 }
 
-/** 进攻候选条目：姓名与能力摘要，右侧主将、副将、军师三个标记可点选。 */
-function createOrderOfficerItem(
+/** 选将框的三种形态：排编成（主将、副将、军师）、多选与单选。 */
+type SelectionMode = 'roles' | 'multi' | 'single'
+
+/**
+ * 选将条目：进攻、防守、调动与征粮共用。
+ * `roles` 逐行点选主将、副将与军师；`multi` 与 `single` 是同一套勾选控件，只差复选框与单选框。
+ */
+function createSelectionItem(
   character: Character,
   factionId: FactionId,
+  mode: SelectionMode,
   disabledReason: string | null,
-  isDefaultCommander: boolean,
-  note: string | null = null,
+  options: { checked?: boolean; isDefaultCommander?: boolean; note?: string | null } = {},
 ): HTMLLIElement {
   const item = document.createElement('li')
-  item.className = 'picker picker--order'
+  item.className = mode === 'roles' ? 'picker picker--order' : 'picker'
   if (disabledReason !== null) {
     item.classList.add('picker--disabled')
   }
@@ -1088,36 +1324,60 @@ function createOrderOfficerItem(
 
   const meta = document.createElement('span')
   meta.className = 'picker__meta'
+  // 选将只给即战信息与忠诚提示；亲附与年龄只在武将详情里看。
   meta.textContent = partyMetaText(character, factionId)
 
-  item.append(name, meta)
+  const statusText = disabledReason ?? options.note ?? null
+  const status = document.createElement('span')
+  status.className = 'picker__status'
+  status.textContent = statusText ?? ''
 
-  const statusText = disabledReason ?? note
+  if (mode === 'roles') {
+    item.append(name, meta)
+    if (statusText !== null) {
+      item.append(status)
+    }
+
+    const roles = document.createElement('div')
+    roles.className = 'picker__roles'
+    for (const role of PARTY_ROLES) {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = 'picker__role'
+      button.dataset.action = 'order-role'
+      button.dataset.character = character.id
+      button.dataset.role = role
+      button.textContent = PARTY_ROLE_LABELS[role]
+      button.disabled = disabledReason !== null
+      const active = options.isDefaultCommander === true && role === 'commander'
+      button.classList.toggle('picker__role--active', active)
+      button.setAttribute('aria-pressed', String(active))
+      roles.append(button)
+    }
+    item.append(roles)
+
+    return item
+  }
+
+  const label = document.createElement('label')
+  label.className = 'picker__label'
+
+  const input = document.createElement('input')
+  input.type = mode === 'single' ? 'radio' : 'checkbox'
+  if (mode === 'single') {
+    input.name = 'order-single'
+  }
+  input.className = 'picker__checkbox'
+  input.value = character.id
+  input.disabled = disabledReason !== null
+  input.checked = options.checked === true
+  input.dataset.blocked = disabledReason === null ? 'false' : 'true'
+
+  label.append(input, name, meta)
   if (statusText !== null) {
-    const status = document.createElement('span')
-    status.className = 'picker__status'
-    status.textContent = statusText
-    item.append(status)
+    label.append(status)
   }
-
-  const roles = document.createElement('div')
-  roles.className = 'picker__roles'
-  for (const role of PARTY_ROLES) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'picker__role'
-    button.dataset.action = 'order-role'
-    button.dataset.character = character.id
-    button.dataset.role = role
-    button.textContent = PARTY_ROLE_LABELS[role]
-    button.disabled = disabledReason !== null
-    const active = isDefaultCommander && role === 'commander'
-    button.classList.toggle('picker__role--active', active)
-    button.setAttribute('aria-pressed', String(active))
-    roles.append(button)
-  }
-
-  item.append(roles)
+  item.append(label)
 
   return item
 }
@@ -1157,54 +1417,6 @@ function readOrderParty(list: HTMLElement): AttackParty {
   }
 }
 
-/** 可勾选的武将条目：复选框、姓名与兵力能力摘要；不可选时标出原因，可附一句提示。 */
-function createPickerItem(
-  character: Character,
-  factionId: FactionId,
-  disabledReason: string | null,
-  options: { checked?: boolean; disabled?: boolean; note?: string | null } = {},
-): HTMLLIElement {
-  const disabled = disabledReason !== null || options.disabled === true
-  const item = document.createElement('li')
-  item.className = 'picker'
-  if (disabled) {
-    item.classList.add('picker--disabled')
-  }
-
-  const label = document.createElement('label')
-  label.className = 'picker__label'
-
-  const checkbox = document.createElement('input')
-  checkbox.type = 'checkbox'
-  checkbox.className = 'picker__checkbox'
-  checkbox.value = character.id
-  checkbox.disabled = disabled
-  checkbox.checked = options.checked === true
-  checkbox.dataset.blocked = disabledReason === null ? 'false' : 'true'
-
-  const name = document.createElement('span')
-  name.className = 'picker__name'
-  name.textContent = character.name
-
-  const meta = document.createElement('span')
-  meta.className = 'picker__meta'
-  meta.textContent = officerMetaText(character, factionId)
-
-  label.append(checkbox, name, meta)
-
-  const note = disabledReason ?? options.note ?? null
-  if (note !== null) {
-    const status = document.createElement('span')
-    status.className = 'picker__status'
-    status.textContent = note
-    label.append(status)
-  }
-
-  item.append(label)
-
-  return item
-}
-
 function createListItem(className: string, text: string): HTMLLIElement {
   const item = document.createElement('li')
   item.className = className
@@ -1214,7 +1426,7 @@ function createListItem(className: string, text: string): HTMLLIElement {
 }
 
 /** 武将表的列数，供空表与跨列单元格使用。 */
-const ROSTER_COLUMNS = 9
+const ROSTER_COLUMNS = 8
 
 /** 表格中的单元格。 */
 function createTextCell(text: string, className = ''): HTMLTableCellElement {
@@ -1243,16 +1455,7 @@ function createOfficerNameCell(character: Character): HTMLTableCellElement {
   return cell
 }
 
-/** 忠诚单元格：在仕者给忠诚数值，其余留空。是否离心在选将条目里说明。 */
-function createLoyaltyCell(character: Character): HTMLTableCellElement {
-  if (!isServing(character) || character.factionId === null) {
-    return createTextCell('—', 'roster__muted')
-  }
-
-  return createTextCell(String(character.loyalty))
-}
-
-/** 操作单元格：本季未行动者给征兵与征粮，已行动者换成不可点的「已行动」。 */
+/** 操作单元格：本季未行动者给征兵，已行动者换成不可点的「已行动」；遣散不计行动，始终可选。 */
 function createOpsCell(
   character: Character,
   acted: boolean,
@@ -1262,12 +1465,14 @@ function createOpsCell(
   const ops = document.createElement('div')
   ops.className = 'roster__ops'
 
+  const disband = createRosterAction('遣散', 'disband-open', character.id, ACTION_COSTS.disband, showCosts)
+
   if (acted) {
-    ops.append(createDoneAction())
+    ops.append(createDoneAction(), disband)
   } else {
     ops.append(
       createRosterAction('征兵', 'recruit', character.id, ACTION_COSTS.recruit, showCosts),
-      createRosterAction('征粮', 'harvest-grain', character.id, ACTION_COSTS.harvestGrain, showCosts),
+      disband,
     )
   }
 
@@ -1322,7 +1527,6 @@ function renderOfficers(list: Element, state: GameState, showCosts: boolean): nu
         createTextCell(String(officer.command)),
         createTextCell(String(officer.intellect)),
         createTextCell(String(officer.politics)),
-        createLoyaltyCell(officer),
         createOpsCell(officer, acted, showCosts),
       )
 
@@ -1343,10 +1547,15 @@ const PERSONALITY_LABELS: Record<Personality, string> = {
 }
 
 /**
- * 武将详情：表格之外的记录性信息——头像位、身份、年龄、性格与对己方态度。
- * 头像暂以姓名首字占位，将来换作正式立绘。
+ * 武将详情：表格之外的记录性信息——头像位、身份、年龄、性格、忠诚与对己方态度。
+ * 赏赐以图标缀在忠诚右侧，解任放在底部。头像暂以姓名首字占位，将来换作正式立绘。
  */
-function renderOfficerDetail(container: Element, state: GameState, character: Character): void {
+function renderOfficerDetail(
+  container: Element,
+  state: GameState,
+  character: Character,
+  showCosts: boolean,
+): void {
   const back = document.createElement('button')
   back.type = 'button'
   back.className = 'roster__back'
@@ -1374,9 +1583,13 @@ function renderOfficerDetail(container: Element, state: GameState, character: Ch
   title.append(name, role)
   head.append(portrait, title)
 
+  const hint = loyaltyHint(character.loyalty, defectThresholdFor(character, state.playerFaction))
+  const credits = boostCredits(character)
   const facts: readonly [string, string][] = [
     ['年龄', ageText(character.age)],
     ['性格', PERSONALITY_LABELS[character.personality]],
+    ['出战', `${character.battles ?? 0} 次（每 ${BATTLES_PER_BOOST} 次得一次强化，现有 ${credits} 次）`],
+    ['忠诚', character.isMonarch ? '君主不计' : `${character.loyalty}${hint === null ? '' : `（${hint}）`}`],
     ['对己方态度', affinityAttitude(affinityToward(character, state.playerFaction))],
   ]
 
@@ -1387,10 +1600,65 @@ function renderOfficerDetail(container: Element, state: GameState, character: Ch
     term.textContent = label
     const detail = document.createElement('dd')
     detail.textContent = value
+    if (label === '忠诚' && !character.isMonarch) {
+      detail.classList.add('officer-detail__loyalty')
+      detail.append(createRewardIcon(character.id, showCosts))
+    }
     list.append(term, detail)
   }
 
-  container.replaceChildren(back, head, list)
+  const parts: HTMLElement[] = [back, head, list]
+
+  // 强化：攒够出战额度时，选一项能力提升一级。
+  if (credits > 0) {
+    const boosts = document.createElement('div')
+    boosts.className = 'officer-detail__actions'
+    const lead = document.createElement('span')
+    lead.className = 'officer-detail__hint'
+    lead.textContent = showCosts ? `强化 · ${ACTION_COSTS.strengthen} 行动力` : '强化'
+    boosts.append(lead)
+
+    for (const kind of ABILITY_KINDS) {
+      const button = createRosterAction(
+        `${ABILITY_LABELS[kind]} ${character[kind]}`,
+        'strengthen',
+        character.id,
+        ACTION_COSTS.strengthen,
+        showCosts,
+      )
+      button.dataset.kind = kind
+      boosts.append(button)
+    }
+    parts.push(boosts)
+  }
+
+  if (!character.isMonarch) {
+    const actions = document.createElement('div')
+    actions.className = 'officer-detail__actions'
+    actions.append(createRosterAction('解任', 'dismiss', character.id, ACTION_COSTS.dismiss, showCosts))
+    parts.push(actions)
+  }
+
+  container.replaceChildren(...parts)
+}
+
+/** 赏赐的小图标按钮：一只礼盒，缀在忠诚数值右侧。 */
+function createRewardIcon(characterId: CharacterId, showCosts: boolean): HTMLButtonElement {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'officer-icon'
+  button.dataset.action = 'reward'
+  button.dataset.character = characterId
+  button.title = showCosts ? `赏赐 · ${ACTION_COSTS.reward} 行动力` : '赏赐'
+  button.setAttribute('aria-label', '赏赐')
+  button.innerHTML =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
+    '<rect x="2.5" y="6.5" width="11" height="7" rx="1" fill="none" stroke="currentColor"/>' +
+    '<rect x="1.5" y="4" width="13" height="2.5" rx="0.8" fill="none" stroke="currentColor"/>' +
+    '<path d="M8 6.5v7" stroke="currentColor"/>' +
+    '</svg>'
+
+  return button
 }
 
 const CHARACTER_STATUS_LABELS: Record<CharacterStatus, string> = {
@@ -1445,7 +1713,6 @@ function renderAllCharacters(list: Element, state: GameState): number {
         createTextCell(String(character.command)),
         createTextCell(String(character.intellect)),
         createTextCell(String(character.politics)),
-        createLoyaltyCell(character),
         createTextCell(CHARACTER_STATUS_LABELS[character.status]),
         createTextCell(monarch, monarch === '—' ? 'roster__muted' : ''),
       )
@@ -1685,6 +1952,172 @@ function renderPrison(
   )
 }
 
+/** 建设一项的开发效果说明。 */
+function developmentEffectText(kind: DevelopmentKind): string {
+  if (kind === 'farm') {
+    return `粮产 +${Math.round(GRAIN_BONUS_PER_FARM_LEVEL * 100)}%`
+  }
+  if (kind === 'market') {
+    return `税收 +${Math.round(MONEY_BONUS_PER_MARKET_LEVEL * 100)}%`
+  }
+  return `人口 +${POPULATION_PER_HOUSING}`
+}
+
+/** 外交弹窗可用的一项动作。 */
+interface DiplomacyOption {
+  label: string
+  action: string
+  meta?: string
+}
+
+/** 按当前关系列出可用的外交动作。 */
+function diplomacyOptions(kind: RelationKind): DiplomacyOption[] {
+  const options: DiplomacyOption[] = []
+  if (kind !== 'hostile') {
+    options.push({ label: '宣战', action: 'declare-war' })
+  }
+  if (kind === 'hostile') {
+    options.push({ label: '停战', action: 'make-peace', meta: `需好感 ≥ ${PEACE_FAVOR}` })
+  }
+  if (kind === 'neutral') {
+    options.push({ label: '结盟', action: 'alliance', meta: `需好感 ≥ ${ALLIANCE_FAVOR}` })
+  }
+  options.push({ label: `赠礼 ${GIFT_MONEY} 金`, action: 'gift' })
+  options.push({ label: '索取粮食', action: 'demand' })
+
+  return options
+}
+
+/** 他方势力：非玩家、未覆灭者。 */
+function otherFactions(state: GameState): Faction[] {
+  return state.factions.filter(
+    (faction) => faction.id !== state.playerFaction && !isFactionDestroyed(state, faction.id),
+  )
+}
+
+/** 一条外交行：左侧名称与摘要，右侧一枚按钮。 */
+function createDiplomacyRow(
+  nameText: string,
+  metaText: string | null,
+  action: string,
+  actionLabel: string,
+  factionId?: FactionId,
+): HTMLLIElement {
+  const item = document.createElement('li')
+  item.className = 'diplomacy__item'
+
+  const info = document.createElement('div')
+  info.className = 'diplomacy__info'
+  const name = document.createElement('span')
+  name.className = 'diplomacy__name'
+  name.textContent = nameText
+  info.append(name)
+  if (metaText !== null) {
+    const meta = document.createElement('span')
+    meta.className = 'diplomacy__meta'
+    meta.textContent = metaText
+    info.append(meta)
+  }
+
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'diplomacy__button'
+  button.dataset.action = action
+  if (factionId !== undefined) {
+    button.dataset.faction = factionId
+  }
+  button.textContent = actionLabel
+
+  item.append(info, button)
+  return item
+}
+
+/** 外交弹窗：未选对象时列出他方势力，选定后显示其状态、好感与可用的外交动作。 */
+function renderDiplomacyDialog(
+  dialog: HTMLElement,
+  state: GameState,
+  factionId: FactionId | null,
+  message: string,
+): void {
+  const backButton = requireElement<HTMLButtonElement>(dialog, '[data-action="diplomacy-back"]')
+  const targetLine = requireElement<HTMLElement>(dialog, '.diplomacy__target')
+  const statusLine = requireElement<HTMLElement>(dialog, '.diplomacy__status')
+  const list = requireElement<HTMLElement>(dialog, '.diplomacy__list')
+
+  const target = factionId === null ? undefined : state.factions.find((item) => item.id === factionId)
+  if (target === undefined) {
+    backButton.hidden = true
+    targetLine.textContent = '选择交涉对象'
+    statusLine.textContent = ''
+    list.replaceChildren(
+      ...otherFactions(state).map((faction) =>
+        createDiplomacyRow(
+          faction.name,
+          `${relationLabel(relationBetween(state, state.playerFaction, faction.id))} · ${affinityAttitude(favorBetween(state, state.playerFaction, faction.id))}`,
+          'pick-diplomacy',
+          '交涉',
+          faction.id,
+        ),
+      ),
+    )
+    return
+  }
+
+  backButton.hidden = false
+  const kind = relationBetween(state, state.playerFaction, target.id)
+  targetLine.textContent = `${target.name}　${relationLabel(kind)} · ${affinityAttitude(favorBetween(state, state.playerFaction, target.id))}`
+  statusLine.textContent = message
+  list.replaceChildren(
+    ...diplomacyOptions(kind).map((option) =>
+      createDiplomacyRow(option.label, option.meta ?? null, option.action, '执行'),
+    ),
+  )
+}
+
+/** 遣散弹窗：以滑杆选定保留的兵力，随即遣散多余士兵；不耗行动力。 */
+function renderDisbandDialog(
+  dialog: HTMLElement,
+  state: GameState,
+  characterId: CharacterId | null,
+  message: string,
+): void {
+  const character =
+    characterId === null ? undefined : state.characters.find((item) => item.id === characterId)
+  if (character === undefined) {
+    return
+  }
+
+  requireElement<HTMLElement>(dialog, '.disband__target').textContent =
+    `${character.name}　当前兵力 ${character.troops}`
+
+  const slider = requireElement<HTMLInputElement>(dialog, '.disband__slider')
+  const changedOfficer = slider.dataset.character !== character.id
+  slider.dataset.character = character.id
+  slider.max = String(character.troops)
+  if (changedOfficer || Number(slider.value) > character.troops) {
+    slider.value = String(character.troops)
+  }
+
+  requireElement<HTMLElement>(dialog, '.disband__label').textContent = `保留 ${slider.value}`
+  requireElement<HTMLElement>(dialog, '.disband__status').textContent = message
+}
+
+/** 解任确认弹窗：写明要卸下的人与其后果，等一声确认再动手。 */
+function renderDismissConfirm(
+  dialog: HTMLElement,
+  state: GameState,
+  characterId: CharacterId | null,
+): void {
+  const character =
+    characterId === null ? undefined : state.characters.find((item) => item.id === characterId)
+  if (character === undefined) {
+    return
+  }
+
+  requireElement<HTMLElement>(dialog, '.confirm__text').textContent =
+    `将 ${character.name} 罢为在野，卸下其驻地与部队。`
+}
+
 function createSlotItem(label: string, summary: SaveSummary | null): HTMLLIElement {
   const item = document.createElement('li')
   item.className = 'slot'
@@ -1801,6 +2234,7 @@ export function mountGameShell(
   const openDomesticButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-domestic"]')
   const closeDomesticButton = requireElement<HTMLButtonElement>(root, '[data-action="close-domestic"]')
   const domesticDialog = requireElement<HTMLDialogElement>(root, '.domestic')
+  const harvestActionButton = requireElement<HTMLButtonElement>(root, '[data-action="harvest-here"]')
   const officerList = requireElement<HTMLElement>(root, '.roster__officers')
   const officerCount = requireElement<HTMLElement>(root, '.roster__officers-count')
   const officersTitle = requireElement<HTMLElement>(root, '.roster__officers-title')
@@ -1837,6 +2271,22 @@ export function mountGameShell(
   const closePrisonButton = requireElement<HTMLButtonElement>(root, '[data-action="close-prison"]')
   const prisonDialog = requireElement<HTMLDialogElement>(root, '.prison')
   const prisonList = requireElement<HTMLElement>(root, '.prison__list')
+  const closeDiplomacyButton = requireElement<HTMLButtonElement>(root, '[data-action="close-diplomacy"]')
+  const diplomacyDialog = requireElement<HTMLDialogElement>(root, '.diplomacy')
+  const diplomacyList = requireElement<HTMLElement>(root, '.diplomacy__list')
+  const openDiplomacyButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-diplomacy"]')
+  const backDiplomacyButton = requireElement<HTMLButtonElement>(root, '[data-action="diplomacy-back"]')
+  const closeDisbandButton = requireElement<HTMLButtonElement>(root, '[data-action="close-disband"]')
+  const disbandDialog = requireElement<HTMLDialogElement>(root, '.disband')
+  const disbandSlider = requireElement<HTMLInputElement>(root, '.disband__slider')
+  const disbandConfirmButton = requireElement<HTMLButtonElement>(root, '[data-action="disband-confirm"]')
+  const closeSiteInfoButton = requireElement<HTMLButtonElement>(root, '[data-action="close-site-info"]')
+  const siteInfoDialog = requireElement<HTMLDialogElement>(root, '.site-info')
+  const siteInfoList = requireElement<HTMLElement>(root, '.site-info__list')
+  const dismissDialog = requireElement<HTMLDialogElement>(root, '.confirm')
+  const dismissCancelButton = requireElement<HTMLButtonElement>(root, '[data-action="dismiss-cancel"]')
+  const dismissConfirmButton = requireElement<HTMLButtonElement>(root, '[data-action="dismiss-confirm"]')
+  const closeDismissButton = requireElement<HTMLButtonElement>(root, '[data-action="close-confirm"]')
 
   linksCheckbox.checked = settings.get().showStrategicLinks
   costCheckbox.checked = settings.get().showActionCosts
@@ -1868,6 +2318,19 @@ export function mountGameShell(
   let pendingCaptives: CaptiveReport[] = []
   /** 俘虏营的上一次操作反馈。 */
   let prisonMessage = ''
+  /** 建设弹窗当前的目标战略点与上一次操作反馈。 */
+  let buildSiteId: SiteId | null = null
+  let buildMessage = ''
+  /** 外交弹窗当前的目标势力与上一次操作反馈。 */
+  let diplomacyFactionId: FactionId | null = null
+  let diplomacyMessage = ''
+  /** 遣散弹窗当前的目标武将与上一次操作反馈。 */
+  let disbandCharacterId: CharacterId | null = null
+  let disbandMessage = ''
+  /** 内政面板的回显：征粮结果写在这里。 */
+  let domesticMessage = ''
+  /** 解任确认弹窗当前要处置的武将。 */
+  let dismissTargetId: CharacterId | null = null
 
   const paint = (state: GameState): void => {
     const showCosts = settings.get().showActionCosts
@@ -1875,7 +2338,7 @@ export function mountGameShell(
     dateLabel.textContent = formatDate(state)
     turnLabel.textContent = `第 ${state.currentTurn} 回合`
     renderActionPoints(actionPointsLabel, state)
-    renderDomestic(domesticDialog, state)
+    renderDomestic(domesticDialog, state, showCosts, domesticMessage)
     renderFactions(factionList, state)
     applyActionCosts(showCosts)
     renderSitePanel(sitePanel, state, selection.get(), siteMessage)
@@ -1901,11 +2364,15 @@ export function mountGameShell(
     rosterList.hidden = detail !== undefined
     rosterDetail.hidden = detail === undefined
     if (detail !== undefined) {
-      renderOfficerDetail(rosterDetail, state, detail)
+      renderOfficerDetail(rosterDetail, state, detail, showCosts)
     }
 
     renderHistory(historyList, state)
     renderPrison(prisonDialog, state, prisonMessage, showCosts)
+    renderDiplomacyDialog(diplomacyDialog, state, diplomacyFactionId, diplomacyMessage)
+    renderDisbandDialog(disbandDialog, state, disbandCharacterId, disbandMessage)
+    renderSiteInfoDialog(siteInfoDialog, state, buildSiteId, buildMessage)
+    renderDismissConfirm(dismissDialog, state, dismissTargetId)
     renderSlots(slotList, session)
 
     const developerMode = settings.get().developerMode
@@ -1943,11 +2410,22 @@ export function mountGameShell(
   })
 
   openDomesticButton.addEventListener('click', () => {
+    domesticMessage = ''
     domesticDialog.showModal()
   })
 
   closeDomesticButton.addEventListener('click', () => {
     domesticDialog.close()
+  })
+
+  /** 内政里的征粮：借选将框单选一名部属，随即派他征收。 */
+  harvestActionButton.addEventListener('click', () => {
+    domesticDialog.close()
+    domesticMessage = ''
+    orderRequest = { kind: 'harvest' }
+    orderStatus.textContent = ''
+    paint(session.getState())
+    orderDialog.showModal()
   })
 
   closeOrderButton.addEventListener('click', () => {
@@ -1965,12 +2443,11 @@ export function mountGameShell(
     }
   }
 
-  /** 这一季结束：关掉演出并报出新回合。 */
+  /** 这一季结束：关掉演出并报出新回合；此处只留自动存档一条提示，新回合的日期与粮耗看界面本身。 */
   const settleTurn = (): void => {
     battleStage = null
     battlePlanDialog.close()
-    const state = session.getState()
-    statusLabel.textContent = `新回合开始：${formatDate(state)}，粮食 ${formatSigned(grainBalance(state, state.playerFaction))}，已自动保存`
+    statusLabel.textContent = '已自动保存'
   }
 
   /** 迎战编成既定：进入防守演出（情报与选择 → 单挑 → 交战与结果）。 */
@@ -2101,7 +2578,7 @@ export function mountGameShell(
     settleTurn()
   }
 
-  /** 关掉命令弹窗；若关掉的正是迎战编成，余下的来犯按默认编成一路结算到底。 */
+  /** 关掉命令弹窗；迎战编成按默认编成一路结算，征粮则返回内政面板。 */
   const abandonOrder = (): void => {
     if (orderRequest?.kind === 'defense') {
       orderRequest = null
@@ -2109,7 +2586,12 @@ export function mountGameShell(
       skipDefenses()
       return
     }
+
+    const backToDomestic = orderRequest?.kind === 'harvest'
     orderDialog.close()
+    if (backToDomestic) {
+      domesticDialog.showModal()
+    }
   }
 
   closeCaptivesButton.addEventListener('click', () => {
@@ -2158,7 +2640,8 @@ export function mountGameShell(
     if (orderRequest.kind === 'attack') {
       const party = readOrderParty(orderList)
       const state = session.getState()
-      const blocked = attackBlockReason(state, party, orderRequest.siteId)
+      const siteId = orderRequest.siteId ?? ''
+      const blocked = attackBlockReason(state, party, siteId)
       if (blocked !== null) {
         orderStatus.textContent = blocked
         return
@@ -2167,7 +2650,7 @@ export function mountGameShell(
       battleStage = {
         mode: 'attack',
         party,
-        siteId: orderRequest.siteId,
+        siteId,
         attackerId: null,
         garrison: null,
         step: 'intel',
@@ -2198,6 +2681,28 @@ export function mountGameShell(
       return
     }
 
+    if (orderRequest.kind === 'harvest') {
+      const selected = orderList.querySelector<HTMLInputElement>('.picker__checkbox:checked')
+      if (selected === null) {
+        orderStatus.textContent = '请选择一名武将'
+        return
+      }
+
+      const result = session.harvestGrain(selected.value)
+      if (!result.ok) {
+        orderStatus.textContent = result.reason
+        return
+      }
+
+      // 结果回显到内政面板，并回到内政。
+      orderStatus.textContent = ''
+      orderDialog.close()
+      domesticMessage = result.record.outcome
+      domesticDialog.showModal()
+      paint(session.getState())
+      return
+    }
+
     const characterIds = Array.from(
       orderList.querySelectorAll<HTMLInputElement>('.picker__checkbox:checked'),
     ).map((checkbox) => checkbox.value)
@@ -2206,7 +2711,7 @@ export function mountGameShell(
       return
     }
 
-    const result = session.transfer(characterIds, orderRequest.siteId)
+    const result = session.transfer(characterIds, orderRequest.siteId ?? '')
     if (!result.ok) {
       orderStatus.textContent = result.reason
       return
@@ -2301,22 +2806,115 @@ export function mountGameShell(
       return
     }
 
-    const result =
-      button.dataset.action === 'harvest-grain'
-        ? session.harvestGrain(characterId)
-        : session.recruit(characterId)
+    if (button.dataset.action === 'disband-open') {
+      disbandCharacterId = characterId
+      disbandMessage = ''
+      paint(session.getState())
+      disbandDialog.showModal()
+      return
+    }
+
+    const result = session.recruit(characterId)
     recruitMessage = result.ok ? result.record.outcome : result.reason
     paint(session.getState())
   })
 
-  /** 详情页：返回列表。 */
+  /** 详情页：返回列表、赏赐与解任。 */
   rosterDetail.addEventListener('click', (event) => {
-    if (actionButtonOf(event)?.dataset.action !== 'officer-back') {
+    const button = actionButtonOf(event)
+    const action = button?.dataset.action
+    if (button === null || action === undefined) {
       return
     }
 
-    detailCharacterId = null
+    if (action === 'officer-back') {
+      detailCharacterId = null
+      paint(session.getState())
+      return
+    }
+
+    const characterId = button.dataset.character
+    if (characterId === undefined) {
+      return
+    }
+
+    if (action === 'reward') {
+      const result = session.reward(characterId)
+      recruitMessage = result.ok ? result.record.outcome : result.reason
+      paint(session.getState())
+      return
+    }
+
+    if (action === 'strengthen') {
+      const kind = button.dataset.kind as AbilityKind | undefined
+      if (kind === undefined) {
+        return
+      }
+      const result = session.strengthen(characterId, kind)
+      recruitMessage = result.ok ? result.record.outcome : result.reason
+      paint(session.getState())
+      return
+    }
+
+    if (action === 'dismiss') {
+      dismissTargetId = characterId
+      paint(session.getState())
+      dismissDialog.showModal()
+    }
+  })
+
+  /** 遣散弹窗：滑杆即时显示保留的兵力，确认后奏效。 */
+  disbandSlider.addEventListener('input', () => {
+    requireElement<HTMLElement>(disbandDialog, '.disband__label').textContent =
+      `保留 ${disbandSlider.value}`
+  })
+
+  disbandConfirmButton.addEventListener('click', () => {
+    if (disbandCharacterId === null) {
+      return
+    }
+
+    const result = session.disband(disbandCharacterId, Number(disbandSlider.value))
+    if (!result.ok) {
+      disbandMessage = result.reason
+      paint(session.getState())
+      return
+    }
+
+    recruitMessage = result.record.outcome
+    disbandDialog.close()
     paint(session.getState())
+  })
+
+  closeDisbandButton.addEventListener('click', () => {
+    disbandDialog.close()
+  })
+
+  /** 解任确认：确认后把人罢为在野并退回列表；取消或关掉则什么都不动。 */
+  dismissConfirmButton.addEventListener('click', () => {
+    if (dismissTargetId === null) {
+      return
+    }
+
+    const result = session.dismiss(dismissTargetId)
+    dismissDialog.close()
+    recruitMessage = result.ok ? result.record.outcome : result.reason
+    if (result.ok) {
+      detailCharacterId = null
+    }
+    paint(session.getState())
+  })
+
+  dismissCancelButton.addEventListener('click', () => {
+    dismissDialog.close()
+  })
+
+  closeDismissButton.addEventListener('click', () => {
+    dismissDialog.close()
+  })
+
+  closeSiteInfoButton.addEventListener('click', () => {
+    siteInfoDialog.close()
   })
 
   siteSeekButton.addEventListener('click', () => {
@@ -2350,6 +2948,14 @@ export function mountGameShell(
       return
     }
 
+    if (action === 'site-info') {
+      buildSiteId = siteId
+      buildMessage = ''
+      paint(session.getState())
+      siteInfoDialog.showModal()
+      return
+    }
+
     if (action === 'attack-here') {
       orderRequest = { kind: 'attack', siteId }
     } else if (action === 'transfer-here') {
@@ -2361,6 +2967,85 @@ export function mountGameShell(
     orderStatus.textContent = ''
     paint(session.getState())
     orderDialog.showModal()
+  })
+
+  /** 战略点窗口里的建设：按所选开发项建设，刷新等级、金钱与产出。 */
+  siteInfoList.addEventListener('click', (event) => {
+    const button = actionButtonOf(event)
+    const kind = button?.dataset.kind
+    if (button === null || button.dataset.action !== 'build-item' || kind === undefined) {
+      return
+    }
+
+    if (buildSiteId === null) {
+      return
+    }
+
+    const result = session.build(buildSiteId, kind as DevelopmentKind)
+    buildMessage = result.ok ? result.record.outcome : result.reason
+    paint(session.getState())
+  })
+
+  /** 外交面板：先选交涉对象，再执行动作；返回可退回势力列表。 */
+  diplomacyList.addEventListener('click', (event) => {
+    const button = actionButtonOf(event)
+    const action = button?.dataset.action
+    if (button === null || action === undefined) {
+      return
+    }
+
+    if (action === 'pick-diplomacy') {
+      const factionId = button.dataset.faction
+      if (factionId === undefined) {
+        return
+      }
+      diplomacyFactionId = factionId
+      diplomacyMessage = ''
+      paint(session.getState())
+      return
+    }
+
+    if (diplomacyFactionId === null) {
+      return
+    }
+
+    const target = diplomacyFactionId
+    const result =
+      action === 'declare-war'
+        ? session.declareWar(target)
+        : action === 'make-peace'
+          ? session.makePeace(target)
+          : action === 'alliance'
+            ? session.alliance(target)
+            : action === 'gift'
+              ? session.gift(target)
+              : action === 'demand'
+                ? session.demand(target)
+                : null
+    if (result === null) {
+      return
+    }
+
+    diplomacyMessage = result.ok ? result.record.outcome : result.reason
+    paint(session.getState())
+  })
+
+  /** 底部菜单的外交入口：从势力列表开始。 */
+  openDiplomacyButton.addEventListener('click', () => {
+    diplomacyFactionId = null
+    diplomacyMessage = ''
+    paint(session.getState())
+    diplomacyDialog.showModal()
+  })
+
+  backDiplomacyButton.addEventListener('click', () => {
+    diplomacyFactionId = null
+    diplomacyMessage = ''
+    paint(session.getState())
+  })
+
+  closeDiplomacyButton.addEventListener('click', () => {
+    diplomacyDialog.close()
   })
 
   openSettingsButton.addEventListener('click', () => {
@@ -2455,10 +3140,66 @@ export function mountGameShell(
     orderRequest = null
     siteMessage = ''
     recruitMessage = ''
+    contactMessage = ''
+    detailCharacterId = null
+    prisonMessage = ''
+    buildSiteId = null
+    buildMessage = ''
+    diplomacyFactionId = null
+    diplomacyMessage = ''
+    disbandCharacterId = null
+    disbandMessage = ''
+    domesticMessage = ''
+    dismissTargetId = null
     selection.select(null)
     newGameDialog.close()
     statusLabel.textContent = `已开始新游戏：${scenario.name}`
   })
+
+  /**
+   * 弹窗关掉后清掉上一次的结果：重开时回到初始模样，不把旧反馈带回来。
+   * 结果本身都落在各自控件下方，弹窗又贴顶，出现时只向下长，按钮不因此移位。
+   */
+  const dialogResets: readonly [HTMLDialogElement, () => void][] = [
+    [
+      rosterDialog,
+      () => {
+        detailCharacterId = null
+        recruitMessage = ''
+      },
+    ],
+    [domesticDialog, () => (domesticMessage = '')],
+    [orderDialog, () => (orderStatus.textContent = '')],
+    [prisonDialog, () => (prisonMessage = '')],
+    [
+      siteInfoDialog,
+      () => {
+        buildSiteId = null
+        buildMessage = ''
+      },
+    ],
+    [
+      diplomacyDialog,
+      () => {
+        diplomacyFactionId = null
+        diplomacyMessage = ''
+      },
+    ],
+    [
+      disbandDialog,
+      () => {
+        disbandCharacterId = null
+        disbandMessage = ''
+      },
+    ],
+    [dismissDialog, () => (dismissTargetId = null)],
+  ]
+  for (const [dialog, reset] of dialogResets) {
+    dialog.addEventListener('close', () => {
+      reset()
+      paint(session.getState())
+    })
+  }
 
   selection.subscribe(() => {
     siteMessage = ''

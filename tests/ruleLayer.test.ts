@@ -85,10 +85,10 @@ describe('解耦回归', () => {
       advanceTurn(state)
     }
 
-    // 同一个对象、结构不变：地理的标识、邻接、州与归属不因回合推进而改（人口另按季缓增，见下）。
+    // 同一个对象、结构不变：地理的标识、邻接、州与归属不因回合推进而改（人口与存粮另按季结算，见下）。
     const structure = (geography: typeof snapshot) => ({
       provinces: geography.provinces,
-      sites: geography.sites.map((site) => ({ ...site, population: 0 })),
+      sites: geography.sites.map((site) => ({ ...site, population: 0, granary: 0 })),
     })
     expect(state.geography).toBe(geographyRef)
     expect(structure(state.geography)).toEqual(structure(snapshot))

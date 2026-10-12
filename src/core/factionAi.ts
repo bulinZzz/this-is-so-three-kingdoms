@@ -12,8 +12,12 @@ import {
 } from './battle'
 import { recruitWillingCaptives } from './captives'
 import { isServing } from './characters'
+import { ALLIANCE_FAVOR, alliance, declareWar } from './diplomacy'
+import { granaryOf } from './granary'
 import {
   attackGrainCost,
+  factionTroops,
+  harvestGrain,
   hasActedThisTurn,
   isFactionDestroyed,
   recruit,
@@ -31,12 +35,13 @@ import type {
   SiteType,
 } from './model'
 import { createRandom } from './random'
-import { areHostile } from './relations'
+import { areHostile, favorBetween, relationBetween } from './relations'
 import { seekTalent } from './seekTalent'
 
 /**
- * 其他势力的自主行动。每季按最小行为集出手，顺序为寻访 → 进攻 → 征兵：
- * 先补一名新人（新人当季即可参战），再用有余力的武将进攻，最后把剩下的行动力用于征兵。
+ * 其他势力的自主行动。每季按最小行为集出手，顺序为寻访 → 外交 → 进攻 → 征兵：
+ * 先补一名新人（新人当季即可参战），再看要不要结盟或宣战，然后用有余力的武将进攻，
+ * 最后把剩下的行动力用于征兵。
  * 行为只走规则层既有动作，随机取自随存档落盘的模拟流，固定种子下可复现。
  */
 
@@ -46,6 +51,10 @@ const ATTACK_MARGIN = 1
 const SITE_VALUE: Record<SiteType, number> = { city: 3, pass: 2, field: 1 }
 /** 一支编成至多三人，与玩家一致。 */
 const PARTY_SIZE = 3
+/** 中立而好感不高于此、且己方明显更强时，他方才对外宣战。 */
+const WAR_FAVOR_LINE = 25
+/** 对外宣战要求的兵力倍数。 */
+const WAR_STRENGTH_MARGIN = 1.5
 
 function sitesOf(state: GameState, factionId: FactionId): Site[] {
   return state.geography.sites.filter((site) => site.owner === factionId)
@@ -184,6 +193,37 @@ function* attackOnce(
   }
 }
 
+/**
+ * 外交一步：只与中立势力往来——同盟与敌对不改动。
+ * 好感高且行动力够则提议结盟；好感低而己方明显占优则宣战；都不做则静默。
+ */
+function diplomacyOnce(state: GameState, factionId: FactionId): void {
+  for (const other of state.factions) {
+    if (other.id === factionId || relationBetween(state, factionId, other.id) !== 'neutral') {
+      continue
+    }
+    if (
+      favorBetween(state, factionId, other.id) >= ALLIANCE_FAVOR &&
+      alliance(state, other.id, factionId).ok
+    ) {
+      return
+    }
+  }
+
+  for (const other of state.factions) {
+    if (other.id === factionId || relationBetween(state, factionId, other.id) !== 'neutral') {
+      continue
+    }
+    if (favorBetween(state, factionId, other.id) > WAR_FAVOR_LINE) {
+      continue
+    }
+    if (factionTroops(state, factionId) > factionTroops(state, other.id) * WAR_STRENGTH_MARGIN) {
+      declareWar(state, other.id, factionId)
+      return
+    }
+  }
+}
+
 /** 把余下的行动力用于征兵，直到用尽、无人可补、粮尽或驻地丁口已枯。 */
 function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
   while (state.actionPoints[factionId] >= ACTION_COSTS.recruit) {
@@ -204,6 +244,32 @@ function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
   }
 }
 
+/** 粮仓低于此数，他方即派内政最高的部属自驻地征粮，先把底子垫起来再去征兵。 */
+const AI_GRAIN_RESERVE = 3000
+
+/** 缺粮时征一次粮：派内政最高、驻地尚有存粮的部属出手；粮足或无粮可取则静默。 */
+function harvestOnce(state: GameState, factionId: FactionId): void {
+  const grain = state.factions.find((faction) => faction.id === factionId)?.grain ?? 0
+  if (grain >= AI_GRAIN_RESERVE || state.actionPoints[factionId] < ACTION_COSTS.harvestGrain) {
+    return
+  }
+
+  const candidate = officersOf(state, factionId)
+    .filter((character) => !hasActedThisTurn(state, character.id) && character.troops > 0)
+    .filter((character) => {
+      const station = state.geography.sites.find((site) => site.id === character.stationedSiteId)
+
+      return station !== undefined && granaryOf(station) > 0
+    })
+    .sort((a, b) => b.politics - a.politics)[0]
+
+  if (candidate === undefined) {
+    return
+  }
+
+  harvestGrain(state, candidate.id, factionId)
+}
+
 /** 一个势力的一季行动。 */
 function* runFactionTurn(
   state: GameState,
@@ -212,6 +278,8 @@ function* runFactionTurn(
   // 营中已到「愿降」档的俘虏先行归附，本季即可出力。
   recruitWillingCaptives(state, factionId)
   seekOnce(state, factionId)
+  diplomacyOnce(state, factionId)
+  harvestOnce(state, factionId)
   yield* attackOnce(state, factionId)
   recruitUntilExhausted(state, factionId)
 }

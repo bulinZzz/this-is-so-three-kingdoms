@@ -4,7 +4,7 @@ import { ACTION_COSTS } from '../src/core/actions'
 import { stationedDefendersAt } from '../src/core/battle'
 import { validateCharacters } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
-import { grainYield, troopUpkeep } from '../src/core/economy'
+import { troopUpkeep } from '../src/core/economy'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { attackGrainCost, factionTroops, recruitPopulationCap } from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
@@ -70,8 +70,8 @@ function loopScenario(): Scenario {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 10000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 10000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 10000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 10000 },
     ],
     geography: {
       provinces: [{ id: 'p', name: '州', owner: 'caocao' }],
@@ -249,8 +249,8 @@ function j7Scenario(): Scenario {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 100000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 100000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 100000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 100000 },
     ],
     geography: {
       provinces: [
@@ -562,10 +562,10 @@ function j8Scenario(): Scenario {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 5000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 5000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 5000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 5000 },
     ],
-    relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile' }],
+    relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
     geography: {
       provinces: [{ id: 'p1', name: '州一', owner: null }],
       sites: [
@@ -646,25 +646,25 @@ describe('迭代 8 全链（无画面）', () => {
     expect(playerGrain(state)).toBe(beforeAttack - attackGrainCost(12000))
     expect(siteOwner(state, 'b')).toBe('liubei')
 
-    // 结束回合：军队规模压过粮产，净收支为负、粮食随之下降；人口缓增。
+    // 结束回合：存粮运回不敷军粮，粮食随之下降；人口缓增。
     const populationBefore = siteOf(state, 'a').population
     const beforeSettle = playerGrain(state)
-    const yieldPerSeason = grainYield(state, 'liubei')
-    const upkeep = troopUpkeep(state, 'liubei')
 
     session.endTurn()
 
-    expect(yieldPerSeason - upkeep).toBeLessThan(0)
-    expect(playerGrain(state)).toBe(beforeSettle + yieldPerSeason - upkeep)
+    expect(troopUpkeep(state, 'liubei')).toBeGreaterThan(0)
+    expect(playerGrain(state)).toBeLessThan(beforeSettle)
+    expect(playerGrain(state)).toBeGreaterThanOrEqual(0)
     expect(siteOf(state, 'a').population).toBeGreaterThan(populationBefore)
   })
 
-  it('粮尽时部队按缺口逃散，兵力不被减成负数', () => {
+  it('粮尽时粮仓归零，但部队一兵不减', () => {
     const session = createJ8Session(208)
     const state = session.getState()
-    // 断掉粮源并掏空粮仓，使本季军粮无从支付。
+    // 断掉粮源：人口与存粮皆为零，本季既运不回粮，也付不出军粮。
     for (const site of state.geography.sites) {
       site.population = 0
+      site.granary = 0
     }
     const faction = state.factions.find((item) => item.id === 'liubei')
     if (faction === undefined) {
@@ -678,9 +678,9 @@ describe('迭代 8 全链（无画面）', () => {
     expect(troopsBefore).toBeGreaterThan(0)
     expect(
       state.history.some((record) => record.kind === 'disband' && record.factionId === 'liubei'),
-    ).toBe(true)
-    expect(factionTroops(state, 'liubei')).toBeGreaterThanOrEqual(0)
-    expect(factionTroops(state, 'liubei')).toBeLessThan(troopsBefore)
+    ).toBe(false)
+    expect(factionTroops(state, 'liubei')).toBe(troopsBefore)
+    expect(playerGrain(state)).toBe(0)
   })
 
   it('固定种子下整条链可复现', () => {

@@ -57,9 +57,9 @@ function scene(characters: Character[]): GameState {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 1000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 1000 },
-      { id: 'sunquan', name: '孙权', color: '#a83d3d', grain: 1000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 1000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 1000 },
+      { id: 'sunquan', name: '孙权', color: '#a83d3d', money: 0, grain: 1000 },
     ],
     geography: {
       provinces: [{ id: 'jing', name: '荆州', owner: null }],

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
 import { runFactionTurns } from '../src/core/factionAi'
 import { factionTroops } from '../src/core/military'
-import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
+import { SANGUO_208, SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 import { advanceTurn } from '../src/core/turn'
 
 /** 用验收开局跑若干季的「他方行动 + 结算」，返回该状态。 */
@@ -48,26 +48,27 @@ describe('势力自主行动', () => {
     expect(state.history.filter((record) => record.kind === 'recruit')).toEqual([])
   })
 
-  it('他方粮尽时同样按缺口逃散', () => {
+  it('他方粮尽时粮仓归零、部队一兵不减', () => {
     const state = createInitialState({ scenario: SANGUO_ACCEPTANCE, seed: 208 })
     const caocao = state.factions.find((faction) => faction.id === 'caocao')
     if (caocao === undefined) {
       throw new Error('势力不存在：caocao')
     }
-    // 断掉粮源并掏空粮仓，使本季军粮无从支付。
+    // 断掉粮源：人口与存粮皆为零，本季既运不回粮，也付不出军粮。
     for (const site of state.geography.sites) {
       site.population = 0
+      site.granary = 0
     }
     caocao.grain = 0
     const troopsBefore = factionTroops(state, 'caocao')
 
     advanceTurn(state)
 
-    const disbanded = state.history.filter(
-      (record) => record.kind === 'disband' && record.factionId === 'caocao',
-    )
-    expect(disbanded).toHaveLength(1)
-    expect(factionTroops(state, 'caocao')).toBeLessThan(troopsBefore)
+    expect(
+      state.history.some((record) => record.kind === 'disband' && record.factionId === 'caocao'),
+    ).toBe(false)
+    expect(factionTroops(state, 'caocao')).toBe(troopsBefore)
+    expect(caocao.grain).toBe(0)
   })
 
   it('固定种子下他方的行为序列可复现', () => {
@@ -87,5 +88,22 @@ describe('势力自主行动', () => {
     runFactionTurns(state)
 
     expect(state.actionPoints[state.playerFaction]).toBe(playerBefore)
+  })
+})
+
+describe('外交接入他方决策', () => {
+  it('他方会对低好感的中立方宣战（己方明显占优）', () => {
+    const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
+    // 曹刘、曹孙改判为中立且好感极低，曹操兵力远胜，应主动宣战。
+    state.relations = [
+      { factions: ['caocao', 'liubei'], kind: 'neutral', favor: 10 },
+      { factions: ['caocao', 'sunquan'], kind: 'neutral', favor: 10 },
+    ]
+
+    runFactionTurns(state)
+
+    const wars = state.history.filter((record) => record.kind === 'declareWar')
+    expect(wars.length).toBeGreaterThan(0)
+    expect(wars.every((record) => record.factionId === 'caocao')).toBe(true)
   })
 })

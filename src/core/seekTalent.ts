@@ -2,11 +2,9 @@ import { runAction, type ActionResult } from './actions'
 import { affinityToward, joinLoyaltyFor, recruitmentFactor } from './affinity'
 import { isTierAvailable, provinceControl } from './cardPool'
 import { CHARACTER_LIMIT, countServing, isRecruitable } from './characters'
+import { TROOPS_LIMIT_PER_COMMAND } from './military'
 import type { Character, CharacterId, FactionId, GameState, Personality, Site, SiteId } from './model'
 import type { Random } from './random'
-
-/** 招募入仕者自带的初始兵力。 */
-export const RECRUIT_INITIAL_TROOPS = 500
 
 /**
  * 各性格的基准招聘成功率。性格决定起点，偏好决定加成：
@@ -100,12 +98,13 @@ export function clearContacts(state: GameState, characterId: CharacterId): void 
   }
 }
 
-/** 某人入仕某势力，驻守给定战略点，忠诚按其对该势力的偏好定初值。 */
+/** 某人入仕某势力，驻守给定战略点，兵力从零起，忠诚按其对该势力的偏好定初值。 */
 function join(state: GameState, character: Character, factionId: FactionId, siteId: SiteId): void {
   character.status = 'serving'
   character.factionId = factionId
   character.stationedSiteId = siteId
-  character.troops = RECRUIT_INITIAL_TROOPS
+  character.troops = 0
+  character.troopLimit = character.command * TROOPS_LIMIT_PER_COMMAND
   character.loyalty = joinLoyaltyFor(affinityToward(character, factionId))
   clearContacts(state, character.id)
 }

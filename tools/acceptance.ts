@@ -11,6 +11,15 @@ import {
 } from '../src/core/battle'
 import { isRecruitable } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
+import { granaryOf } from '../src/core/granary'
+import {
+  build,
+  buildCost,
+  DEVELOPMENT_KINDS,
+  developmentLevel,
+  developmentLimit,
+} from '../src/core/development'
+import { demand } from '../src/core/diplomacy'
 import {
   factionTroops,
   harvestGrain,
@@ -22,8 +31,10 @@ import {
   stationAdjacentTo,
   transfer,
 } from '../src/core/military'
-import type { Character, FactionId, GameState, Season, Site, SiteId, SiteType } from '../src/core/model'
+import type { Character, DevelopmentKind, FactionId, GameState, Season, Site, SiteId, SiteType } from '../src/core/model'
+import { reward, REWARD_MONEY } from '../src/core/personnel'
 import { createRandom, type Random } from '../src/core/random'
+import { areHostile, favorBetween } from '../src/core/relations'
 import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 import { recruitChance, seekTalent, visit } from '../src/core/seekTalent'
 import { endTurn } from '../src/core/turn'
@@ -34,7 +45,11 @@ import { endTurn } from '../src/core/turn'
  *
  * 推演用一个规则驱动的「玩家」代理，策略如下：
  *   寻访（前期攒人）→ 进攻（安全边际内挑价值最高者）→ 征兵（交给统率最高者）
- *   → 拜访（寻访到头后登门争取已认得路的人）→ 征粮（交给内政最高者）→ 调兵（朝最弱目标集结）。
+ *   → 拜访（寻访到头后登门争取已认得路的人）→ 经营与外交（每季至多一项：
+ *   缺粮则向可开口的弱者索取、忠诚不足六十则赏赐、否则建农田 / 市集 / 民居）
+ *   → 征粮（交给内政最高者，自驻地存粮取用）→ 调兵（朝最弱目标集结）。
+ * 兵只从征兵来、粮落在战略点上：兵力完全靠征兵积累，粮要派人去取，两者都由代理逐季操持。
+ * 外交只做索取——荆扬一隅里同盟与敌对都是开局定局，赠礼、停战与结盟无处可施。
  * 其他势力由 factionAi 自主行动，走与实机相同的回合收尾流程。
  * 它不代表最优打法，只用来观察数值松紧与局势走向；判断「好不好玩」仍要看实玩。
  */
@@ -50,6 +65,10 @@ const SEASONS = 40
  * 取 1 即「有优势就动手」：更保守的线会让代理在坚城前永远不敢开战，一路攒到上限也打不完。
  */
 const SAFE_MARGIN = 1
+/** 粮食低于此数时，代理先向外索取（对象见 demandTargetOf）。 */
+const DEMAND_GRAIN_BELOW = 3000
+/** 忠诚不足此数（新附者多在五十上下）就先赏一回，把人拉过这条安心线。 */
+const REWARD_BELOW = 60
 /** 战略点的相对价值，用于在多个安全目标中择优。 */
 const SITE_VALUE: Record<SiteType, number> = { city: 3, pass: 2, field: 1 }
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' }
@@ -177,6 +196,61 @@ function servingCount(state: GameState, factionId: FactionId): number {
   ).length
 }
 
+/** 可索取的对象：非敌对、好感尚可（≥ 40）的他方里兵力最弱的一位——强者不吃这一套。 */
+function demandTargetOf(state: GameState): FactionId | null {
+  const player = state.playerFaction
+  const candidate = state.factions
+    .filter(
+      (faction) =>
+        faction.id !== player &&
+        !areHostile(state, player, faction.id) &&
+        favorBetween(state, player, faction.id) >= 40,
+    )
+    .sort((a, b) => factionTroops(state, a.id) - factionTroops(state, b.id))[0]
+
+  return candidate?.id ?? null
+}
+
+/** 忠诚不足 REWARD_BELOW 的在仕者里，挑忠诚最低的一位；君主不计。 */
+function rewardTargetOf(state: GameState): Character | null {
+  const player = state.playerFaction
+  const nearest = state.characters
+    .filter(
+      (item) =>
+        item.status === 'serving' &&
+        item.factionId === player &&
+        !item.isMonarch &&
+        item.loyalty < REWARD_BELOW,
+    )
+    .sort((a, b) => a.loyalty - b.loyalty)[0]
+
+  return nearest ?? null
+}
+
+/** 一项如今建得起的建设：该项未满级、金钱付得起，建在人口最多的自有点上。 */
+function developmentSiteOf(state: GameState, kind: DevelopmentKind): Site | null {
+  const player = state.playerFaction
+  const money = state.factions.find((item) => item.id === player)?.money ?? 0
+  const site = state.geography.sites
+    .filter(
+      (item) =>
+        item.owner === player &&
+        developmentLevel(item, kind) < developmentLimit(item) &&
+        money >= buildCost(item, kind),
+    )
+    .sort((a, b) => b.population - a.population)[0]
+
+  return site ?? null
+}
+
+/** 玩家自有战略点上某一项开发的累计等级。 */
+function developmentTotal(state: GameState, kind: DevelopmentKind): number {
+  const player = state.playerFaction
+  return state.geography.sites
+    .filter((site) => site.owner === player)
+    .reduce((sum, site) => sum + developmentLevel(site, kind), 0)
+}
+
 function dateLabel(state: GameState): string {
   const { era, year, season } = state.currentDate
   return `${era}${year}·${SEASON_LABELS[season]}`
@@ -210,6 +284,10 @@ interface Playthrough {
   wins: number
   apSpent: number
   apBudget: number
+  /** 赏赐次数，以及索取成功次数与索得的粮食合计。 */
+  rewards: number
+  demands: number
+  demandedGrain: number
   /** 各势力覆灭于第几季。 */
   destroyedAt: Map<FactionId, number>
 }
@@ -224,6 +302,11 @@ function runPlaythrough(): Playthrough {
   let apSpent = 0
   let apBudget = 0
   let seekExhausted = false
+  let rewards = 0
+  let demands = 0
+  let demandedGrain = 0
+  /** 建设在农田、市集与民居之间轮转，保证三项都被演练到。 */
+  let buildCycle = 0
   const destroyedAt = new Map<FactionId, number>()
 
   for (let season = 0; season < SEASONS; season += 1) {
@@ -367,6 +450,44 @@ function runPlaythrough(): Playthrough {
       }
     }
 
+    // 经营与外交：余力所及，每季至多办一件——缺粮先索取，忠诚不足先赏赐，否则投进建设。
+    if (state.actionPoints[player] >= ACTION_COSTS.build) {
+      const playerFaction = state.factions.find((item) => item.id === player)
+      const money = playerFaction?.money ?? 0
+      const grainLeft = playerFaction?.grain ?? 0
+      const rewardTarget = rewardTargetOf(state)
+      const demandTarget = grainLeft < DEMAND_GRAIN_BELOW ? demandTargetOf(state) : null
+
+      if (demandTarget !== null) {
+        const grainBefore = playerFaction?.grain ?? 0
+        const result = demand(state, demandTarget)
+        if (result.ok) {
+          const gained = (playerFaction?.grain ?? 0) - grainBefore
+          if (gained > 0) {
+            demands += 1
+            demandedGrain += gained
+          }
+          actions.push(result.record.outcome)
+        }
+      } else if (rewardTarget !== null && money >= REWARD_MONEY) {
+        const result = reward(state, rewardTarget.id)
+        if (result.ok) {
+          rewards += 1
+          actions.push(result.record.outcome)
+        }
+      } else {
+        const kind = DEVELOPMENT_KINDS[buildCycle % DEVELOPMENT_KINDS.length]
+        const site = kind === undefined ? null : developmentSiteOf(state, kind)
+        if (kind !== undefined && site !== null) {
+          const result = build(state, site.id, kind)
+          if (result.ok) {
+            buildCycle += 1
+            actions.push(result.record.outcome)
+          }
+        }
+      }
+    }
+
     // 余下的行动力全交给征粮，直到用尽或无人可派，免得日志里的行动力使用率虚低。
     while (state.actionPoints[player] >= ACTION_COSTS.harvestGrain) {
       const harvester = state.characters
@@ -390,9 +511,12 @@ function runPlaythrough(): Playthrough {
 
     apSpent += before - state.actionPoints[player]
     const faction = state.factions.find((item) => item.id === player)
+    const granary = state.geography.sites
+      .filter((site) => site.owner === player)
+      .reduce((total, site) => total + granaryOf(site), 0)
     lines.push(
       `第 ${state.currentTurn} 季　${dateLabel(state)}　行动力 ${before}→${state.actionPoints[player]}　` +
-        `兵力 ${factionTroops(state, player)}　粮 ${faction?.grain ?? 0}　${factionLine(state)}`,
+        `兵力 ${factionTroops(state, player)}　存 ${granary}　粮 ${faction?.grain ?? 0}　金 ${faction?.money ?? 0}　${factionLine(state)}`,
     )
     lines.push(`　　${actions.length === 0 ? '（无行动）' : actions.join('；')}`)
 
@@ -416,7 +540,7 @@ function runPlaythrough(): Playthrough {
 
   lines.push(`　　终局版图　${territoryLine(state)}`)
 
-  return { state, lines, battles, wins, apSpent, apBudget, destroyedAt }
+  return { state, lines, battles, wins, apSpent, apBudget, rewards, demands, demandedGrain, destroyedAt }
 }
 
 function summarize(run: Playthrough): string {
@@ -437,7 +561,10 @@ function summarize(run: Playthrough): string {
       `　战斗 ${run.battles} 场、夺取 ${run.wins} 场`,
     `覆灭势力：${destroyed.join('、') || '无'}`,
     `在野武将 ${wild} 名　退场武将 ${retired} 名`,
-    `终局兵力 ${factionTroops(state, player)}　终局粮 ${state.factions.find((item) => item.id === player)?.grain ?? 0}`,
+    `终局兵力 ${factionTroops(state, player)}　终局粮 ${state.factions.find((item) => item.id === player)?.grain ?? 0}` +
+      `　终局金 ${state.factions.find((item) => item.id === player)?.money ?? 0}`,
+    `建设 农田 ${developmentTotal(state, 'farm')} 级　市集 ${developmentTotal(state, 'market')} 级　民居 ${developmentTotal(state, 'housing')} 级` +
+      `　赏赐 ${run.rewards} 次　索取 ${run.demands} 次（得粮 ${run.demandedGrain}）`,
     `终局版图　${territoryLine(state)}`,
   ].join('\n')
 }

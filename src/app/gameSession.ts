@@ -2,9 +2,19 @@ import type { ActionResult } from '../core/actions'
 import { attack as runAttack, type AttackParty, type DefenseChoice } from '../core/battle'
 import { executeCaptive as runExecuteCaptive, persuade as runPersuade, releaseCaptive as runReleaseCaptive } from '../core/captives'
 import { createInitialState } from '../core/createInitialState'
+import { build as runBuild } from '../core/development'
+import {
+  alliance as runAlliance,
+  declareWar as runDeclareWar,
+  demand as runDemand,
+  gift as runGift,
+  makePeace as runMakePeace,
+} from '../core/diplomacy'
 import { LocalSaveStore } from '../core/localSaveStore'
+import { strengthen as runStrengthen } from '../core/growth'
 import { harvestGrain as runHarvestGrain, recruit as runRecruit, transfer as runTransfer } from '../core/military'
-import type { CharacterId, GameState, Scenario, SiteId } from '../core/model'
+import type { AbilityKind, CharacterId, DevelopmentKind, FactionId, GameState, Scenario, SiteId } from '../core/model'
+import { disband as runDisband, dismiss as runDismiss, reward as runReward } from '../core/personnel'
 import { createRandom, type Random } from '../core/random'
 import { AUTO_SAVE_KEY, slotKey, type SaveStore, type SaveSummary } from '../core/saveStore'
 import { seekTalent as runSeekTalent, visit as runVisit } from '../core/seekTalent'
@@ -135,6 +145,31 @@ export class GameSession {
     return this.apply(runHarvestGrain(this.state, characterId))
   }
 
+  /** 赏赐麾下武将，花金钱提升其忠诚；成功后通知界面。 */
+  reward(characterId: CharacterId): ActionResult {
+    return this.apply(runReward(this.state, characterId))
+  }
+
+  /** 解任麾下武将，他转为在野；成功后通知界面。 */
+  dismiss(characterId: CharacterId): ActionResult {
+    return this.apply(runDismiss(this.state, characterId))
+  }
+
+  /** 用出战累积的额度强化麾下武将的某项能力；成功后通知界面。 */
+  strengthen(characterId: CharacterId, kind: AbilityKind): ActionResult {
+    return this.apply(runStrengthen(this.state, characterId, kind))
+  }
+
+  /** 把某武将的兵力遣散到指定数量；不耗行动力，成功后通知界面。 */
+  disband(characterId: CharacterId, remaining: number): ActionResult {
+    return this.apply(runDisband(this.state, characterId, remaining))
+  }
+
+  /** 在自有战略点建设一项内政（农田、市集或民居）；成功后通知界面。 */
+  build(siteId: SiteId, kind: DevelopmentKind): ActionResult {
+    return this.apply(runBuild(this.state, siteId, kind))
+  }
+
   /** 把一批部属调到相邻的自有战略点；成功后通知界面。 */
   transfer(characterIds: readonly CharacterId[], targetSiteId: SiteId): ActionResult {
     return this.apply(runTransfer(this.state, characterIds, targetSiteId))
@@ -158,6 +193,31 @@ export class GameSession {
   /** 释放营中的一名俘虏，他转为在野；成功后通知界面。 */
   releaseCaptive(characterId: CharacterId): ActionResult {
     return this.apply(runReleaseCaptive(this.state, characterId))
+  }
+
+  /** 向对方宣战；成功后通知界面。 */
+  declareWar(factionId: FactionId): ActionResult {
+    return this.apply(runDeclareWar(this.state, factionId))
+  }
+
+  /** 与敌对方停战；成功后通知界面。 */
+  makePeace(factionId: FactionId): ActionResult {
+    return this.apply(runMakePeace(this.state, factionId))
+  }
+
+  /** 与中立方结盟；成功后通知界面。 */
+  alliance(factionId: FactionId): ActionResult {
+    return this.apply(runAlliance(this.state, factionId))
+  }
+
+  /** 向对方赠礼以提升好感；成功后通知界面。 */
+  gift(factionId: FactionId): ActionResult {
+    return this.apply(runGift(this.state, factionId))
+  }
+
+  /** 向对方索取粮食；成功后通知界面。 */
+  demand(factionId: FactionId): ActionResult {
+    return this.apply(runDemand(this.state, factionId))
   }
 
   /** 读取自动存档；没有可用存档时返回 false，当前对局保持不变。 */

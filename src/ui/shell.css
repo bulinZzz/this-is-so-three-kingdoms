@@ -109,7 +109,7 @@
   color: #c07068;
 }
 
-/* 与玩家的关系：同盟取青绿，敌对取朱红，中立不标。 */
+/* 与玩家的关系：同盟取青绿，敌对取朱红，中立取暗色。 */
 .shell__badge--ally {
   border-color: #47694f;
   color: #7fb894;
@@ -120,6 +120,12 @@
   color: #d08573;
 }
 
+.shell__badge--neutral {
+  border-color: #4a4234;
+  color: #9a8b70;
+}
+
+/* 他方势力与「无归属」都只作展示，外交一律走底部菜单的入口。 */
 .shell__action-points {
   margin: 6px 0 0;
   font-size: 14px;
@@ -196,9 +202,12 @@
 
 .domestic__body {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 14px;
+  min-height: 0;
   padding: 16px 18px 18px;
+  overflow-y: auto;
 }
 
 .domestic__section {
@@ -235,6 +244,27 @@
 .domestic__value {
   font-size: 16px;
   color: #e8d9b5;
+}
+
+.domestic__action {
+  align-self: flex-start;
+  padding: 4px 12px;
+  border: 1px solid #574a36;
+  border-radius: 4px;
+  background: #241d16;
+  color: #c8b48c;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.domestic__action:hover {
+  background: #322819;
+}
+
+/* 征粮等行动的结果回显在此；无内容时不占位。 */
+.domestic__status:empty {
+  display: none;
 }
 
 /* 战略点面板自上而下：名称与归属、类别与人口、驻守、行动。 */
@@ -302,32 +332,19 @@
 
 .order__status {
   margin: 0;
-  min-height: 16px;
   font-size: 12px;
   color: #9a8b70;
 }
 
-/* 没有播报时不占位，避免弹窗顶部留出空白。 */
+/* 没有播报时不占位。 */
 .order__status:empty,
 .site-panel__status:empty {
   display: none;
 }
 
-/*
- * 武将弹窗的播报固定在底部，不随名单滚动，也不把名单挤下去。
- * 高度写死为一行的固定值：空态与有字时同样高，居中弹窗不会因播报出现而重排。
- */
-.roster__status {
-  flex: none;
-  display: flex;
-  align-items: center;
-  height: 30px;
-  margin: 0;
-  padding: 0 18px;
-  overflow: hidden;
-  white-space: nowrap;
-  font-size: 12px;
-  color: #9a8b70;
+/* 武将弹窗的播报贴在窗口下沿外侧（版式见后方统一规则）；没有播报时不占位。 */
+.roster__status:empty {
+  display: none;
 }
 
 .order__empty {
@@ -517,16 +534,15 @@
   color: #9a8b70;
 }
 
-.prison__status {
-  margin: 0;
-  padding: 10px 16px 0;
-  font-size: 13px;
-  color: #9a8b70;
+.prison__status:empty {
+  display: none;
 }
 
 .prison__list {
   display: flex;
+  flex: 1;
   flex-direction: column;
+  min-height: 0;
   margin: 0;
   padding: 6px 16px 12px;
   overflow-y: auto;
@@ -568,6 +584,134 @@
   padding: 10px 0;
   font-size: 13px;
   color: #6f6250;
+}
+
+/* 战略点窗口里的建设区：紧接信息之后，逐项列出等级与效果。 */
+.site-info__heading {
+  margin: 14px 0 0;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 2px;
+  color: #9a8b70;
+}
+
+.site-info__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 4px 0 0;
+  list-style: none;
+}
+
+.site-info__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #2a241c;
+}
+
+.site-info__info {
+  min-width: 0;
+}
+
+.site-info__name {
+  display: block;
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.site-info__meta {
+  display: block;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
+.site-info__status:empty {
+  display: none;
+}
+
+.diplomacy__target {
+  margin: 0;
+  padding: 10px 16px 0;
+  font-size: 13px;
+  color: #d8c7a0;
+}
+
+/* 未交涉时不显示结果行。 */
+.diplomacy__status:empty {
+  display: none;
+}
+
+/*
+ * 含行动结果的弹窗：窗口保持居中，结果行贴在窗口下沿外侧显示。
+ * 结果不占窗口内的文档流，窗口尺寸与居中位置不变，按钮不会因它移位，也不必用空白行占位。
+ * 这些窗口因此不能裁掉溢出内容，改由各自的列表内部滚动。
+ */
+.roster,
+.domestic,
+.order,
+.prison,
+.diplomacy,
+.disband,
+.site-info {
+  overflow: visible;
+}
+
+.roster__status,
+.domestic__status,
+.order__status,
+.prison__status,
+.diplomacy__status,
+.disband__status,
+.site-info__status {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 10px;
+  padding: 0 18px;
+  font-size: 12px;
+  line-height: 18px;
+  color: #b9a986;
+  pointer-events: none;
+}
+
+.diplomacy__list {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  margin: 0;
+  padding: 6px 16px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.diplomacy__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #2a241c;
+}
+
+.diplomacy__info {
+  min-width: 0;
+}
+
+.diplomacy__name {
+  display: block;
+  font-size: 14px;
+  color: #e8d9b5;
+}
+
+.diplomacy__meta {
+  display: block;
+  font-size: 12px;
+  color: #9a8b70;
 }
 
 .picker {
@@ -693,6 +837,34 @@
 .officer-action:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* 赏赐的小图标按钮：贴在忠诚数值右侧，只占一枚方形。 */
+.officer-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid #6b5c42;
+  border-radius: 4px;
+  background: #2a2219;
+  color: #d8c7a0;
+  cursor: pointer;
+}
+
+.officer-icon:hover:not(:disabled) {
+  background: #362c20;
+}
+
+.officer-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.officer-icon svg {
+  display: block;
 }
 
 /* 行动按钮：小尺寸、成排排列，按用兵、调兵、招人的顺序。 */
@@ -838,13 +1010,13 @@
   font-size: 13px;
 }
 
-/* 两张表前八列相同，故共用列宽，便于上下对照；末列各自定。 */
+/* 两张表前七列相同，故共用列宽，便于上下对照；末列各自定。 */
 .roster__table th:nth-child(1) {
-  width: 14%;
+  width: 13%;
 }
 
 .roster__table th:nth-child(2) {
-  width: 10%;
+  width: 13%;
 }
 
 /* 兵力是「当前/上限」，五位数并排也要放得下，故给得比其余数值列宽。 */
@@ -856,23 +1028,18 @@
 .roster__table th:nth-child(5),
 .roster__table th:nth-child(6),
 .roster__table th:nth-child(7) {
-  width: 6%;
+  width: 9%;
 }
 
-/* 忠诚给数值，三位数也要放得下。 */
+/* 麾下：「操作」放征兵与遣散两枚按钮，按按钮实际宽度收窄，不再挤占其余各列。 */
 .roster__table th:nth-child(8) {
-  width: 10%;
+  width: 22%;
 }
 
-/* 麾下：「操作」放征兵与征粮两枚按钮，已行动者则写「已行动」。 */
-.roster__table th:nth-child(9) {
-  width: 26%;
-}
-
-/* 全部武将：末两列是状态与所属君主，替代麾下的操作列。 */
-.roster__table--all th:nth-child(9),
-.roster__table--all th:nth-child(10) {
-  width: 13%;
+/* 全部武将：末两列是状态与所属君主，第 8 列不再是操作。 */
+.roster__table--all th:nth-child(8),
+.roster__table--all th:nth-child(9) {
+  width: 11%;
 }
 
 .roster__table th {
@@ -927,7 +1094,7 @@
 
 .roster__ops {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: center;
   gap: 6px;
 }
@@ -1004,6 +1171,137 @@
   color: #e8d9b5;
 }
 
+/* 忠诚一行：数值与赏赐图标并排。 */
+.officer-detail__loyalty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.officer-detail__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* 详情里的解任按钮收小一档，不随栏宽拉长。 */
+.officer-detail__actions .officer-action {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.disband__target {
+  margin: 0;
+  padding: 10px 16px 0;
+  font-size: 13px;
+  color: #d8c7a0;
+}
+
+.disband__body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px 0;
+}
+
+.disband__label {
+  flex: none;
+  min-width: 72px;
+  font-size: 13px;
+  color: #9a8b70;
+}
+
+.disband__slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: #8a7448;
+}
+
+.disband__status:empty {
+  display: none;
+}
+
+.disband__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 16px;
+}
+
+.disband__submit {
+  padding: 4px 14px;
+  border: 1px solid #574a36;
+  border-radius: 4px;
+  background: #241d16;
+  color: #c8b48c;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.disband__submit:hover {
+  background: #322819;
+}
+
+.site-info__body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px;
+  overflow-y: auto;
+}
+
+.confirm__text {
+  margin: 0;
+  padding: 12px 16px 0;
+  font-size: 13px;
+  color: #d8c7a0;
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+}
+
+.confirm__button {
+  padding: 4px 14px;
+  border: 1px solid #574a36;
+  border-radius: 4px;
+  background: #241d16;
+  color: #c8b48c;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.confirm__button:hover {
+  background: #322819;
+}
+
+.confirm__button--primary {
+  border-color: #6b5c42;
+  color: #e8d9b5;
+}
+
+.site-info__facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.site-info__facts dt {
+  color: #9a8b70;
+}
+
+.site-info__facts dd {
+  margin: 0;
+  color: #e8d9b5;
+}
+
 .roster__section-title {
   display: flex;
   align-items: baseline;
@@ -1035,6 +1333,10 @@
 .battle-plan,
 .captives,
 .prison,
+.diplomacy,
+.disband,
+.confirm,
+.site-info,
 .new-game {
   width: min(420px, 100% - 32px);
   max-height: 80vh;
@@ -1079,6 +1381,10 @@
 .battle-plan[open],
 .captives[open],
 .prison[open],
+.diplomacy[open],
+.disband[open],
+.confirm[open],
+.site-info[open],
 .new-game[open] {
   display: flex;
   flex-direction: column;
@@ -1093,6 +1399,10 @@
 .battle-plan::backdrop,
 .captives::backdrop,
 .prison::backdrop,
+.diplomacy::backdrop,
+.disband::backdrop,
+.confirm::backdrop,
+.site-info::backdrop,
 .new-game::backdrop {
   background: rgb(0 0 0 / 60%);
 }
@@ -1112,6 +1422,13 @@
   font-size: 15px;
   font-weight: 400;
   letter-spacing: 2px;
+}
+
+/* 弹窗右上角的多枚按钮：返回与关闭并排。 */
+.saves__head-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
 }
 
 .saves__list {
@@ -1153,6 +1470,8 @@
 
 .slot__button,
 .prison__button,
+.site-info__button,
+.diplomacy__button,
 .saves__close {
   flex: none;
   padding: 3px 8px;
@@ -1167,8 +1486,21 @@
 
 .slot__button:hover,
 .prison__button:hover,
+.site-info__button:hover,
+.diplomacy__button:hover,
 .saves__close:hover {
   background: #322819;
+}
+
+.site-info__button:disabled,
+.diplomacy__button:disabled {
+  color: #6f6250;
+  cursor: default;
+}
+
+.site-info__button:disabled:hover,
+.diplomacy__button:disabled:hover {
+  background: #241d16;
 }
 
 .new-game__body {

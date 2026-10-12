@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
-import { grainYield, troopUpkeep } from '../src/core/economy'
-import { TROOPS_GROWTH_PER_COMMAND, troopLimit } from '../src/core/military'
+import { granaryIncome, growGranary, troopUpkeep } from '../src/core/economy'
+import { TROOPS_LIMIT_GROWTH_PER_COMMAND, troopLimit } from '../src/core/military'
 import { advanceTurn, resolveFactionOrder } from '../src/core/turn'
 
 describe('advanceTurn', () => {
@@ -102,44 +102,46 @@ describe('advanceTurn', () => {
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
   })
 
-  it('结束回合结算粮食收支：粮产减军粮', () => {
+  it('结束回合结算粮食收支：各点运回减军粮', () => {
     const state = createInitialState({ seed: 208 })
+    const mirror = createInitialState({ seed: 208 })
     const faction = state.factions.find((item) => item.id === 'liubei')
     if (faction === undefined) {
       throw new Error('势力不存在：liubei')
     }
     const before = faction.grain
-    const yieldPerSeason = grainYield(state, 'liubei')
-    const upkeep = troopUpkeep(state, 'liubei')
+
+    // 用同一初始状态的镜像推演结算先增后运的过程，得到精确的应到账目。
+    growGranary(mirror)
+    const income = granaryIncome(mirror, 'liubei')
+    const upkeep = troopUpkeep(mirror, 'liubei')
 
     advanceTurn(state)
 
-    expect(yieldPerSeason).toBeGreaterThan(0)
+    expect(income).toBeGreaterThan(0)
     expect(upkeep).toBeGreaterThan(0)
-    expect(faction.grain).toBe(before + yieldPerSeason - upkeep)
+    expect(faction.grain).toBe(Math.max(0, before + income - upkeep))
   })
 
-  it('结束回合在仕武将按统率自然增长，有余粮的势力一视同仁', () => {
+  it('结束回合不改变兵力：兵只从征兵来，只有带兵上限随季提高', () => {
     const state = createInitialState({ seed: 208 })
-    const serving = state.characters.filter((character) => character.status === 'serving')
+    const serving = state.characters.filter(
+      (character) => character.status === 'serving' && character.factionId === 'liubei',
+    )
     const before = new Map(serving.map((character) => [character.id, character.troops]))
+    const limits = new Map(serving.map((character) => [character.id, troopLimit(character)]))
 
     advanceTurn(state)
 
     for (const character of serving) {
-      const gained = character.troops - (before.get(character.id) ?? 0)
-      const baseline = character.command * TROOPS_GROWTH_PER_COMMAND
-
-      // 增至带兵上限即止；未达上限者按基准上下浮动。
-      expect(gained).toBeLessThanOrEqual(Math.round(baseline * 1.25))
-      expect(character.troops).toBeLessThanOrEqual(troopLimit(character))
-      if (character.troops < troopLimit(character)) {
-        expect(gained).toBeGreaterThanOrEqual(Math.round(baseline * 0.75))
-      }
+      expect(character.troops).toBe(before.get(character.id) ?? 0)
+      expect(troopLimit(character)).toBe(
+        (limits.get(character.id) ?? 0) + character.command * TROOPS_LIMIT_GROWTH_PER_COMMAND,
+      )
     }
   })
 
-  it('在野武将不参与自然增长', () => {
+  it('在野武将兵力始终为零', () => {
     const state = createInitialState({ seed: 208 })
     const wild = state.characters.filter((character) => character.status === 'wild')
 
@@ -159,23 +161,31 @@ describe('advanceTurn', () => {
     }
   })
 
-  it('缺粮的势力不自然增兵', () => {
+  it('缺粮不减员：粮仓归零，部队一兵不动', () => {
     const state = createInitialState({ seed: 208 })
-    // 断掉粮源并掏空粮仓：本季既付不出军粮，也养不起新兵。
+    // 断掉粮源：本季既运不回粮，也付不出军粮。
     for (const site of state.geography.sites) {
-      site.owner = null
+      site.population = 0
+      site.granary = 0
     }
     const faction = state.factions.find((item) => item.id === 'liubei')
     if (faction === undefined) {
       throw new Error('势力不存在：liubei')
     }
     faction.grain = 0
-    const before = new Map(state.characters.map((character) => [character.id, character.troops]))
+    const before = new Map(
+      state.characters
+        .filter((character) => character.factionId === 'liubei')
+        .map((character) => [character.id, character.troops]),
+    )
 
     advanceTurn(state)
 
+    expect(faction.grain).toBe(0)
     for (const character of state.characters) {
-      expect(character.troops).toBeLessThanOrEqual(before.get(character.id) ?? 0)
+      if (character.factionId === 'liubei') {
+        expect(character.troops).toBe(before.get(character.id) ?? 0)
+      }
     }
   })
 

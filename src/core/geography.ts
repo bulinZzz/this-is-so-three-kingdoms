@@ -1,3 +1,5 @@
+import { developmentOf } from './development'
+import { granaryCap, initialGranary } from './granary'
 import type { FactionId, Geography } from './model'
 
 /** 空的地理结构，新开局克隆它，不直接持有。 */
@@ -9,7 +11,12 @@ const POPULATION_CEILING = 10_000_000
 export function cloneGeography(geography: Geography): Geography {
   return {
     provinces: geography.provinces.map((province) => ({ ...province })),
-    sites: geography.sites.map((site) => ({ ...site, neighbors: [...site.neighbors] })),
+    sites: geography.sites.map((site) => ({
+      ...site,
+      neighbors: [...site.neighbors],
+      granary: initialGranary(site),
+      development: { ...developmentOf(site) },
+    })),
   }
 }
 
@@ -53,6 +60,16 @@ export function validateGeography(
     }
     if (!Number.isInteger(site.population) || site.population < 0 || site.population > POPULATION_CEILING) {
       problems.push(`战略点 ${site.id} 的人口不合法：${site.population}`)
+    }
+    if (site.granary !== undefined && (!Number.isInteger(site.granary) || site.granary < 0 || site.granary > granaryCap(site))) {
+      problems.push(`战略点 ${site.id} 的存粮不合法：${site.granary}`)
+    }
+    if (site.development !== undefined) {
+      for (const [kind, level] of Object.entries(site.development)) {
+        if (!Number.isInteger(level) || level < 0) {
+          problems.push(`战略点 ${site.id} 的${kind}等级不合法：${level}`)
+        }
+      }
     }
   }
 
