@@ -10,14 +10,18 @@ import type { Random } from './random'
 
 /** 三项开发的等级上限，按战略点类型定档。 */
 export const DEVELOPMENT_LIMIT_BY_SITE_TYPE: Record<SiteType, number> = {
+  metropolis: 6,
   city: 5,
+  town: 3,
   pass: 3,
   field: 2,
 }
 
 /** 战略点类型的人口上限基准；自然增长止于此，民居在此之上抬高。 */
 export const POPULATION_CAP_BY_SITE_TYPE: Record<SiteType, number> = {
+  metropolis: 200000,
   city: 150000,
+  town: 100000,
   pass: 40000,
   field: 20000,
 }

@@ -84,7 +84,7 @@ function toColorNumber(hexColor: string): number {
 }
 
 /**
- * 按战略点类型换形制：城市为圆、关隘为菱形、野地为淡底方框。
+ * 按战略点类型换形制：都会为同心圆、大城为单圆、小城为小圆、关隘为菱形、野地为淡底方框。
  * 颜色按归属，形制只表达类型；玩家战略点不再另行强调，归属全由颜色表达。
  */
 function drawSiteMarker(
@@ -121,10 +121,22 @@ function drawSiteMarker(
     return
   }
 
+  if (type === 'metropolis') {
+    // 都会用同心圆：外圆填色描边，内圈再描一层，与单圆的大城相区分。
+    graphics.fillStyle(color, 1)
+    graphics.fillCircle(region.x, region.y, region.radius)
+    graphics.lineStyle(strokeWidth, SITE_STROKE_COLOR, strokeAlpha)
+    graphics.strokeCircle(region.x, region.y, region.radius)
+    graphics.strokeCircle(region.x, region.y, region.radius * 0.5)
+    return
+  }
+
+  // 大城用单圆；小城略小，以示规模之差。
+  const radius = type === 'town' ? region.radius * 0.8 : region.radius
   graphics.fillStyle(color, 1)
-  graphics.fillCircle(region.x, region.y, region.radius)
+  graphics.fillCircle(region.x, region.y, radius)
   graphics.lineStyle(strokeWidth, SITE_STROKE_COLOR, strokeAlpha)
-  graphics.strokeCircle(region.x, region.y, region.radius)
+  graphics.strokeCircle(region.x, region.y, radius)
 }
 
 /** 天下地图：先铺州轮廓与河流，再画邻接连边与战略点，悬停时高亮邻域。 */

@@ -1,5 +1,5 @@
 import type { ActionResult } from '../core/actions'
-import { attack as runAttack, type AttackParty, type DefenseChoice } from '../core/battle'
+import { assignAfterCapture as runAssignAfterCapture, attack as runAttack, type AttackParty, type DefenseChoice } from '../core/battle'
 import { executeCaptive as runExecuteCaptive, persuade as runPersuade, releaseCaptive as runReleaseCaptive } from '../core/captives'
 import { createInitialState } from '../core/createInitialState'
 import { build as runBuild } from '../core/development'
@@ -178,6 +178,14 @@ export class GameSession {
   /** 派主将、副将与军师合攻相邻的他方或无主战略点；成功后通知界面，地图随领土变化刷新。 */
   attack(party: AttackParty, targetSiteId: SiteId): ActionResult {
     return this.apply(runAttack(this.state, party, targetSiteId))
+  }
+
+  /** 占领后的分派驻守：谁留驻新点、谁回原驻地；不耗行动力，随后通知界面。 */
+  assignAfterCapture(siteId: SiteId, returns: readonly { characterId: CharacterId; siteId: SiteId }[]): string {
+    const summary = runAssignAfterCapture(this.state, siteId, returns)
+    this.notify()
+
+    return summary
   }
 
   /** 劝降营中的一名俘虏：花行动力使其意愿上升，到「愿降」档再劝一次即归附；成功后通知界面。 */

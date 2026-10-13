@@ -50,8 +50,8 @@ export interface Province {
 
 export type SiteId = string
 
-/** 战略点的类型，决定其定位与所携带的属性。 */
-export type SiteType = 'city' | 'pass' | 'field'
+/** 战略点的类型，决定其定位与所携带的属性。城市按规模分都会、大城、小城三档。 */
+export type SiteType = 'metropolis' | 'city' | 'town' | 'pass' | 'field'
 
 /** 战略点的三项开发等级：农田提高粮产、市集提高金钱产出、民居增加人口与人口上限。 */
 export interface SiteDevelopment {

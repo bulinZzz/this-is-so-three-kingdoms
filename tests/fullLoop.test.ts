@@ -6,7 +6,7 @@ import { validateCharacters } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import { troopUpkeep } from '../src/core/economy'
 import { LocalSaveStore } from '../src/core/localSaveStore'
-import { attackGrainCost, factionTroops, recruitPopulationCap } from '../src/core/military'
+import { attackGrainCost, factionTroops, RECRUIT_POPULATION_SHARE, recruitPopulationCap } from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
 import { MemoryStorage } from './memoryStorage'
@@ -535,7 +535,7 @@ describe('迭代 7 全链（无画面）', () => {
  * → 结束回合（粮收支、人口缓增、缺粮逃散）。全程只跑规则层与装配层。
  */
 
-/** 甲、乙两城相邻；甲城人口 2 万（丁口 200），乙城由曹操一名弱将驻守。 */
+/** 甲、乙两城相邻；甲城人口 2 万（丁口 400），乙城由曹操一名弱将驻守。 */
 function j8Scenario(): Scenario {
   const serving = (
     over: Partial<Character> &
@@ -628,11 +628,11 @@ describe('迭代 8 全链（无画面）', () => {
     expect(session.harvestGrain('farmer').ok).toBe(true)
     expect(playerGrain(state)).toBeGreaterThan(grainBefore)
 
-    // 征兵：产量本为统率 × 10，但甲城丁口只有 200，兵力按丁口截断，人口相应减少。
+    // 征兵：产量本为统率 × 10，但甲城丁口只有 400，兵力按丁口截断，人口相应减少。
     const recruiter = characterOf(state, 'recruiter')
     const troopsBefore = recruiter.troops
     const cap = recruitPopulationCap(state, recruiter)
-    expect(cap).toBe(200)
+    expect(cap).toBe(Math.floor(20000 * RECRUIT_POPULATION_SHARE))
     expect(session.recruit('recruiter').ok).toBe(true)
     expect(recruiter.troops - troopsBefore).toBe(cap)
     expect(recruiter.troops - troopsBefore).toBeLessThan(recruiter.command * 10)

@@ -898,6 +898,39 @@ export function attack(
   })
 }
 
+/**
+ * 占领后的分派驻守：把刚攻下某点的部属一部分留驻新点、一部分回原驻地。
+ * 只在进攻得手后由界面调用：不耗行动力、不算已行动（他们本季的行动已在进攻时用掉）。
+ * 未列入 returns 的参战者一律留驻新点。返回一句回驻摘要，供界面回显。
+ */
+export function assignAfterCapture(
+  state: GameState,
+  siteId: SiteId,
+  returns: readonly { characterId: CharacterId; siteId: SiteId }[],
+  factionId: FactionId = state.playerFaction,
+): string {
+  const notes: string[] = []
+
+  for (const item of returns) {
+    const character = state.characters.find((entry) => entry.id === item.characterId)
+    if (character === undefined || !isServing(character) || character.factionId !== factionId) {
+      continue
+    }
+    if (character.stationedSiteId !== siteId) {
+      continue
+    }
+    const destination = state.geography.sites.find((site) => site.id === item.siteId)
+    if (destination === undefined || destination.owner !== factionId) {
+      continue
+    }
+
+    character.stationedSiteId = destination.id
+    notes.push(`${character.name} 回驻 ${destination.name}`)
+  }
+
+  return notes.join('、')
+}
+
 /** 单挑结果。 */
 export interface DuelResult {
   /** 对方是否拒绝应战。 */

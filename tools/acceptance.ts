@@ -70,7 +70,7 @@ const DEMAND_GRAIN_BELOW = 3000
 /** 忠诚不足此数（新附者多在五十上下）就先赏一回，把人拉过这条安心线。 */
 const REWARD_BELOW = 60
 /** 战略点的相对价值，用于在多个安全目标中择优。 */
-const SITE_VALUE: Record<SiteType, number> = { city: 3, pass: 2, field: 1 }
+const SITE_VALUE: Record<SiteType, number> = { metropolis: 4, city: 3, town: 2, pass: 2, field: 1 }
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' }
 /** 势力在简报里的单字标记，未列出的用势力名。 */
 const FACTION_MARKS: Record<FactionId, string> = { liubei: '刘', caocao: '曹', sunquan: '孙' }

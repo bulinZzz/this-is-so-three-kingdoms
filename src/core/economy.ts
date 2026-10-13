@@ -14,7 +14,7 @@ export const MONEY_PER_POPULATION = 0.002
 export const GRAIN_UPKEEP_PER_TROOP = 0.01
 
 /** 人口每季的自然增长比例：各战略点按同一比例缓增，取整入账。 */
-export const POPULATION_GROWTH_PER_SEASON = 0.002
+export const POPULATION_GROWTH_PER_SEASON = 0.005
 
 /** 一处战略点每季的金钱产出：其人口的税收，市集等级在此之上加成。 */
 export function siteMoneyYield(site: Site): number {
@@ -35,17 +35,25 @@ export function troopUpkeep(state: GameState, factionId: FactionId): number {
   return Math.round(factionTroops(state, factionId) * GRAIN_UPKEEP_PER_TROOP)
 }
 
-/** 某势力本季可从各点运回的粮食（按当前存粮估算，不改动状态），供界面预览与净收支共用。 */
+/**
+ * 一处战略点本季结算后的存粮：先按人口加上本季增量，止于上限。
+ * 结算、运回预览与征粮上限都以它为口径，免得界面按旧存粮估算而偏低。
+ */
+export function grownGranaryOf(site: Site): number {
+  return Math.min(granaryOf(site) + granaryGrowth(site), granaryCap(site))
+}
+
+/** 某势力本季结算可从各点运回的粮食（各点存粮先加上本季增量，再取六成；不改动状态）。 */
 export function granaryIncome(state: GameState, factionId: FactionId): number {
   return state.geography.sites
     .filter((site) => site.owner === factionId)
-    .reduce((total, site) => total + Math.round(granaryOf(site) * GRANARY_SHIP_RATIO), 0)
+    .reduce((total, site) => total + Math.round(grownGranaryOf(site) * GRANARY_SHIP_RATIO), 0)
 }
 
 /** 各战略点存粮每季增加，止于上限；存粮随地块走，与归属无关，不消耗随机流。 */
 export function growGranary(state: GameState): void {
   for (const site of state.geography.sites) {
-    site.granary = Math.min(granaryOf(site) + granaryGrowth(site), granaryCap(site))
+    site.granary = grownGranaryOf(site)
   }
 }
 

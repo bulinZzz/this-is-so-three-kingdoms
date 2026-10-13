@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { GameSession } from '../src/app/gameSession'
 import { createInitialState } from '../src/core/createInitialState'
 import { granaryOf } from '../src/core/granary'
-import { BOOST_GAIN, EXP_PER_BOOST, LOSS_EXP, WIN_EXP, boostCredits, strengthen } from '../src/core/growth'
+import { ABILITY_MAX, BOOST_GAIN, EXP_PER_BOOST, LOSS_EXP, WIN_EXP, boostCredits, strengthen } from '../src/core/growth'
 import { factionTroops } from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
 import { LocalSaveStore } from '../src/core/localSaveStore'
@@ -185,7 +185,7 @@ describe('武将成长', () => {
     })
 
     guanyu.exp = EXP_PER_BOOST
-    guanyu.might = 100
+    guanyu.might = ABILITY_MAX
     expect(strengthen(state, 'guanyu', 'might')).toEqual({ ok: false, reason: '武力 已达上限' })
     expect(state.actionPoints[state.playerFaction]).toBe(apBefore)
   })

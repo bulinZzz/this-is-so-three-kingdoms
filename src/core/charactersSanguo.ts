@@ -9,7 +9,7 @@ import type { Character } from './model'
  * 生年无明文者依人物关系估定：凡人物之间的次序（如刘关张的结义之序）在数据里必须立得住，
  * 不为某家推算让路。
  *
- * 迭代 10 起，四项能力在载入时按统一口径压缩：起步偏低、上限较高，成长靠出战积累（见 growth）。
+ * 迭代 10 起，四项能力按本色取值，成长另设更高的上限（见 growth），只靠出战积累。
  */
 const RAW_CHARACTERS: Character[] = [
   // 刘备（荆州）
@@ -96,15 +96,15 @@ const RAW_CHARACTERS: Character[] = [
   { id: 'shixie', name: '士燮', status: 'wild', factionId: null, provinceId: 'jiao', might: 50, command: 68, intellect: 76, politics: 80, age: 71, personality: 'cautious', affinities: {}, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
 ]
 
-/** 能力起步的上限：高于它的数值一并压到此处，其余的相对高低保持不变。 */
-const ABILITY_CEILING = 90
+/** 能力起步的上限：与本色上限同为 100，载入时不再压缩数值，只作越界时的截断。 */
+const ABILITY_CEILING = 100
 
-/** 把一项能力压到起步上限之内，留出靠出战成长的空间。 */
+/** 把一项能力收在起步上限之内。 */
 function softenAbility(value: number): number {
   return Math.min(value, ABILITY_CEILING)
 }
 
-/** 起步偏低、上限较高的武将数据；压缩只作用于四项能力，兵力与其余字段照旧。 */
+/** 武将数据：四项能力载入时统一收在起步上限之内，成长的上限另记于 growth。 */
 export const CHARACTERS_SANGUO: Character[] = RAW_CHARACTERS.map((character) => ({
   ...character,
   might: softenAbility(character.might),

@@ -546,19 +546,50 @@ function renderDomestic(
     )}`
   requireElement<HTMLElement>(dialog, '.domestic__money-flow').textContent =
     `+${moneyYield(state, state.playerFaction)}`
-  requireElement<HTMLButtonElement>(dialog, '[data-action="harvest-here"]').textContent = showCosts
-    ? `征粮 · ${ACTION_COSTS.harvestGrain} 行动力`
-    : '征粮'
+  setActionButton(
+    requireElement<HTMLButtonElement>(dialog, '[data-action="harvest-here"]'),
+    '征粮',
+    ACTION_COSTS.harvestGrain,
+    showCosts,
+  )
   requireElement<HTMLElement>(dialog, '.domestic__status').textContent = message
 }
 
 const SITE_TYPE_LABELS: Record<SiteType, string> = {
-  city: '城市',
+  metropolis: '都会',
+  city: '大城',
+  town: '小城',
   pass: '关隘',
   field: '野地',
 }
 
-/** 表格行内的行动按钮；开启「显示行动力消耗」时把消耗并入名称（不耗行动力的不标）。 */
+/**
+ * 行动力角标：框内只报数字，按人计的行动写作「1/人」。
+ * 关闭「显示行动力消耗」或消耗为零时留空，整枚由样式隐去。
+ */
+function createActionCost(cost: number, showCosts: boolean, unit = ''): HTMLSpanElement {
+  const badge = document.createElement('span')
+  badge.className = 'action-cost'
+  if (showCosts && cost > 0) {
+    badge.textContent = `${cost}${unit}`
+    badge.title = `${cost} 行动力`
+  }
+
+  return badge
+}
+
+/** 给按钮填上「动作 + 行动力角标」；不耗行动力的行动只有动作，不留空圈。 */
+function setActionButton(
+  button: HTMLButtonElement,
+  label: string,
+  cost: number,
+  showCosts: boolean,
+  unit = '',
+): void {
+  button.replaceChildren(label, createActionCost(cost, showCosts, unit))
+}
+
+/** 表格行内的行动按钮；开启「显示行动力消耗」时把消耗缀在名称后（不耗行动力的不标）。 */
 function createRosterAction(
   label: string,
   action: string,
@@ -574,7 +605,7 @@ function createRosterAction(
   if (cost > 0) {
     button.title = `消耗 ${cost} 行动力`
   }
-  button.textContent = showCosts && cost > 0 ? `${label} ${cost}` : label
+  setActionButton(button, label, cost, showCosts)
 
   return button
 }
@@ -658,6 +689,7 @@ function renderSiteInfoDialog(
   state: GameState,
   siteId: SiteId | null,
   message: string,
+  showCosts: boolean,
 ): void {
   const site =
     siteId === null ? undefined : state.geography.sites.find((item) => item.id === siteId)
@@ -692,11 +724,21 @@ function renderSiteInfoDialog(
     }),
   )
 
-  renderDevelopmentList(requireElement<HTMLElement>(dialog, '.site-info__list'), state, site)
+  renderDevelopmentList(
+    requireElement<HTMLElement>(dialog, '.site-info__list'),
+    state,
+    site,
+    showCosts,
+  )
 }
 
 /** 建设列表：三项开发的等级、上限、效果与下一级花费；满级或钱不够时按钮不可点。 */
-function renderDevelopmentList(list: Element, state: GameState, site: Site): void {
+function renderDevelopmentList(
+  list: Element,
+  state: GameState,
+  site: Site,
+  showCosts: boolean,
+): void {
   const faction = state.factions.find((item) => item.id === state.playerFaction)
   const limit = developmentLimit(site)
 
@@ -725,7 +767,10 @@ function renderDevelopmentList(list: Element, state: GameState, site: Site): voi
       button.className = 'site-info__button'
       button.dataset.action = 'build-item'
       button.dataset.kind = kind
-      button.textContent = atLimit ? '已满级' : '建设'
+      button.textContent = atLimit ? '已满级' : ''
+      if (!atLimit) {
+        setActionButton(button, '建设', ACTION_COSTS.build, showCosts)
+      }
       button.disabled = atLimit || !affordable
 
       item.append(info, button)
@@ -799,9 +844,7 @@ function renderContacts(
       button.className = 'recruit-panel__visit'
       button.dataset.action = 'visit-character'
       button.dataset.character = character.id
-      button.textContent = showCosts
-        ? `再次拜访 · ${ACTION_COSTS.visit} 行动力`
-        : '再次拜访'
+      setActionButton(button, '再次拜访', ACTION_COSTS.visit, showCosts)
 
       item.append(name, button)
 
@@ -983,8 +1026,8 @@ function enemySummary(state: GameState, siteId: SiteId): string {
   return `${leader} · 应战 ${answerer.name}（兵 ${answerer.troops}）`
 }
 
-/** 战斗演出的一幕：情报与选择、单挑、交战与结果。 */
-type BattleStep = 'intel' | 'duel' | 'fight'
+/** 战斗演出的一幕：情报与选择、单挑、交战与结果、占领后的分配。 */
+type BattleStep = 'intel' | 'duel' | 'fight' | 'assign'
 
 /** 正在上演的一场战斗：我方进攻，或他方来攻我方。 */
 interface BattleStage {
@@ -1001,6 +1044,8 @@ interface BattleStage {
   step: BattleStep
   /** 已结算的战报；尚未开战时为 null。 */
   report: BattleReport | null
+  /** 攻方参战者在进攻前的原驻地，供占领后的「分配」一幕回驻用；防御演出为空。 */
+  origins: Record<CharacterId, SiteId>
   /** 写入历史的结论文案，结果一幕展示。 */
   outcome: string
 }
@@ -1035,6 +1080,44 @@ function stageActions(...buttons: HTMLButtonElement[]): HTMLElement {
   row.append(...buttons)
 
   return row
+}
+
+/** 「分配」一幕的一行：勾选则回原驻地，不勾则留守新点。 */
+function assignRow(character: Character, originName: string): HTMLLabelElement {
+  const label = document.createElement('label')
+  label.className = 'battle-plan__assign'
+  const checkbox = document.createElement('input')
+  checkbox.type = 'checkbox'
+  checkbox.className = 'battle-plan__assign-check'
+  checkbox.value = character.id
+  const text = document.createElement('span')
+  text.textContent = `${character.name} 回驻 ${originName}`
+  label.append(checkbox, text)
+
+  return label
+}
+
+/** 「分配」一幕的候选：本战进驻新点、仍在仕的参战者，各配其原驻地。 */
+function assignRows(state: GameState, stage: BattleStage): HTMLLabelElement[] {
+  const rows: HTMLLabelElement[] = []
+
+  for (const id of [stage.party.commander, stage.party.deputy, stage.party.strategist]) {
+    if (id == null) {
+      continue
+    }
+    const character = state.characters.find((item) => item.id === id)
+    if (character === undefined || !isServing(character) || character.stationedSiteId !== stage.siteId) {
+      continue
+    }
+    const origin = stage.origins[id]
+    const originSite = origin === undefined ? undefined : state.geography.sites.find((site) => site.id === origin)
+    if (originSite === undefined) {
+      continue
+    }
+    rows.push(assignRow(character, originSite.name))
+  }
+
+  return rows
 }
 
 /** 单挑的交合句：谁与谁交战数合，结果如何。 */
@@ -1265,17 +1348,28 @@ function stageContent(state: GameState, stage: BattleStage): HTMLElement[] {
       fillBattleSide(defender, '守方', '守将', report.defender)
       sides.append(attacker, defender)
 
+      // 胜仗同时给出「收兵」与「分派驻守」：收兵即全员留驻新点，不必再点一次。
       const next =
         stage.mode === 'attack'
-          ? stageButton('收兵', 'stage-close')
-          : stageButton('继续', 'stage-continue-turn')
+          ? report.attackerWins
+            ? [stageButton('收兵', 'stage-close'), stageButton('分派驻守', 'stage-assign')]
+            : [stageButton('收兵', 'stage-close')]
+          : [stageButton('继续', 'stage-continue-turn')]
 
       return [
         ...battleProcessText(report, stage.mode).map((text) => stageLine(text)),
         stageLine(verdictText(report, stage.mode), 'verdict'),
         stageLine(stage.outcome),
         sides,
-        stageActions(next),
+        stageActions(...next),
+      ]
+    }
+
+    case 'assign': {
+      return [
+        stageLine(`已取下 ${siteName}。谁留守、谁回原驻地？`, 'prompt'),
+        ...assignRows(state, stage),
+        stageActions(stageButton('确定', 'stage-assign-confirm')),
       ]
     }
 
@@ -1415,6 +1509,25 @@ function readOrderParty(list: HTMLElement): AttackParty {
     deputy: activeId('deputy'),
     strategist: activeId('strategist'),
   }
+}
+
+/**
+ * 当前选择距可提交还差什么；已足时返回 null。
+ * 进攻与防守必选主将，调动至少一人，征粮恰好一人——与提交时的校验同一口径。
+ */
+function orderSelectionGap(list: HTMLElement, kind: OrderRequest['kind']): string | null {
+  if (kind === 'attack' || kind === 'defense') {
+    return list.querySelector('.picker__role--active[data-role="commander"]') === null
+      ? '请先点选一名主将'
+      : null
+  }
+
+  const checked = list.querySelectorAll('.picker__checkbox:checked').length
+  if (kind === 'harvest') {
+    return checked === 0 ? '请先点选一名部属' : null
+  }
+
+  return checked === 0 ? '请先点选要调动的武将' : null
 }
 
 function createListItem(className: string, text: string): HTMLLIElement {
@@ -1602,7 +1715,7 @@ function renderOfficerDetail(
     detail.textContent = value
     if (label === '忠诚' && !character.isMonarch) {
       detail.classList.add('officer-detail__loyalty')
-      detail.append(createRewardIcon(character.id, showCosts))
+      detail.append(createRewardIcon(character.id), createActionCost(ACTION_COSTS.reward, showCosts))
     }
     list.append(term, detail)
   }
@@ -1615,7 +1728,7 @@ function renderOfficerDetail(
     boosts.className = 'officer-detail__actions'
     const lead = document.createElement('span')
     lead.className = 'officer-detail__hint'
-    lead.textContent = showCosts ? `强化 · ${ACTION_COSTS.strengthen} 行动力` : '强化'
+    lead.replaceChildren('强化', createActionCost(ACTION_COSTS.strengthen, showCosts))
 
     const row = document.createElement('div')
     row.className = 'officer-detail__boosts'
@@ -1645,14 +1758,14 @@ function renderOfficerDetail(
   container.replaceChildren(...parts)
 }
 
-/** 赏赐的小图标按钮：一只礼盒，缀在忠诚数值右侧。 */
-function createRewardIcon(characterId: CharacterId, showCosts: boolean): HTMLButtonElement {
+/** 赏赐的小图标按钮：一只礼盒，缀在忠诚数值右侧，行动力消耗另以角标缀于其后。 */
+function createRewardIcon(characterId: CharacterId): HTMLButtonElement {
   const button = document.createElement('button')
   button.type = 'button'
   button.className = 'officer-icon'
   button.dataset.action = 'reward'
   button.dataset.character = characterId
-  button.title = showCosts ? `赏赐 · ${ACTION_COSTS.reward} 行动力` : '赏赐'
+  button.title = '赏赐'
   button.setAttribute('aria-label', '赏赐')
   button.innerHTML =
     '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">' +
@@ -1928,7 +2041,7 @@ function renderPrison(
         persuade.className = 'prison__button'
         persuade.dataset.action = 'persuade'
         persuade.dataset.characterId = character.id
-        persuade.textContent = showCosts ? `劝降（${ACTION_COSTS.persuade} 行动力）` : '劝降'
+        setActionButton(persuade, '劝降', ACTION_COSTS.persuade, showCosts)
         actions.append(persuade)
 
         const release = document.createElement('button')
@@ -1966,10 +2079,11 @@ function developmentEffectText(kind: DevelopmentKind): string {
   return `人口 +${POPULATION_PER_HOUSING}`
 }
 
-/** 外交弹窗可用的一项动作。 */
+/** 外交弹窗可用的一项动作；`cost` 为该动作的行动力消耗。 */
 interface DiplomacyOption {
   label: string
   action: string
+  cost: number
   meta?: string
 }
 
@@ -1977,16 +2091,26 @@ interface DiplomacyOption {
 function diplomacyOptions(kind: RelationKind): DiplomacyOption[] {
   const options: DiplomacyOption[] = []
   if (kind !== 'hostile') {
-    options.push({ label: '宣战', action: 'declare-war' })
+    options.push({ label: '宣战', action: 'declare-war', cost: ACTION_COSTS.declareWar })
   }
   if (kind === 'hostile') {
-    options.push({ label: '停战', action: 'make-peace', meta: `需好感 ≥ ${PEACE_FAVOR}` })
+    options.push({
+      label: '停战',
+      action: 'make-peace',
+      cost: ACTION_COSTS.makePeace,
+      meta: `需好感 ≥ ${PEACE_FAVOR}`,
+    })
   }
   if (kind === 'neutral') {
-    options.push({ label: '结盟', action: 'alliance', meta: `需好感 ≥ ${ALLIANCE_FAVOR}` })
+    options.push({
+      label: '结盟',
+      action: 'alliance',
+      cost: ACTION_COSTS.alliance,
+      meta: `需好感 ≥ ${ALLIANCE_FAVOR}`,
+    })
   }
-  options.push({ label: `赠礼 ${GIFT_MONEY} 金`, action: 'gift' })
-  options.push({ label: '索取粮食', action: 'demand' })
+  options.push({ label: `赠礼 ${GIFT_MONEY} 金`, action: 'gift', cost: ACTION_COSTS.gift })
+  options.push({ label: '索取粮食', action: 'demand', cost: ACTION_COSTS.demand })
 
   return options
 }
@@ -1998,12 +2122,14 @@ function otherFactions(state: GameState): Faction[] {
   )
 }
 
-/** 一条外交行：左侧名称与摘要，右侧一枚按钮。 */
+/** 一条外交行：左侧名称与摘要，右侧一枚按钮，按钮上缀行动力角标。 */
 function createDiplomacyRow(
   nameText: string,
   metaText: string | null,
   action: string,
   actionLabel: string,
+  cost: number,
+  showCosts: boolean,
   factionId?: FactionId,
 ): HTMLLIElement {
   const item = document.createElement('li')
@@ -2029,7 +2155,7 @@ function createDiplomacyRow(
   if (factionId !== undefined) {
     button.dataset.faction = factionId
   }
-  button.textContent = actionLabel
+  setActionButton(button, actionLabel, cost, showCosts)
 
   item.append(info, button)
   return item
@@ -2041,6 +2167,7 @@ function renderDiplomacyDialog(
   state: GameState,
   factionId: FactionId | null,
   message: string,
+  showCosts: boolean,
 ): void {
   const backButton = requireElement<HTMLButtonElement>(dialog, '[data-action="diplomacy-back"]')
   const targetLine = requireElement<HTMLElement>(dialog, '.diplomacy__target')
@@ -2059,6 +2186,8 @@ function renderDiplomacyDialog(
           `${relationLabel(relationBetween(state, state.playerFaction, faction.id))} · ${affinityAttitude(favorBetween(state, state.playerFaction, faction.id))}`,
           'pick-diplomacy',
           '交涉',
+          0,
+          showCosts,
           faction.id,
         ),
       ),
@@ -2072,7 +2201,14 @@ function renderDiplomacyDialog(
   statusLine.textContent = message
   list.replaceChildren(
     ...diplomacyOptions(kind).map((option) =>
-      createDiplomacyRow(option.label, option.meta ?? null, option.action, '执行'),
+      createDiplomacyRow(
+        option.label,
+        option.meta ?? null,
+        option.action,
+        '执行',
+        option.cost,
+        showCosts,
+      ),
     ),
   )
 }
@@ -2297,14 +2433,30 @@ export function mountGameShell(
 
   /** 给面板上的行动按钮标注行动力消耗；关闭「显示行动力消耗」时留空，角标随之隐藏。 */
   const applyActionCosts = (showCosts: boolean): void => {
-    const setActionCost = (action: string, value: string): void => {
-      requireElement<HTMLElement>(root, `[data-action="${action}"] .action-cost`).textContent =
-        showCosts ? value : ''
+    const setActionCost = (action: string, value: string, title: string): void => {
+      const badge = requireElement<HTMLElement>(root, `[data-action="${action}"] .action-cost`)
+      badge.textContent = showCosts ? value : ''
+      badge.title = showCosts ? title : ''
     }
 
-    setActionCost('attack-here', `${ACTION_COSTS.attack} 行动力`)
-    setActionCost('transfer-here', `${ACTION_COSTS.transfer} 行动力/人`)
-    setActionCost('seek-here', `${ACTION_COSTS.seekTalent} 行动力`)
+    setActionCost('attack-here', String(ACTION_COSTS.attack), `${ACTION_COSTS.attack} 行动力`)
+    setActionCost(
+      'transfer-here',
+      `${ACTION_COSTS.transfer}/人`,
+      `每人 ${ACTION_COSTS.transfer} 行动力`,
+    )
+    setActionCost('seek-here', String(ACTION_COSTS.seekTalent), `${ACTION_COSTS.seekTalent} 行动力`)
+  }
+
+  /** 选择一变就地更新提交按钮与状态行，不必等点提交才知道还差什么。 */
+  const refreshOrderSubmit = (): void => {
+    if (orderRequest === null) {
+      return
+    }
+
+    const gap = orderSelectionGap(orderList, orderRequest.kind)
+    orderGoButton.disabled = gap !== null
+    orderStatus.textContent = gap ?? ''
   }
 
   /** 各面板的上一次行动反馈。 */
@@ -2347,6 +2499,7 @@ export function mountGameShell(
     renderSitePanel(sitePanel, state, selection.get(), siteMessage)
     renderContacts(contactPanel, state, contactMessage, showCosts)
     renderOrderDialog(root, state, orderRequest)
+    refreshOrderSubmit()
     renderBattleStage(root, state, battleStage)
     officerCount.textContent = String(renderOfficers(officerList, state, showCosts))
     rosterStatus.textContent = recruitMessage
@@ -2372,9 +2525,9 @@ export function mountGameShell(
 
     renderHistory(historyList, state)
     renderPrison(prisonDialog, state, prisonMessage, showCosts)
-    renderDiplomacyDialog(diplomacyDialog, state, diplomacyFactionId, diplomacyMessage)
+    renderDiplomacyDialog(diplomacyDialog, state, diplomacyFactionId, diplomacyMessage, showCosts)
     renderDisbandDialog(disbandDialog, state, disbandCharacterId, disbandMessage)
-    renderSiteInfoDialog(siteInfoDialog, state, buildSiteId, buildMessage)
+    renderSiteInfoDialog(siteInfoDialog, state, buildSiteId, buildMessage, showCosts)
     renderDismissConfirm(dismissDialog, state, dismissTargetId)
     renderSlots(slotList, session)
 
@@ -2463,6 +2616,7 @@ export function mountGameShell(
       garrison,
       step: 'intel',
       report: null,
+      origins: {},
       outcome: '',
     }
     paint(session.getState())
@@ -2650,6 +2804,17 @@ export function mountGameShell(
         return
       }
 
+      const origins: Record<CharacterId, SiteId> = {}
+      for (const id of [party.commander, party.deputy, party.strategist]) {
+        if (id == null) {
+          continue
+        }
+        const member = state.characters.find((item) => item.id === id)
+        if (member?.stationedSiteId != null) {
+          origins[id] = member.stationedSiteId
+        }
+      }
+
       battleStage = {
         mode: 'attack',
         party,
@@ -2658,6 +2823,7 @@ export function mountGameShell(
         garrison: null,
         step: 'intel',
         report: null,
+        origins,
         outcome: '',
       }
       orderStatus.textContent = ''
@@ -2669,11 +2835,6 @@ export function mountGameShell(
 
     if (orderRequest.kind === 'defense') {
       const garrison = readOrderParty(orderList)
-      if (garrison.commander === '') {
-        orderStatus.textContent = '必须指定主将'
-        return
-      }
-
       const request = orderRequest.defense
       orderStatus.textContent = ''
       orderRequest = null
@@ -2687,7 +2848,6 @@ export function mountGameShell(
     if (orderRequest.kind === 'harvest') {
       const selected = orderList.querySelector<HTMLInputElement>('.picker__checkbox:checked')
       if (selected === null) {
-        orderStatus.textContent = '请选择一名武将'
         return
       }
 
@@ -2710,7 +2870,6 @@ export function mountGameShell(
       orderList.querySelectorAll<HTMLInputElement>('.picker__checkbox:checked'),
     ).map((checkbox) => checkbox.value)
     if (characterIds.length === 0) {
-      orderStatus.textContent = '请选择要调动的武将'
       return
     }
 
@@ -2733,6 +2892,7 @@ export function mountGameShell(
     }
 
     toggleOrderRole(orderList, button)
+    refreshOrderSubmit()
   })
 
   closeBattlePlanButton.addEventListener('click', () => {
@@ -2759,6 +2919,21 @@ export function mountGameShell(
       advanceStage()
     } else if (action === 'stage-close') {
       finishStage()
+    } else if (action === 'stage-assign') {
+      battleStage.step = 'assign'
+      paint(session.getState())
+    } else if (action === 'stage-assign-confirm') {
+      const stage = battleStage
+      const checked = battleStageBody.querySelectorAll<HTMLInputElement>('.battle-plan__assign-check:checked')
+      const returns = Array.from(checked).map((box) => ({
+        characterId: box.value,
+        siteId: stage.origins[box.value] ?? '',
+      }))
+      const summary = session.assignAfterCapture(stage.siteId, returns)
+      if (summary !== '') {
+        siteMessage = summary
+      }
+      finishStage()
     } else if (action === 'stage-continue-turn') {
       battleStage = null
       runTurnFlow(session.continueTurn())
@@ -2784,7 +2959,7 @@ export function mountGameShell(
     abandonOrder()
   })
 
-  /** 调动选人：勾满三人后，其余候选不可再选。 */
+  /** 调动与征粮选人：勾满三人后其余候选不可再选，并即时更新提交按钮。 */
   orderList.addEventListener('change', () => {
     const checkboxes = Array.from(orderList.querySelectorAll<HTMLInputElement>('.picker__checkbox'))
     const checked = checkboxes.filter((checkbox) => checkbox.checked).length
@@ -2793,6 +2968,8 @@ export function mountGameShell(
       checkbox.disabled =
         checkbox.dataset.blocked === 'true' || (!checkbox.checked && checked >= MAX_TRANSFER_PARTY)
     }
+
+    refreshOrderSubmit()
   })
 
   officerList.addEventListener('click', (event) => {

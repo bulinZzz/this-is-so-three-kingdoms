@@ -14,6 +14,7 @@ import { recruitWillingCaptives } from './captives'
 import { isServing } from './characters'
 import { ALLIANCE_FAVOR, alliance, declareWar } from './diplomacy'
 import { granaryOf } from './granary'
+import { estimateOf } from './intelligence'
 import {
   attackGrainCost,
   factionTroops,
@@ -43,12 +44,13 @@ import { seekTalent } from './seekTalent'
  * 先补一名新人（新人当季即可参战），再看要不要结盟或宣战，然后用有余力的武将进攻，
  * 最后把剩下的行动力用于征兵。
  * 行为只走规则层既有动作，随机取自随存档落盘的模拟流，固定种子下可复现。
+ * 他方对别人只知大概：进攻与宣战所据的对方实力都是估计值（见 intelligence），判断因此不是定数。
  */
 
 /** 进攻前要求我方战力高于守方的倍数；取 1 即「有优势就动手」。 */
 const ATTACK_MARGIN = 1
 /** 战略点的相对价值，用于在多个可胜目标中择优。 */
-const SITE_VALUE: Record<SiteType, number> = { city: 3, pass: 2, field: 1 }
+const SITE_VALUE: Record<SiteType, number> = { metropolis: 4, city: 3, town: 2, pass: 2, field: 1 }
 /** 一支编成至多三人，与玩家一致。 */
 const PARTY_SIZE = 3
 /** 中立而好感不高于此、且己方明显更强时，他方才对外宣战。 */
@@ -139,6 +141,7 @@ function* attackOnce(
   }
 
   const grain = state.factions.find((item) => item.id === factionId)?.grain ?? 0
+  const random = createRandom(state.randomState)
   const plans = state.geography.sites
     .filter((site) => isAttackable(state, site.id, factionId))
     .filter((site) => site.owner === null || areHostile(state, factionId, site.owner))
@@ -153,7 +156,11 @@ function* attackOnce(
         party,
         power: battlePower(side),
         cost: attackGrainCost(side.troops),
-        defence: battlePower(garrisonAt(state, site.id).side, { defending: true }),
+        // 守军的实力无从确知：按估计值来比，我方也就有判断失误的余地。
+        defence: estimateOf(
+          battlePower(garrisonAt(state, site.id).side, { defending: true }),
+          random,
+        ),
       }
     })
     .filter((plan): plan is NonNullable<typeof plan> => plan !== null)
@@ -167,13 +174,13 @@ function* attackOnce(
 
   const plan = plans[0]
   if (plan === undefined) {
+    state.randomState = random.getState()
     return
   }
 
   // 他方也会主动提单挑：武力占优、性格好斗时出手，力量接近时看运气。
-  const duelRandom = createRandom(state.randomState)
-  const challenger = aiAttackChallenger(state, plan.party, plan.site.id, duelRandom)
-  state.randomState = duelRandom.getState()
+  const challenger = aiAttackChallenger(state, plan.party, plan.site.id, random)
+  state.randomState = random.getState()
   const party = challenger === null ? plan.party : { ...plan.party, challenger }
 
   if (plan.site.owner !== state.playerFaction) {
@@ -210,6 +217,7 @@ function diplomacyOnce(state: GameState, factionId: FactionId): void {
     }
   }
 
+  const random = createRandom(state.randomState)
   for (const other of state.factions) {
     if (other.id === factionId || relationBetween(state, factionId, other.id) !== 'neutral') {
       continue
@@ -217,11 +225,17 @@ function diplomacyOnce(state: GameState, factionId: FactionId): void {
     if (favorBetween(state, factionId, other.id) > WAR_FAVOR_LINE) {
       continue
     }
-    if (factionTroops(state, factionId) > factionTroops(state, other.id) * WAR_STRENGTH_MARGIN) {
+    if (
+      factionTroops(state, factionId) >
+      estimateOf(factionTroops(state, other.id), random) * WAR_STRENGTH_MARGIN
+    ) {
+      state.randomState = random.getState()
       declareWar(state, other.id, factionId)
       return
     }
   }
+
+  state.randomState = random.getState()
 }
 
 /** 把余下的行动力用于征兵，直到用尽、无人可补、粮尽或驻地丁口已枯。 */

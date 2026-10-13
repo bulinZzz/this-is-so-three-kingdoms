@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
-import { granaryIncome, growGranary, troopUpkeep } from '../src/core/economy'
+import { granaryIncome, troopUpkeep } from '../src/core/economy'
 import { TROOPS_LIMIT_GROWTH_PER_COMMAND, troopLimit } from '../src/core/military'
 import { advanceTurn, resolveFactionOrder } from '../src/core/turn'
 
@@ -104,17 +104,15 @@ describe('advanceTurn', () => {
 
   it('结束回合结算粮食收支：各点运回减军粮', () => {
     const state = createInitialState({ seed: 208 })
-    const mirror = createInitialState({ seed: 208 })
     const faction = state.factions.find((item) => item.id === 'liubei')
     if (faction === undefined) {
       throw new Error('势力不存在：liubei')
     }
     const before = faction.grain
 
-    // 用同一初始状态的镜像推演结算先增后运的过程，得到精确的应到账目。
-    growGranary(mirror)
-    const income = granaryIncome(mirror, 'liubei')
-    const upkeep = troopUpkeep(mirror, 'liubei')
+    // 预览与结算同口径：结束回合的到账就是界面上那一笔运回减军粮。
+    const income = granaryIncome(state, 'liubei')
+    const upkeep = troopUpkeep(state, 'liubei')
 
     advanceTurn(state)
 

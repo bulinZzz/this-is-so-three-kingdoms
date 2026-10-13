@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import {
   aiDuelChallenger,
+  assignAfterCapture,
   attack,
   attackCandidates,
   battleOutlook,
@@ -333,7 +334,7 @@ describe('进攻', () => {
   it('兵力为三人之和，智谋取三人中最高，士气为战斗默认满值', () => {
     const state = createInitialState({ seed: 208 })
 
-    // 关羽智谋 75、张飞 40，取最高 75；带军师诸葛亮时取其压到起步上限后的 90。
+    // 关羽智谋 75、张飞 40，取最高 75；带军师诸葛亮时取其本色 100。
     expect(partySide(state, { commander: 'guanyu', deputy: 'zhangfei' })).toEqual({
       troops: 14000,
       intellect: 75,
@@ -341,7 +342,7 @@ describe('进攻', () => {
     })
     expect(
       partySide(state, { commander: 'guanyu', deputy: 'zhangfei', strategist: 'zhugeliang' }),
-    ).toEqual({ troops: 16000, intellect: 90, morale: MORALE_FULL })
+    ).toEqual({ troops: 16000, intellect: 100, morale: MORALE_FULL })
   })
 
   it('编成不合规时拒绝', () => {
@@ -432,6 +433,50 @@ describe('进攻', () => {
 
     const after = state.geography.sites.map((site) => ({ id: site.id, neighbors: [...site.neighbors] }))
     expect(after).toEqual(before)
+  })
+})
+
+describe('占领后的分派驻守', () => {
+  /** 两将取胜进驻乙城：一个可留驻新点、一个可回原驻地。 */
+  function captured(): GameState {
+    const state = scene({ attackerTroops: 20000, defenderTroops: 1000, secondAttackerTroops: 20000 })
+    const result = attack(state, { commander: 'attacker', deputy: 'attacker2' }, 'b')
+
+    expect(result.ok).toBe(true)
+    return state
+  }
+
+  it('凡未指定者一律留驻新点，返回空摘要', () => {
+    const state = captured()
+
+    expect(characterOf(state, 'attacker').stationedSiteId).toBe('b')
+    expect(characterOf(state, 'attacker2').stationedSiteId).toBe('b')
+
+    expect(assignAfterCapture(state, 'b', [])).toBe('')
+    expect(characterOf(state, 'attacker').stationedSiteId).toBe('b')
+    expect(characterOf(state, 'attacker2').stationedSiteId).toBe('b')
+  })
+
+  it('指定者回原驻地、其余留驻，且不耗行动力、已行动状态不变', () => {
+    const state = captured()
+    const apBefore = state.actionPoints[state.playerFaction]
+
+    const summary = assignAfterCapture(state, 'b', [{ characterId: 'attacker2', siteId: 'a' }])
+
+    expect(summary).toBe('副将 回驻 甲')
+    expect(characterOf(state, 'attacker2').stationedSiteId).toBe('a')
+    expect(characterOf(state, 'attacker').stationedSiteId).toBe('b')
+    expect(state.actionPoints[state.playerFaction]).toBe(apBefore)
+    expect(hasActedThisTurn(state, 'attacker2')).toBe(true)
+  })
+
+  it('目标点不存在或非己方所有时忽略该条', () => {
+    const state = captured()
+
+    const summary = assignAfterCapture(state, 'b', [{ characterId: 'attacker2', siteId: 'nope' }])
+
+    expect(summary).toBe('')
+    expect(characterOf(state, 'attacker2').stationedSiteId).toBe('b')
   })
 })
 

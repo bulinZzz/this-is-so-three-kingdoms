@@ -383,6 +383,16 @@
   background: #362c20;
 }
 
+/* 选择还没选够时提交按钮压暗、点不动，状态行同时给出还差什么。 */
+.order__submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.order__submit:disabled:hover {
+  background: #2a2219;
+}
+
 .battle-plan__body {
   display: flex;
   flex-direction: column;
@@ -421,6 +431,16 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* 「分配」一幕：一行一名参战者，勾选则回原驻地。 */
+.battle-plan__assign {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #e8d9b5;
+  cursor: pointer;
 }
 
 .battle-plan__go {
@@ -902,17 +922,26 @@
   display: none;
 }
 
-/* 行动力消耗：寻访、进攻与调动都以同一枚角标标注。 */
+/*
+ * 行动力消耗：各处行动统一用同一枚暖色数字缀在动作之后，按人计的写「1/人」。
+ * 不另套边框与底色——行动按钮本身已有边框底色，再加一层显得笨重。
+ * 行内按钮之间已有排布间距，散排的按钮则靠这里的左间距分开。
+ */
 .action-cost {
   flex: none;
-  padding: 1px 7px;
-  border: 1px solid #574a36;
-  border-radius: 999px;
-  font-size: 11px;
-  color: #c8b48c;
+  margin-left: 6px;
+  color: #d9a85f;
+  font-size: inherit;
+  font-weight: 600;
 }
 
-/* 关闭「显示行动力消耗」时角标留空，整枚隐去，免得留一个空圈。 */
+/* 以 gap 排布的行内按钮，角标不再另留间隔。 */
+.officer-action > .action-cost,
+.site-panel__action > .action-cost {
+  margin-left: 0;
+}
+
+/* 关闭「显示行动力消耗」时数字留空，整枚隐去，不留空白。 */
 .action-cost:empty {
   display: none;
 }

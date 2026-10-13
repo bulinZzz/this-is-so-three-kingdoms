@@ -13,7 +13,7 @@ export const TROOPS_LIMIT_GROWTH_PER_COMMAND = 2
 /** 带兵上限的硬上限；中等统率一局之内远不到顶。 */
 export const TROOP_LIMIT_HARD_CAP = 99999
 /** 一次征兵至多从驻地人口中抽走的比例，即当地丁口。 */
-export const RECRUIT_POPULATION_SHARE = 0.01
+export const RECRUIT_POPULATION_SHARE = 0.02
 /** 征粮产量的基准：每点内政征得的粮食。 */
 export const GRAIN_HARVEST_PER_POLITICS = 10
 /** 兵力达到此数，征粮的内政加成全额；兵力清零者几乎征不到粮。 */

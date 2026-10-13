@@ -9,6 +9,7 @@ import {
   harvestGrainBaseline,
   hasActedThisTurn,
   isFactionDestroyed,
+  RECRUIT_POPULATION_SHARE,
   RECRUIT_TROOPS_PER_COMMAND,
   recruit,
   recruitGrainCost,
@@ -79,7 +80,7 @@ describe('征兵', () => {
     site.population = 20000
     const cap = recruitPopulationCap(state, guanyu)
 
-    expect(cap).toBe(200)
+    expect(cap).toBe(Math.floor(20000 * RECRUIT_POPULATION_SHARE))
     expect(cap).toBeLessThan(guanyu.command * RECRUIT_TROOPS_PER_COMMAND * 0.75)
 
     expect(recruit(state, 'guanyu').ok).toBe(true)
@@ -93,7 +94,7 @@ describe('征兵', () => {
     if (site === undefined) {
       throw new Error('战略点不存在：jiangxia')
     }
-    site.population = 50
+    site.population = 40
 
     expect(recruitPopulationCap(state, characterOf(state, 'guanyu'))).toBe(0)
     expect(recruit(state, 'guanyu')).toEqual({ ok: false, reason: '驻地丁口不足，无可征之兵' })

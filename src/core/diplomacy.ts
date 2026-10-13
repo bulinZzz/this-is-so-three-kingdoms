@@ -1,4 +1,5 @@
 import { runAction, type ActionResult } from './actions'
+import { estimateOf } from './intelligence'
 import { factionTroops } from './military'
 import type { Faction, FactionId, GameState } from './model'
 import { createRandom } from './random'
@@ -40,24 +41,25 @@ function clamp(value: number, min: number, max: number): number {
 /**
  * 对方应允一项请求的几率：好感为基线，索取与停战另按实力差修正
  * ——对方比己方越强，越不轻易让步；结盟是互利之事，只看好感。
+ * 请求方的实力对他人只有个大概，故由调用方给出估计值（见 intelligence）。
  */
 export function acceptanceChance(
   state: GameState,
   actor: FactionId,
   target: FactionId,
   kind: 'alliance' | 'makePeace' | 'demand',
+  actorTroops: number,
 ): number {
   const favor = favorBetween(state, actor, target)
   const favorTerm = (favor - 50) / 50
-  const self = factionTroops(state, actor)
   const other = factionTroops(state, target)
   const strengthTerm =
-    kind === 'alliance' ? 0 : clamp(((other - self) / (other + self + 1)) * 0.4, -0.3, 0.3)
+    kind === 'alliance' ? 0 : clamp(((other - actorTroops) / (other + actorTroops + 1)) * 0.4, -0.3, 0.3)
 
   return clamp(0.6 + favorTerm * 0.5 - strengthTerm, 0.05, 0.95)
 }
 
-/** 以模拟流掷一次对方是否应允。 */
+/** 以模拟流掷一次对方是否应允；请求方的兵力在对方眼里只是估计，故与这一掷同出一流。 */
 function respondsTo(
   state: GameState,
   actor: FactionId,
@@ -65,7 +67,8 @@ function respondsTo(
   kind: 'alliance' | 'makePeace' | 'demand',
 ): boolean {
   const random = createRandom(state.randomState)
-  const accepted = random.next() < acceptanceChance(state, actor, target, kind)
+  const actorTroops = estimateOf(factionTroops(state, actor), random)
+  const accepted = random.next() < acceptanceChance(state, actor, target, kind, actorTroops)
   state.randomState = random.getState()
 
   return accepted

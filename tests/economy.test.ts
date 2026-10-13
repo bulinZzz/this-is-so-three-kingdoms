@@ -96,14 +96,12 @@ describe('每季军粮与粮食收支', () => {
 
   it('结算：各点存粮先增，再按保有量运回，扣军粮后入库', () => {
     const state = createInitialState({ seed: 208 })
-    const mirror = createInitialState({ seed: 208 })
     const faction = factionOf(state, 'liubei')
     const before = faction.grain
 
-    // 用同一初始状态的镜像推演结算的收入，得到精确的应到账目。
-    growGranary(mirror)
-    const income = granaryIncome(mirror, 'liubei')
-    const upkeep = troopUpkeep(mirror, 'liubei')
+    // 预览与结算同口径：界面上的运回值就是结算后到账的那一笔。
+    const income = granaryIncome(state, 'liubei')
+    const upkeep = troopUpkeep(state, 'liubei')
 
     settleGrain(state)
 

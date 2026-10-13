@@ -87,10 +87,10 @@ describe('三国地理数据', () => {
     }
   })
 
-  it('城市、关隘、野地三类都有实例', () => {
+  it('都会、大城、小城、关隘、野地五类都有实例', () => {
     const types = new Set(GEOGRAPHY_SANGUO.sites.map((site) => site.type))
 
-    expect(types).toEqual(new Set(['city', 'pass', 'field']))
+    expect(types).toEqual(new Set(['metropolis', 'city', 'town', 'pass', 'field']))
   })
 
   it('每个战略点都有人口，为合理的正整数', () => {
@@ -100,17 +100,19 @@ describe('三国地理数据', () => {
     }
   })
 
-  it('人口按类型定档：城市多于关隘，关隘多于野地，且城市内部有高低之别', () => {
+  it('人口按类型定档：都会多于大城、大城多于小城，三类城市都多于关隘，关隘多于野地', () => {
     const populationOf = (type: string): number[] =>
       GEOGRAPHY_SANGUO.sites.filter((site) => site.type === type).map((site) => site.population)
+    const metropolises = populationOf('metropolis')
     const cities = populationOf('city')
+    const towns = populationOf('town')
     const passes = populationOf('pass')
     const fields = populationOf('field')
 
-    expect(Math.min(...cities)).toBeGreaterThan(Math.max(...passes))
+    expect(Math.min(...metropolises)).toBeGreaterThan(Math.max(...cities))
+    expect(Math.min(...cities)).toBeGreaterThan(Math.max(...towns))
+    expect(Math.min(...towns)).toBeGreaterThan(Math.max(...passes))
     expect(Math.min(...passes)).toBeGreaterThan(Math.max(...fields))
-    // 类型只定档，同是城市也有大城与小城之别。
-    expect(Math.min(...cities)).toBeLessThan(Math.max(...cities))
   })
 
   it('刘备开局只据江夏，且江夏有可进军的相邻点', () => {

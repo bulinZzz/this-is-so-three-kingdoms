@@ -20,8 +20,8 @@ export const BOOST_GAIN = 2
 /** 每名武将累计可强化的次数上限。 */
 export const BOOST_MAX = 10
 
-/** 能力项的上限，与人物数据同一口径。 */
-export const ABILITY_MAX = 100
+/** 能力项的上限：高出人物数据的本色上限（100），练满可超人本色二十点。 */
+export const ABILITY_MAX = 120
 
 /** 可强化的四项能力，顺序供界面展示。 */
 export const ABILITY_KINDS: readonly AbilityKind[] = ['might', 'intellect', 'command', 'politics']
