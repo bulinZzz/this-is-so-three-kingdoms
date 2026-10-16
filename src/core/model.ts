@@ -361,6 +361,9 @@ export interface ActionRecord {
   battle?: BattleReport
 }
 
+/** 一局的结局：仍在进行、玩家统一天下、或玩家势力覆灭。 */
+export type Outcome = 'ongoing' | 'victory' | 'defeat'
+
 export interface GameState {
   currentDate: GameDate
   currentTurn: number
@@ -379,6 +382,10 @@ export interface GameState {
   /** 势力间的关系；未列出的势力对为中立。 */
   relations: FactionRelation[]
   playerFaction: FactionId
+  /** 本局结局；一旦触发即不再变更。 */
+  outcome: Outcome
+  /** 结局发生的回合数；未结束时为 null。 */
+  endedTurn: number | null
   geography: Geography
   factions: Faction[]
   characters: Character[]

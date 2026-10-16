@@ -42,6 +42,8 @@ export function createInitialState(options: NewGameOptions = {}): GameState {
       favor: relation.favor,
     })),
     playerFaction: scenario.playerFaction,
+    outcome: 'ongoing',
+    endedTurn: null,
     geography: withGuards(cloneGeography(scenario.geography ?? EMPTY_GEOGRAPHY)),
     factions,
     characters: cloneCharacters(scenario.characters ?? []),

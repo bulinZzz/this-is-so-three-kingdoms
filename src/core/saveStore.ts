@@ -3,9 +3,9 @@ import type { GameDate, GameState } from './model'
 /**
  * 存档版本。改动会打破旧存档与世界一致性的内容时递增：
  * 存档内含整份地理归属，剧本改了归属之后，旧存档会让玩家看到一个过时的天下；
- * 本次新增无主战略点的守军字段，旧存档里无主之地缺守军，随之升版。
+ * 结局字段（`outcome`、`endedTurn`）加入世界状态后，缺这两项的旧存档会被误判为已结束，随之升版。
  */
-export const SCHEMA_VERSION = 34
+export const SCHEMA_VERSION = 35
 
 /** 手动存档槽位数量，槽位编号从 1 开始。 */
 export const SLOT_COUNT = 10
@@ -29,7 +29,8 @@ export interface SaveSummary {
 }
 
 export interface SaveStore {
-  save(key: string, state: GameState): void
+  /** 写入存档；存储不可用时返回 false，调用点据此提示保存失败。 */
+  save(key: string, state: GameState): boolean
   /** 无存档、存档损坏或模式版本不匹配时返回 null。 */
   load(key: string): GameState | null
   loadSummary(key: string): SaveSummary | null

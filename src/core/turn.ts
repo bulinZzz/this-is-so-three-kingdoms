@@ -6,6 +6,7 @@ import { fireEvents } from './events'
 import { factionTurnStream, runFactionTurns, type FactionTurnSignal } from './factionAi'
 import { growTroopLimits } from './military'
 import type { FactionId, GameState, Season } from './model'
+import { settleOutcome } from './victory'
 
 export type { DefenseRequest, FactionTurnSignal } from './factionAi'
 
@@ -16,8 +17,13 @@ const SEASONS: readonly Season[] = ['spring', 'summer', 'autumn', 'winter']
  * 武将的行动次数一并重置，随即按数据求值一次本季事件，各势力结算粮食（各点运回减军粮）
  * 与金钱收入、各战略点人口与存粮缓增、在仕武将的带兵上限随季小幅提高，跨年时全体武将年龄加一。
  * 兵力不随季增长——兵只从征兵来。行动历史跨回合保留。
+ *
+ * 结局判定分两处：翻季之前先看上一季的行动是否已把某方打光，好把终局记在真正结束的那一季；
+ * 翻季之后的事件与年龄结算同样可能打光一方（在仕武将老死），故末尾再判一次。
  */
 export function advanceTurn(state: GameState): void {
+  settleOutcome(state)
+
   state.currentTurn += 1
   for (const faction of state.factions) {
     state.actionPoints[faction.id] = ACTION_POINTS_PER_TURN
@@ -38,6 +44,7 @@ export function advanceTurn(state: GameState): void {
   settleMoney(state)
   growPopulation(state)
   growTroopLimits(state)
+  settleOutcome(state)
 }
 
 /**

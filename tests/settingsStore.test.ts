@@ -8,18 +8,19 @@ describe('SettingsStore', () => {
 
     expect(store.get()).toEqual(DEFAULT_SETTINGS)
     expect(store.get().showStrategicLinks).toBe(false)
-    expect(store.get().developerMode).toBe(false)
+    expect(store.get().showAllCharacters).toBe(false)
+    expect(store.get().battleShortcuts).toBe(false)
   })
 
-  it('开发者模式可独立开关并持久化', () => {
+  it('两条开发者模式开关相互独立并各自持久化', () => {
     const storage = new MemoryStorage()
     const store = new SettingsStore(storage)
 
-    store.update({ developerMode: true })
+    store.update({ battleShortcuts: true })
 
-    expect(store.get().developerMode).toBe(true)
-    expect(store.get().showStrategicLinks).toBe(false)
-    expect(new SettingsStore(storage).get().developerMode).toBe(true)
+    expect(store.get().battleShortcuts).toBe(true)
+    expect(store.get().showAllCharacters).toBe(false)
+    expect(new SettingsStore(storage).get().battleShortcuts).toBe(true)
   })
 
   it('显示行动力消耗默认开启，可独立关闭并持久化', () => {
@@ -31,7 +32,7 @@ describe('SettingsStore', () => {
     store.update({ showActionCosts: false })
 
     expect(store.get().showActionCosts).toBe(false)
-    expect(store.get().developerMode).toBe(false)
+    expect(store.get().battleShortcuts).toBe(false)
     expect(new SettingsStore(storage).get().showActionCosts).toBe(false)
   })
 

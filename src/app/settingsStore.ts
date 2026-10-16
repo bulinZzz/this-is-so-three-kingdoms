@@ -8,14 +8,17 @@ export interface Settings {
   showStrategicLinks: boolean
   /** 是否在各处行动按钮上标出行动力消耗。 */
   showActionCosts: boolean
-  /** 开发者模式：显示全部武将所在的位置等调试信息。 */
-  developerMode: boolean
+  /** 开发者模式：列出全部武将及其所在州，不受己方视野限制。 */
+  showAllCharacters: boolean
+  /** 开发者模式：在战斗情报幕给出「一键胜利／一键失败」。 */
+  battleShortcuts: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   showStrategicLinks: false,
   showActionCosts: true,
-  developerMode: false,
+  showAllCharacters: false,
+  battleShortcuts: false,
 }
 
 export type SettingsListener = (settings: Settings) => void
@@ -42,10 +45,14 @@ function toSettings(value: unknown): Settings {
       typeof candidate.showActionCosts === 'boolean'
         ? candidate.showActionCosts
         : DEFAULT_SETTINGS.showActionCosts,
-    developerMode:
-      typeof candidate.developerMode === 'boolean'
-        ? candidate.developerMode
-        : DEFAULT_SETTINGS.developerMode,
+    showAllCharacters:
+      typeof candidate.showAllCharacters === 'boolean'
+        ? candidate.showAllCharacters
+        : DEFAULT_SETTINGS.showAllCharacters,
+    battleShortcuts:
+      typeof candidate.battleShortcuts === 'boolean'
+        ? candidate.battleShortcuts
+        : DEFAULT_SETTINGS.battleShortcuts,
   }
 }
 

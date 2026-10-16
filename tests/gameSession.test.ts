@@ -6,7 +6,7 @@ import { LocalSaveStore } from '../src/core/localSaveStore'
 import { RECRUIT_TROOPS_PER_COMMAND, recruitGrainCost } from '../src/core/military'
 import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
-import { MemoryStorage } from './memoryStorage'
+import { MemoryStorage, FailingStorage } from './memoryStorage'
 
 function servingCount(session: GameSession): number {
   const state = session.getState()
@@ -150,6 +150,16 @@ describe('GameSession', () => {
     expect(session.getState().currentTurn).toBe(2)
   })
 
+  it('存储不可用时存槽位返回失败，结算回合时如实记为自动存档失败', () => {
+    const session = new GameSession(new LocalSaveStore(new FailingStorage()))
+
+    expect(session.saveToSlot(1)).toBe(false)
+
+    session.endTurn()
+
+    expect(session.isAutoSaveFailed()).toBe(true)
+  })
+
   it('寻访成功后扣行动力并招募武将，但不在行动时写自动存档', () => {
     const store = new LocalSaveStore(new MemoryStorage())
     const session = new GameSession(store, { drawSeed: 1 })
@@ -277,5 +287,104 @@ describe('GameSession 作战接口', () => {
 
     expect(result.ok).toBe(false)
     expect(notified).toBe(0)
+  })
+})
+
+describe('GameSession 结局挂钩', () => {
+  function acceptanceSession(): { store: LocalSaveStore; session: GameSession } {
+    const store = new LocalSaveStore(new MemoryStorage())
+    const session = new GameSession(store)
+    session.newGame(SANGUO_ACCEPTANCE)
+
+    return { store, session }
+  }
+
+  /**
+   * 一处孤城的绝境：玩家只剩襄阳，守将只留诸葛亮且无兵，曹操遂由樊城来攻。
+   * 襄阳是不设防之地，守军由地方民兵就地成军，我方这一战本无胜算。
+   */
+  function besiegedSession(): { store: LocalSaveStore; session: GameSession } {
+    const { store, session } = acceptanceSession()
+    const state = session.getState()
+    for (const site of state.geography.sites) {
+      if (site.owner === 'liubei' && site.id !== 'xiangyang') {
+        site.owner = 'caocao'
+      }
+    }
+    // 襄阳本不属我方，改归我方后方成为孤城，曹操毗邻来攻。
+    const xiangyang = state.geography.sites.find((site) => site.id === 'xiangyang')
+    if (xiangyang === undefined) {
+      throw new Error('战略点不存在：xiangyang')
+    }
+    xiangyang.owner = 'liubei'
+    for (const character of state.characters) {
+      if (character.factionId === 'liubei' && character.id !== 'zhugeliang') {
+        character.status = 'wild'
+        character.factionId = null
+        character.stationedSiteId = null
+        character.troops = 0
+      }
+    }
+    const zhugeliang = state.characters.find((character) => character.id === 'zhugeliang')
+    if (zhugeliang === undefined) {
+      throw new Error('武将不存在：zhugeliang')
+    }
+    zhugeliang.stationedSiteId = 'xiangyang'
+    zhugeliang.troops = 0
+
+    return { store, session }
+  }
+
+  it('夺下敌方最后一处据点即判胜', () => {
+    const { session } = acceptanceSession()
+    const state = session.getState()
+    // 只留曹操一处据点、孙权无据点：我方这一胜即达成统一。
+    for (const site of state.geography.sites) {
+      if (site.owner === 'sunquan') {
+        site.owner = null
+      } else if (site.owner === 'caocao' && site.id !== 'xiangyang') {
+        site.owner = null
+      }
+    }
+
+    const result = session.attack({ commander: 'guanyu' }, 'xiangyang', 'win')
+
+    expect(result.ok).toBe(true)
+    expect(state.geography.sites.find((site) => site.id === 'xiangyang')?.owner).toBe('liubei')
+    expect(state.outcome).toBe('victory')
+    expect(state.endedTurn).toBe(state.currentTurn)
+  })
+
+  it('玩家于他方回合中途覆灭即停在结束信号、不再推进', () => {
+    const { store, session } = besiegedSession()
+    const state = session.getState()
+
+    const first = session.endTurnStaged()
+    expect(first?.kind).toBe('defense')
+    expect(first?.kind === 'defense' ? first.request.targetSiteId : null).toBe('xiangyang')
+
+    const second = session.answerDefense(null)
+    expect(second?.kind).toBe('battle')
+    expect(state.outcome).toBe('defeat')
+    // 玩家既已覆灭，本回合余下的势力不再出手。
+    expect(session.continueTurn()).toBeNull()
+    // 已结束的一局不写自动存档，保留可重来的上一回合开局。
+    expect(store.load(AUTO_SAVE_KEY)?.outcome).toBe('ongoing')
+  })
+
+  it('被进攻时也可强制这一战的胜负，我方守胜即攻方败', () => {
+    const { session } = besiegedSession()
+    const state = session.getState()
+
+    const first = session.endTurnStaged()
+    expect(first?.kind).toBe('defense')
+
+    // 守方要赢，取攻方视角即传 lose。
+    const second = session.answerDefense({ challenger: null, forcedOutcome: 'lose' })
+
+    expect(second?.kind).toBe('battle')
+    expect(second?.kind === 'battle' ? second.report?.attackerWins : null).toBe(false)
+    expect(state.geography.sites.find((site) => site.id === 'xiangyang')?.owner).toBe('liubei')
+    expect(state.outcome).toBe('ongoing')
   })
 })

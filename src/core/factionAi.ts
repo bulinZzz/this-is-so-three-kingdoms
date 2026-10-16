@@ -119,6 +119,7 @@ export interface DefenseRequest {
 /**
  * 他方行动推进中交回界面的信号：先给出待应战的请求，等决定后给出这一战的战报。
  * 用生成器表达，界面据此逐次推进；无界面时一路按「不单挑」放行。
+ * 决定里带的强制胜负（开发者模式）一路透传给这一战，其余结算照常。
  */
 export type FactionTurnSignal =
   | { kind: 'defense'; request: DefenseRequest }
@@ -189,7 +190,7 @@ function* attackOnce(
     kind: 'defense',
     request: { attackerId: factionId, targetSiteId: plan.site.id, party },
   }
-  const result = attack(state, party, plan.site.id, factionId, decision)
+  const result = attack(state, party, plan.site.id, factionId, decision, decision?.forcedOutcome ?? null)
   yield {
     kind: 'battle',
     report: result.ok ? result.record.battle ?? null : null,

@@ -449,6 +449,8 @@ export interface DefenseChoice {
   party?: Party
   /** 守方提出单挑的出马者，须是迎战编成中的主将或副将；不单挑时为 null。 */
   challenger: CharacterId | null
+  /** 开发者模式专供：强制这一战的胜负，取攻方视角；不给则按战力结算。 */
+  forcedOutcome?: ForcedOutcome | null
 }
 
 /** 编成中的全部武将标识。 */
@@ -699,12 +701,16 @@ export function attackBlockReason(
   return null
 }
 
+/** 开发者模式下强制一场战斗的胜负，只由界面在该模式开启时传入。 */
+export type ForcedOutcome = 'win' | 'lose'
+
 /**
  * 合攻相邻的一个他方或无主战略点，自动结算。
  * 主将、副将与军师的兵力合计为投入兵力，智谋加成取三人中最高者；士气是战斗属性，
  * 双方从满值起，由单挑按方增减。出征按投入兵力耗粮，粮草不足则不能出阵。
  * 胜则战略点归攻方、参战部队一同前移进驻，败则各自退回原驻地并受损。随机数取自随存档落盘的模拟流。
  * 单挑可由任一方提出：`party.challenger` 是攻方出马者，`defense` 是守方的迎战编成与出马者。
+ * `forcedOutcome` 为开发者模式专供：传入即由界面指定这一战的胜负，其余结算照常。
  */
 export function attack(
   state: GameState,
@@ -712,6 +718,7 @@ export function attack(
   targetSiteId: SiteId,
   factionId: FactionId = state.playerFaction,
   defense: DefenseChoice | null = null,
+  forcedOutcome: ForcedOutcome | null = null,
 ): ActionResult {
   const defenderChallenger = defense?.challenger ?? null
   const defenderParty = defense?.party
@@ -809,7 +816,10 @@ export function attack(
       const defenderPower = battlePower(defenderSide, { defending: true }) * variance(random)
       const attackerPower = battlePower(side) * variance(random)
 
-      const attackerWins = defenderPower <= 0 || attackerPower > defenderPower
+      // 开发者模式下由界面指定胜负；否则战力高者胜，守方兵力为零时视为不战而下。
+      const attackerWins =
+        forcedOutcome === 'win' ||
+        (forcedOutcome === null && (defenderPower <= 0 || attackerPower > defenderPower))
       const undefended = defenderPower <= 0
 
       /*

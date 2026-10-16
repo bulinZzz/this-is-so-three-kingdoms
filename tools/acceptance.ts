@@ -31,7 +31,7 @@ import {
   stationAdjacentTo,
   transfer,
 } from '../src/core/military'
-import type { Character, DevelopmentKind, FactionId, GameState, Scenario, Season, Site, SiteId, SiteType } from '../src/core/model'
+import type { Character, DevelopmentKind, FactionId, GameState, Outcome, Scenario, Season, Site, SiteId, SiteType } from '../src/core/model'
 import { reward, REWARD_MONEY } from '../src/core/personnel'
 import { createRandom, type Random } from '../src/core/random'
 import { areAllied, areHostile, favorBetween } from '../src/core/relations'
@@ -59,8 +59,11 @@ import { endTurn } from '../src/core/turn'
 const SEED = 208
 /** 寻访所用抽卡流的种子，与模拟流互不干扰。 */
 const DRAW_SEED = 5
-/** 季数上限；敌方全部覆灭时会提前收尾。 */
-const SEASONS = 40
+/**
+ * 季数上限。放宽到推演代理不再有进展之后的一截：代理打不动坚城，几十季下来版图便不再变化。
+ * 上限只用来发现「数值松紧让一局永远打不完」这类问题；一局打到结局的样子另由构造小局覆盖。
+ */
+const SEASONS = 60
 /**
  * 进攻前要求我方战力高于守方的倍数。
  * 取 1 即「有优势就动手」：更保守的线会让代理在坚城前永远不敢开战，一路攒到上限也打不完。
@@ -73,6 +76,13 @@ const REWARD_BELOW = 60
 /** 战略点的相对价值，用于在多个安全目标中择优。 */
 const SITE_VALUE: Record<SiteType, number> = { metropolis: 4, city: 3, town: 2, pass: 2, field: 1 }
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' }
+/** 结局在汇总里的说法。 */
+const OUTCOME_LABELS: Record<Outcome, string> = {
+  ongoing: '未分胜负（跑满季数上限）',
+  victory: '统一',
+  defeat: '覆灭',
+}
+
 /** 势力在简报里的单字标记，未列出的用势力名。 */
 const FACTION_MARKS: Record<FactionId, string> = {
   caocao: '曹',
@@ -590,11 +600,8 @@ function runPlaythrough(scenario: Scenario): Playthrough {
       }
     }
 
-    // 玩家覆灭，或敌方尽灭，都不必把上限跑满。
-    if (
-      isFactionDestroyed(state, player) ||
-      state.factions.every((other) => other.id === player || isFactionDestroyed(state, other.id))
-    ) {
+    // 结局一旦定下（统一或覆灭）就不必再跑，上限只是兜底。
+    if (state.outcome !== 'ongoing') {
       break
     }
   }
@@ -618,6 +625,7 @@ function summarize(run: Playthrough): string {
 
   return [
     '----- 汇总 -----',
+    `结局　${OUTCOME_LABELS[state.outcome]}`,
     `行动力 ${run.apSpent}/${run.apBudget}（${Math.round((run.apSpent / run.apBudget) * 100)}%）` +
       `　战斗 ${run.battles} 场、夺取 ${run.wins} 场`,
     `覆灭势力：${destroyed.join('、') || '无'}`,
@@ -638,6 +646,10 @@ test('荆扬一隅固定种子推演', () => {
 
   // 同一存档重复推演结果一致
   expect(runPlaythrough(SANGUO_ACCEPTANCE).lines).toEqual(run.lines)
+
+  // 推演收尾只该有两种样子：推到了结局，或跑满上限仍未分出胜负。
+  // 前者意味着某方被彻底打光，后者意味着数值或代理策略还留着一局打不完的口子。
+  expect(run.state.currentTurn - 1 === SEASONS || run.state.outcome !== 'ongoing').toBe(true)
   expect(run.battles).toBeGreaterThan(0)
 })
 
@@ -649,5 +661,6 @@ test('建安十三年固定种子推演', () => {
 
   // 同一存档重复推演结果一致
   expect(runPlaythrough(SANGUO_208).lines).toEqual(run.lines)
+  expect(run.state.currentTurn - 1 === SEASONS || run.state.outcome !== 'ongoing').toBe(true)
   expect(run.battles).toBeGreaterThan(0)
 })

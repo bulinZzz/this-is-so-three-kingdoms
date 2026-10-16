@@ -1,7 +1,7 @@
 import type { GameSession } from '../app/gameSession'
 import type { SelectionStore } from '../app/selectionStore'
 import type { SettingsStore } from '../app/settingsStore'
-import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../core/actions'
+import { ACTION_COSTS, ACTION_POINTS_PER_TURN, canAfford } from '../core/actions'
 import { affinityAttitude, affinityToward } from '../core/affinity'
 import type {
   AbilityKind,
@@ -36,6 +36,7 @@ import {
   MORALE_FULL,
   stationedDefendersAt,
   type AttackParty,
+  type ForcedOutcome,
   type Party,
 } from '../core/battle'
 import { isRecruitable, isRetired, isServing } from '../core/characters'
@@ -334,8 +335,12 @@ const SHELL_HTML = `
         <span>显示行动力消耗</span>
       </label>
       <label class="settings__option">
-        <input type="checkbox" class="settings__checkbox" data-setting="developerMode" />
-        <span>开发者模式：显示全部武将所在州</span>
+        <input type="checkbox" class="settings__checkbox" data-setting="showAllCharacters" />
+        <span>开发者模式：列出全部武将及其所在州</span>
+      </label>
+      <label class="settings__option">
+        <input type="checkbox" class="settings__checkbox" data-setting="battleShortcuts" />
+        <span>开发者模式：战斗情报幕附「一键胜利／一键失败」</span>
       </label>
     </dialog>
     <dialog class="saves">
@@ -353,6 +358,20 @@ const SHELL_HTML = `
       <div class="new-game__body">
         <p class="new-game__hint">开始新游戏会覆盖当前自动存档；手动存档不受影响。</p>
         <ul class="new-game__list"></ul>
+      </div>
+    </dialog>
+    <dialog class="ending">
+      <div class="ending__body">
+        <h2 class="ending__title"></h2>
+        <p class="ending__date"></p>
+        <h3 class="ending__heading">势力</h3>
+        <ul class="ending__factions"></ul>
+        <h3 class="ending__heading">战果</h3>
+        <p class="ending__tally"></p>
+      </div>
+      <div class="ending__actions">
+        <button type="button" class="ending__button" data-action="ending-saves">读档</button>
+        <button type="button" class="ending__button ending__button--primary" data-action="ending-new-game">新游戏</button>
       </div>
     </dialog>
   </div>
@@ -516,6 +535,54 @@ function renderActionPoints(label: Element, state: GameState): void {
   label.textContent = `行动力 ${remaining} / ${ACTION_POINTS_PER_TURN}`
 }
 
+/** 结局弹窗：胜负标题、终局时间、各势力存亡、我方兵力粮金，以及由行动历史统计的战果。 */
+function renderEnding(dialog: HTMLElement, state: GameState): void {
+  requireElement<HTMLElement>(dialog, '.ending__title').textContent =
+    state.outcome === 'victory' ? '天下一统' : '势力覆灭'
+  requireElement<HTMLElement>(dialog, '.ending__date').textContent =
+    `终局　${formatGameDate(state.currentDate)}　第 ${state.endedTurn ?? state.currentTurn} 回合`
+
+  const factions = requireElement<HTMLElement>(dialog, '.ending__factions')
+  factions.replaceChildren(
+    ...state.factions.map((faction) => {
+      const item = document.createElement('li')
+      item.className = 'shell__faction'
+      const swatch = document.createElement('span')
+      swatch.className = 'shell__swatch'
+      swatch.style.background = faction.color
+      const name = document.createElement('span')
+      name.className = 'shell__faction-name'
+      name.textContent = faction.name
+      item.append(swatch, name)
+
+      if (faction.id === state.playerFaction) {
+        item.append(createBadge('我', ''))
+      }
+      item.append(
+        isFactionDestroyed(state, faction.id)
+          ? createBadge('已覆灭', 'shell__badge--destroyed')
+          : createBadge('存续', ''),
+      )
+
+      return item
+    }),
+  )
+
+  const battles = state.history.filter(
+    (record) => record.kind === 'attack' && record.factionId === state.playerFaction,
+  ).length
+  requireElement<HTMLElement>(dialog, '.ending__tally').textContent = `主动进攻 ${battles} 次`
+}
+
+/** 势力行上的一枚徽记；`modifier` 为空时用通用样式。 */
+function createBadge(text: string, modifier: string): HTMLSpanElement {
+  const badge = document.createElement('span')
+  badge.className = modifier === '' ? 'shell__badge' : `shell__badge ${modifier}`
+  badge.textContent = text
+
+  return badge
+}
+
 /** 带符号的数量：非负加「+」，负数带「−」。 */
 function formatSigned(value: number): string {
   return value >= 0 ? `+${value}` : `−${Math.abs(value)}`
@@ -546,12 +613,10 @@ function renderDomestic(
     )}`
   requireElement<HTMLElement>(dialog, '.domestic__money-flow').textContent =
     `+${moneyYield(state, state.playerFaction)}`
-  setActionButton(
-    requireElement<HTMLButtonElement>(dialog, '[data-action="harvest-here"]'),
-    '征粮',
-    ACTION_COSTS.harvestGrain,
-    showCosts,
-  )
+  // 征粮同样要进入选将页：行动力不够就压暗、点不动。
+  const harvestButton = requireElement<HTMLButtonElement>(dialog, '[data-action="harvest-here"]')
+  setActionButton(harvestButton, '征粮', ACTION_COSTS.harvestGrain, showCosts)
+  harvestButton.disabled = !canAfford(state, state.playerFaction, 'harvestGrain')
   requireElement<HTMLElement>(dialog, '.domestic__status').textContent = message
 }
 
@@ -704,12 +769,13 @@ function renderSitePanel(
     ...guardRows,
   )
 
-  requireElement<HTMLButtonElement>(panel, '[data-action="attack-here"]').hidden = !isAttackable(
-    state,
-    site.id,
-  )
-  requireElement<HTMLButtonElement>(panel, '[data-action="transfer-here"]').hidden =
-    !isTransferTarget(state, site.id)
+  // 进攻与调兵都要进入选将页：行动力不够就不该放进去，按钮压暗、点不动。
+  const attackButton = requireElement<HTMLButtonElement>(panel, '[data-action="attack-here"]')
+  attackButton.hidden = !isAttackable(state, site.id)
+  attackButton.disabled = !canAfford(state, state.playerFaction, 'attack')
+  const transferButton = requireElement<HTMLButtonElement>(panel, '[data-action="transfer-here"]')
+  transferButton.hidden = !isTransferTarget(state, site.id)
+  transferButton.disabled = !canAfford(state, state.playerFaction, 'transfer')
   // 「进入」只对自家领地开放；建设也在那个窗口里办。
   requireElement<HTMLButtonElement>(panel, '[data-action="site-info"]').hidden = !isOwn
   requireElement<HTMLButtonElement>(panel, '[data-action="seek-here"]').hidden = !isOwn
@@ -1215,8 +1281,15 @@ function garrisonSummary(state: GameState, siteId: SiteId, party: Party): string
     .join(' · ')
 }
 
+/** 开发者模式专供：越过战力结算，一键定下这一战的胜负，攻守两侧同一对按钮。 */
+function shortcutButtons(showBattleShortcuts: boolean): HTMLButtonElement[] {
+  return showBattleShortcuts
+    ? [stageButton('一键胜利', 'stage-forced-win'), stageButton('一键失败', 'stage-forced-lose')]
+    : []
+}
+
 /** 情报幕的按钮：进攻时由主将或副将出马，防御时由迎战编成的主将或副将出马。 */
-function intelButtons(state: GameState, stage: BattleStage): HTMLButtonElement[] {
+function intelButtons(state: GameState, stage: BattleStage, showBattleShortcuts: boolean): HTMLButtonElement[] {
   const buttons: HTMLButtonElement[] = []
 
   if (stage.mode === 'attack') {
@@ -1234,13 +1307,14 @@ function intelButtons(state: GameState, stage: BattleStage): HTMLButtonElement[]
       }
     }
     buttons.push(stageButton('不单挑，直接开战', 'stage-fight'))
+    buttons.push(...shortcutButtons(showBattleShortcuts))
 
     return buttons
   }
 
   // 进攻方已提单挑，守方不再选择，只能迎战。
   if (stage.party.challenger != null) {
-    return [stageButton('迎战', 'stage-fight')]
+    return [stageButton('迎战', 'stage-fight'), ...shortcutButtons(showBattleShortcuts)]
   }
 
   // 与攻方对称：出马者限迎战编成中的主将或副将，君主不参与。
@@ -1257,6 +1331,7 @@ function intelButtons(state: GameState, stage: BattleStage): HTMLButtonElement[]
     }
   }
   buttons.push(stageButton('不单挑，直接迎战', 'stage-fight'))
+  buttons.push(...shortcutButtons(showBattleShortcuts))
 
   return buttons
 }
@@ -1271,7 +1346,7 @@ function verdictText(report: BattleReport, mode: 'attack' | 'defense'): string {
 }
 
 /** 按当前幕排出内容：文字若干，末了是一排可操作的按钮。 */
-function stageContent(state: GameState, stage: BattleStage): HTMLElement[] {
+function stageContent(state: GameState, stage: BattleStage, showBattleShortcuts: boolean): HTMLElement[] {
   const target = state.geography.sites.find((site) => site.id === stage.siteId)
   const siteName = target?.name ?? ''
   const report = stage.report
@@ -1287,7 +1362,7 @@ function stageContent(state: GameState, stage: BattleStage): HTMLElement[] {
           stageLine(`我方　${partySummary(state, stage.party)}`),
           stageLine(`守军　${enemySummary(state, stage.siteId)}`),
           stageLine('是否提出单挑？', 'prompt'),
-          stageActions(...intelButtons(state, stage)),
+          stageActions(...intelButtons(state, stage, showBattleShortcuts)),
         ]
       }
 
@@ -1308,7 +1383,7 @@ function stageContent(state: GameState, stage: BattleStage): HTMLElement[] {
         return [
           ...lines,
           stageLine('城中无将，只能空城迎敌。', 'prompt'),
-          stageActions(stageButton('迎战', 'stage-fight')),
+          stageActions(stageButton('迎战', 'stage-fight'), ...shortcutButtons(showBattleShortcuts)),
         ]
       }
 
@@ -1322,7 +1397,7 @@ function stageContent(state: GameState, stage: BattleStage): HTMLElement[] {
             : '是否提出单挑？',
           'prompt',
         ),
-        stageActions(...intelButtons(state, stage)),
+        stageActions(...intelButtons(state, stage, showBattleShortcuts)),
       ]
     }
 
@@ -1410,7 +1485,12 @@ function stageContent(state: GameState, stage: BattleStage): HTMLElement[] {
 }
 
 /** 战斗演出：按当前幕渲染内容与按钮，一幕一幕推进。 */
-function renderBattleStage(root: HTMLElement, state: GameState, stage: BattleStage | null): void {
+function renderBattleStage(
+  root: HTMLElement,
+  state: GameState,
+  stage: BattleStage | null,
+  showBattleShortcuts: boolean,
+): void {
   if (stage === null) {
     return
   }
@@ -1419,7 +1499,7 @@ function renderBattleStage(root: HTMLElement, state: GameState, stage: BattleSta
   const title = stage.mode === 'attack' ? '战斗' : '防守'
   requireElement<HTMLElement>(root, '.battle-plan__title').textContent = `${title} · ${target?.name ?? ''}`
   requireElement<HTMLElement>(root, '.battle-plan__body').replaceChildren(
-    ...stageContent(state, stage),
+    ...stageContent(state, stage, showBattleShortcuts),
   )
 }
 
@@ -2422,12 +2502,22 @@ export function mountGameShell(
   const settingsDialog = requireElement<HTMLDialogElement>(root, '.settings')
   const linksCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="showStrategicLinks"]')
   const costCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="showActionCosts"]')
-  const developerCheckbox = requireElement<HTMLInputElement>(root, '[data-setting="developerMode"]')
+  const allCharactersCheckbox = requireElement<HTMLInputElement>(
+    root,
+    '[data-setting="showAllCharacters"]',
+  )
+  const battleShortcutsCheckbox = requireElement<HTMLInputElement>(
+    root,
+    '[data-setting="battleShortcuts"]',
+  )
   const savesDialog = requireElement<HTMLDialogElement>(root, '.saves')
   const openNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="open-new-game"]')
   const closeNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="close-new-game"]')
   const newGameDialog = requireElement<HTMLDialogElement>(root, '.new-game')
   const newGameList = requireElement<HTMLElement>(root, '.new-game__list')
+  const endingDialog = requireElement<HTMLDialogElement>(root, '.ending')
+  const endingSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="ending-saves"]')
+  const endingNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="ending-new-game"]')
   const closeOrderButton = requireElement<HTMLButtonElement>(root, '[data-action="close-order"]')
   const orderDialog = requireElement<HTMLDialogElement>(root, '.order')
   const orderStatus = requireElement<HTMLElement>(root, '.order__status')
@@ -2461,7 +2551,8 @@ export function mountGameShell(
 
   linksCheckbox.checked = settings.get().showStrategicLinks
   costCheckbox.checked = settings.get().showActionCosts
-  developerCheckbox.checked = settings.get().developerMode
+  allCharactersCheckbox.checked = settings.get().showAllCharacters
+  battleShortcutsCheckbox.checked = settings.get().battleShortcuts
 
   /** 给面板上的行动按钮标注行动力消耗；关闭「显示行动力消耗」时留空，角标随之隐藏。 */
   const applyActionCosts = (showCosts: boolean): void => {
@@ -2532,7 +2623,7 @@ export function mountGameShell(
     renderContacts(contactPanel, state, contactMessage, showCosts)
     renderOrderDialog(root, state, orderRequest)
     refreshOrderSubmit()
-    renderBattleStage(root, state, battleStage)
+    renderBattleStage(root, state, battleStage, settings.get().battleShortcuts)
     officerCount.textContent = String(renderOfficers(officerList, state, showCosts))
     rosterStatus.textContent = recruitMessage
 
@@ -2563,11 +2654,24 @@ export function mountGameShell(
     renderDismissConfirm(dismissDialog, state, dismissTargetId)
     renderSlots(slotList, session)
 
-    const developerMode = settings.get().developerMode
-    officersTitle.hidden = !developerMode
-    devSection.hidden = !developerMode
-    if (developerMode) {
+    const showAllCharacters = settings.get().showAllCharacters
+    officersTitle.hidden = !showAllCharacters
+    devSection.hidden = !showAllCharacters
+    if (showAllCharacters) {
       allCount.textContent = String(renderAllCharacters(allCharactersList, state))
+    }
+
+    // 结局一旦落定即弹窗收尾：弹窗为模态，其余入口随之不可点；回到进行中时收掉。
+    endTurnButton.disabled = state.outcome !== 'ongoing'
+    if (state.outcome === 'ongoing') {
+      if (endingDialog.open) {
+        endingDialog.close()
+      }
+    } else {
+      renderEnding(endingDialog, state)
+      if (!endingDialog.open) {
+        endingDialog.showModal()
+      }
     }
   }
 
@@ -2635,7 +2739,21 @@ export function mountGameShell(
   const settleTurn = (): void => {
     battleStage = null
     battlePlanDialog.close()
-    statusLabel.textContent = '已自动保存'
+    if (session.getState().outcome !== 'ongoing') {
+      statusLabel.textContent = ''
+      return
+    }
+
+    statusLabel.textContent = session.isAutoSaveFailed() ? '自动保存失败' : '已自动保存'
+  }
+
+  /** 结局或读档之后收掉残留在场的演出与弹窗，回到可玩状态。 */
+  const resetTransientUi = (): void => {
+    battleStage = null
+    battlePlanDialog.close()
+    orderRequest = null
+    orderDialog.close()
+    endingDialog.close()
   }
 
   /** 迎战编成既定：进入防守演出（情报与选择 → 单挑 → 交战与结果）。 */
@@ -2682,13 +2800,13 @@ export function mountGameShell(
   }
 
   /** 我方进攻：编成既定，按是否由某人出马结算这一战，再转入演出的后续幕。 */
-  const resolveBattle = (challenger: CharacterId | null): void => {
+  const resolveBattle = (challenger: CharacterId | null, forcedOutcome: ForcedOutcome | null = null): void => {
     if (battleStage === null || battleStage.mode !== 'attack') {
       return
     }
 
     const party = { ...battleStage.party, challenger }
-    const result = session.attack(party, battleStage.siteId)
+    const result = session.attack(party, battleStage.siteId, forcedOutcome)
     if (!result.ok) {
       battleStage.step = 'intel'
       statusLabel.textContent = result.reason
@@ -2707,8 +2825,11 @@ export function mountGameShell(
     paint(session.getState())
   }
 
-  /** 我方防守：把迎战编成与出马决定交回推进器，随即取到这一战的战报。 */
-  const answerDefense = (challenger: CharacterId | null): void => {
+  /**
+   * 我方防守：把迎战编成与出马决定交回推进器，随即取到这一战的战报。
+   * `forcedOutcome` 为开发者模式专供，取攻方视角——守方要赢即传 `lose`。
+   */
+  const answerDefense = (challenger: CharacterId | null, forcedOutcome: ForcedOutcome | null = null): void => {
     if (battleStage === null || battleStage.mode !== 'defense') {
       return
     }
@@ -2716,6 +2837,7 @@ export function mountGameShell(
     const signal = session.answerDefense({
       party: battleStage.garrison ?? undefined,
       challenger,
+      forcedOutcome,
     })
     if (signal === null) {
       settleTurn()
@@ -2860,7 +2982,7 @@ export function mountGameShell(
       }
       orderStatus.textContent = ''
       orderDialog.close()
-      renderBattleStage(root, state, battleStage)
+      renderBattleStage(root, state, battleStage, settings.get().battleShortcuts)
       battlePlanDialog.showModal()
       return
     }
@@ -2945,6 +3067,14 @@ export function mountGameShell(
 
     if (action === 'stage-fight') {
       chooseDueler(null)
+    } else if (action === 'stage-forced-win' || action === 'stage-forced-lose') {
+      // 「胜利」始终指我方胜：我方在攻即攻方胜，我方在守则攻方败。
+      const wanted: ForcedOutcome = action === 'stage-forced-win' ? 'win' : 'lose'
+      if (battleStage?.mode === 'defense') {
+        answerDefense(null, wanted === 'win' ? 'lose' : 'win')
+      } else {
+        resolveBattle(null, wanted)
+      }
     } else if (action === 'stage-pick') {
       chooseDueler(button.dataset.character ?? null)
     } else if (action === 'stage-next') {
@@ -3277,8 +3407,13 @@ export function mountGameShell(
     paint(session.getState())
   })
 
-  developerCheckbox.addEventListener('change', () => {
-    settings.update({ developerMode: developerCheckbox.checked })
+  allCharactersCheckbox.addEventListener('change', () => {
+    settings.update({ showAllCharacters: allCharactersCheckbox.checked })
+    paint(session.getState())
+  })
+
+  battleShortcutsCheckbox.addEventListener('change', () => {
+    settings.update({ battleShortcuts: battleShortcutsCheckbox.checked })
     paint(session.getState())
   })
 
@@ -3304,6 +3439,7 @@ export function mountGameShell(
       if (session.loadAutoSave()) {
         statusLabel.textContent = `已读取自动存档：${formatDate(session.getState())}`
         savesDialog.close()
+        resetTransientUi()
         return
       }
 
@@ -3314,14 +3450,16 @@ export function mountGameShell(
     const slot = Number(button.dataset.slot)
 
     if (button.dataset.action === 'save-slot') {
-      session.saveToSlot(slot)
-      statusLabel.textContent = `已保存到存档 ${slot}`
+      statusLabel.textContent = session.saveToSlot(slot)
+        ? `已保存到存档 ${slot}`
+        : `保存到存档 ${slot} 失败`
       return
     }
 
     if (session.loadSlot(slot)) {
       statusLabel.textContent = `已读取存档 ${slot}：${formatDate(session.getState())}`
       savesDialog.close()
+      resetTransientUi()
       return
     }
 
@@ -3335,6 +3473,20 @@ export function mountGameShell(
 
   closeNewGameButton.addEventListener('click', () => {
     newGameDialog.close()
+  })
+
+  // 结局弹窗只给两条出路：读档或重开；Esc 也关不掉，免得落回已冻结的棋盘。
+  endingDialog.addEventListener('cancel', (event) => {
+    event.preventDefault()
+  })
+
+  endingSavesButton.addEventListener('click', () => {
+    savesDialog.showModal()
+  })
+
+  endingNewGameButton.addEventListener('click', () => {
+    renderScenarioList(newGameList)
+    newGameDialog.showModal()
   })
 
   newGameList.addEventListener('click', (event) => {
@@ -3364,6 +3516,7 @@ export function mountGameShell(
     domesticMessage = ''
     dismissTargetId = null
     selection.select(null)
+    resetTransientUi()
     newGameDialog.close()
     statusLabel.textContent = `已开始新游戏：${scenario.name}`
   })

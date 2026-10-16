@@ -3,7 +3,7 @@ import { createInitialState } from '../src/core/createInitialState'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { SCHEMA_VERSION } from '../src/core/saveStore'
 import { advanceTurn } from '../src/core/turn'
-import { MemoryStorage } from './memoryStorage'
+import { FailingStorage, MemoryStorage } from './memoryStorage'
 
 const KEY = 'test/save'
 
@@ -17,7 +17,7 @@ describe('LocalSaveStore', () => {
     const state = createInitialState({ seed: 208 })
     advanceTurn(state)
 
-    store.save(KEY, state)
+    expect(store.save(KEY, state)).toBe(true)
 
     expect(store.load(KEY)).toEqual(state)
   })
@@ -107,5 +107,27 @@ describe('LocalSaveStore', () => {
 
     expect(store.load(KEY)).toBeNull()
     expect(store.loadSummary(KEY)).toBeNull()
+  })
+
+  it('存档缺少必需字段时读取为空', () => {
+    // 结局字段与几处关键集合各缺一次：半损的存档不能把残局带进游戏。
+    for (const missing of ['outcome', 'endedTurn', 'characters', 'history', 'geography']) {
+      const storage = new MemoryStorage()
+      const gameState = { ...createInitialState({ seed: 208 }) } as Record<string, unknown>
+      delete gameState[missing]
+      storage.setItem(KEY, JSON.stringify({ schemaVersion: SCHEMA_VERSION, gameState }))
+
+      const store = new LocalSaveStore(storage)
+
+      expect(store.load(KEY)).toBeNull()
+      expect(store.loadSummary(KEY)).toBeNull()
+    }
+  })
+
+  it('写入异常时保存失败且不留存档', () => {
+    const store = new LocalSaveStore(new FailingStorage())
+
+    expect(store.save(KEY, createInitialState({ seed: 208 }))).toBe(false)
+    expect(store.load(KEY)).toBeNull()
   })
 })

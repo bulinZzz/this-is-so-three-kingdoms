@@ -928,6 +928,22 @@
   display: none;
 }
 
+/* 行动力不足时压暗、点不动，鼠标悬停也不再回亮。 */
+.site-panel__action:disabled,
+.domestic__action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.site-panel__action:disabled:hover {
+  border-color: #7a6746;
+  background: linear-gradient(180deg, #33291c, #2a2219);
+}
+
+.domestic__action:disabled:hover {
+  background: #241d16;
+}
+
 /*
  * 行动力消耗：各处行动统一用同一枚暖色数字缀在动作之后，按人计的写「1/人」。
  * 不另套边框与底色——行动按钮本身已有边框底色，再加一层显得笨重。
@@ -1379,7 +1395,8 @@
 .disband,
 .confirm,
 .site-info,
-.new-game {
+.new-game,
+.ending {
   width: min(420px, 100% - 32px);
   max-height: 80vh;
   padding: 0;
@@ -1427,7 +1444,8 @@
 .disband[open],
 .confirm[open],
 .site-info[open],
-.new-game[open] {
+.new-game[open],
+.ending[open] {
   display: flex;
   flex-direction: column;
 }
@@ -1445,7 +1463,8 @@
 .disband::backdrop,
 .confirm::backdrop,
 .site-info::backdrop,
-.new-game::backdrop {
+.new-game::backdrop,
+.ending::backdrop {
   background: rgb(0 0 0 / 60%);
 }
 
@@ -1677,4 +1696,79 @@
 
 .action-bar__button:hover {
   background: #362c20;
+}
+
+/* 结局弹窗：胜负标题与时间居首，势力、我方、战果依次排下，出路固定在底部。 */
+.ending__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 20px 16px;
+}
+
+.ending__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: 6px;
+  color: #e8d9b5;
+}
+
+.ending__date {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: #9a8b70;
+}
+
+.ending__heading {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 1px;
+  color: #9a8b70;
+}
+
+.ending__factions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ending__tally {
+  margin: 0;
+  font-size: 13px;
+  color: #b9a87f;
+}
+
+.ending__actions {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 1px solid #2a241c;
+}
+
+.ending__button {
+  padding: 8px 16px;
+  border: 1px solid #574a36;
+  border-radius: 4px;
+  background: #241d16;
+  color: #c8b48c;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ending__button:hover {
+  background: #322819;
+}
+
+.ending__button--primary {
+  border-color: #6b5c42;
+  background: #2a2219;
+  color: #e8d9b5;
 }

@@ -1,5 +1,5 @@
 import type { ActionResult } from '../core/actions'
-import { assignAfterCapture as runAssignAfterCapture, attack as runAttack, type AttackParty, type DefenseChoice } from '../core/battle'
+import { assignAfterCapture as runAssignAfterCapture, attack as runAttack, type AttackParty, type DefenseChoice, type ForcedOutcome } from '../core/battle'
 import { executeCaptive as runExecuteCaptive, persuade as runPersuade, releaseCaptive as runReleaseCaptive } from '../core/captives'
 import { createInitialState } from '../core/createInitialState'
 import { build as runBuild } from '../core/development'
@@ -24,6 +24,7 @@ import {
   type FactionTurnSignal,
   type TurnRun,
 } from '../core/turn'
+import { settleOutcome } from '../core/victory'
 
 export type StateListener = (state: GameState) => void
 
@@ -58,6 +59,8 @@ export class GameSession {
   private drawRandom: Random
   /** 本回合分步推进的句柄；界面逐次应战时持有，跑完即清空。 */
   private turnRun: TurnRun | null = null
+  /** 上一次自动存档是否写入失败，供界面在回合结束时如实提示。 */
+  private autoSaveFailed = false
 
   constructor(
     private readonly saveStore: SaveStore = new LocalSaveStore(),
@@ -72,11 +75,16 @@ export class GameSession {
     return this.state
   }
 
+  /** 上一次自动存档是否失败；界面据此把「已自动保存」换成失败提示。 */
+  isAutoSaveFailed(): boolean {
+    return this.autoSaveFailed
+  }
+
   /** 用指定剧本重开一局：重置对局并写入自动存档，覆盖当前进度；手动槽位不受影响。 */
   newGame(scenario: Scenario): void {
     this.state = createInitialState({ scenario })
     this.drawRandom = this.createDrawRandom()
-    this.saveStore.save(AUTO_SAVE_KEY, this.state)
+    this.saveAuto()
     this.notify()
   }
 
@@ -84,7 +92,7 @@ export class GameSession {
   endTurn(): void {
     this.turnRun = null
     resolveEndTurn(this.state)
-    this.saveStore.save(AUTO_SAVE_KEY, this.state)
+    this.saveAuto()
     this.drawRandom = this.createDrawRandom()
     this.notify()
   }
@@ -108,17 +116,26 @@ export class GameSession {
     return this.advanceTurnStep(null)
   }
 
-  /** 继续推进本回合；跑完则清空推进器、按新回合播种抽卡源并写入自动存档。 */
+  /**
+   * 继续推进本回合；跑完则清空推进器、按新回合播种抽卡源并写入自动存档。
+   * 每步之后结算结局：玩家中途覆灭即停下，不再让余下势力出手。
+   * 已结束的一局不写自动存档，留下上一回合开局的可玩存档供重来。
+   */
   private advanceTurnStep(decision: DefenseChoice | null): FactionTurnSignal | null {
     if (this.turnRun === null) {
       return null
     }
 
     const signal = this.turnRun.advance(decision)
+    const ended = settleOutcome(this.state)
     if (signal === null) {
       this.turnRun = null
       this.drawRandom = this.createDrawRandom()
-      this.saveStore.save(AUTO_SAVE_KEY, this.state)
+      if (!ended) {
+        this.saveAuto()
+      }
+    } else if (ended) {
+      this.turnRun = null
     }
     this.notify()
 
@@ -176,8 +193,8 @@ export class GameSession {
   }
 
   /** 派主将、副将与军师合攻相邻的他方或无主战略点；成功后通知界面，地图随领土变化刷新。 */
-  attack(party: AttackParty, targetSiteId: SiteId): ActionResult {
-    return this.apply(runAttack(this.state, party, targetSiteId))
+  attack(party: AttackParty, targetSiteId: SiteId, forcedOutcome: ForcedOutcome | null = null): ActionResult {
+    return this.apply(runAttack(this.state, party, targetSiteId, undefined, null, forcedOutcome))
   }
 
   /** 占领后的分派驻守：谁留驻新点、谁回原驻地；不耗行动力，随后通知界面。 */
@@ -233,9 +250,12 @@ export class GameSession {
     return this.applySave(AUTO_SAVE_KEY)
   }
 
-  saveToSlot(slot: number): void {
-    this.saveStore.save(slotKey(slot), this.state)
+  /** 存入手动槽位；存储不可用时返回 false，由界面如实提示。 */
+  saveToSlot(slot: number): boolean {
+    const saved = this.saveStore.save(slotKey(slot), this.state)
     this.notify()
+
+    return saved
   }
 
   /** 读取槽位；该槽位没有可用存档时返回 false，当前对局保持不变。 */
@@ -257,9 +277,10 @@ export class GameSession {
     this.listeners.add(listener)
   }
 
-  /** 行动成功后通知界面；失败时不改动对局。 */
+  /** 行动成功后补一次结局判定并通知界面；失败时不改动对局。 */
   private apply(result: ActionResult): ActionResult {
     if (result.ok) {
+      settleOutcome(this.state)
       this.notify()
     }
 
@@ -277,6 +298,11 @@ export class GameSession {
     this.notify()
 
     return true
+  }
+
+  /** 写入自动存档并记下成败；存储不可用时对局照常，只是这一份进度没能落盘。 */
+  private saveAuto(): void {
+    this.autoSaveFailed = !this.saveStore.save(AUTO_SAVE_KEY, this.state)
   }
 
   private createDrawRandom(): Random {
