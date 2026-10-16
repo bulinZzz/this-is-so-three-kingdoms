@@ -36,6 +36,10 @@ const EXCLUDED_EDGES = [
   ['linzi', 'xiaopei'],
   // 晋阳在并州、蓟在幽州，中隔冀州（太行、恒山），须经邺或南皮绕行。
   ['jinyang', 'jicheng'],
+  // 柳城在辽西、临淄在青州，中隔渤海，无陆路直通，须沿海南下或绕行幽、冀。
+  ['liucheng', 'linzi'],
+  // 龙编在交趾、江州在巴郡，中隔云贵高原（南中），无直接通道，须经荆州或益州南部绕行。
+  ['longbian', 'jiangzhou'],
 ]
 
 // 制图经纬度范围，唯一来源为 src/game/mapBounds.json，与 src/game/mapLayout.ts 共用；

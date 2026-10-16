@@ -10,7 +10,17 @@ describe('createInitialState', () => {
 
     expect(state.currentDate).toEqual({ era: '建安', year: 13, season: 'autumn' })
     expect(state.currentTurn).toBe(1)
-    expect(state.factions.map((faction) => faction.name)).toEqual(['曹操', '刘备', '孙权'])
+    expect(state.factions.map((faction) => faction.name)).toEqual([
+      '曹操',
+      '刘备',
+      '孙权',
+      '刘璋',
+      '马腾',
+      '韩遂',
+      '公孙康',
+      '士燮',
+      '张鲁',
+    ])
     expect(state.factions.some((faction) => faction.id === state.playerFaction)).toBe(true)
   })
 

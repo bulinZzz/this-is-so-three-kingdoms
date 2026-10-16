@@ -207,7 +207,17 @@ describe('resolveFactionOrder', () => {
   it('玩家势力排在首位，其余按势力列表顺序', () => {
     const state = createInitialState({ seed: 208 })
 
-    expect(resolveFactionOrder(state)).toEqual(['liubei', 'caocao', 'sunquan'])
+    expect(resolveFactionOrder(state)).toEqual([
+      'liubei',
+      'caocao',
+      'sunquan',
+      'liuzhang',
+      'mateng',
+      'hansui',
+      'gongsunkang',
+      'shixie',
+      'zhanglu',
+    ])
   })
 
   it('包含全部势力且不重复', () => {

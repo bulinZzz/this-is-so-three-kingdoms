@@ -19,7 +19,7 @@ import {
   developmentLevel,
   developmentLimit,
 } from '../src/core/development'
-import { demand } from '../src/core/diplomacy'
+import { declareWar, demand } from '../src/core/diplomacy'
 import {
   factionTroops,
   harvestGrain,
@@ -31,17 +31,17 @@ import {
   stationAdjacentTo,
   transfer,
 } from '../src/core/military'
-import type { Character, DevelopmentKind, FactionId, GameState, Season, Site, SiteId, SiteType } from '../src/core/model'
+import type { Character, DevelopmentKind, FactionId, GameState, Scenario, Season, Site, SiteId, SiteType } from '../src/core/model'
 import { reward, REWARD_MONEY } from '../src/core/personnel'
 import { createRandom, type Random } from '../src/core/random'
-import { areHostile, favorBetween } from '../src/core/relations'
-import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
+import { areAllied, areHostile, favorBetween } from '../src/core/relations'
+import { SANGUO_208, SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 import { recruitChance, seekTalent, visit } from '../src/core/seekTalent'
 import { endTurn } from '../src/core/turn'
 
 /**
- * 迭代 5 的核心玩法推演：用无画面的规则层把「荆扬一隅」跑满若干季，
- * 输出逐季日志与汇总，供调数值后复跑对照。运行方式见 npm run acceptance。
+ * 核心玩法推演：用无画面的规则层把一份剧本跑满若干季，输出逐季日志与汇总，
+ * 供调数值后复跑对照。运行方式见 npm run acceptance。
  *
  * 推演用一个规则驱动的「玩家」代理，策略如下：
  *   寻访（前期攒人）→ 进攻（安全边际内挑价值最高者）→ 征兵（交给统率最高者）
@@ -49,7 +49,8 @@ import { endTurn } from '../src/core/turn'
  *   缺粮则向可开口的弱者索取、忠诚不足六十则赏赐、否则建农田 / 市集 / 民居）
  *   → 征粮（交给内政最高者，自驻地存粮取用）→ 调兵（朝最弱目标集结）。
  * 兵只从征兵来、粮落在战略点上：兵力完全靠征兵积累，粮要派人去取，两者都由代理逐季操持。
- * 外交只做索取——荆扬一隅里同盟与敌对都是开局定局，赠礼、停战与结盟无处可施。
+ * 外交只做索取与宣战：荆扬一隅里同盟与敌对都是开局定局，赠礼、停战与结盟无处可施；
+ * 建安十三年开局无战事，代理先收拾无主之地，再无主可打才向一位邻邦宣战，把战火点燃。
  * 其他势力由 factionAi 自主行动，走与实机相同的回合收尾流程。
  * 它不代表最优打法，只用来观察数值松紧与局势走向；判断「好不好玩」仍要看实玩。
  */
@@ -73,7 +74,17 @@ const REWARD_BELOW = 60
 const SITE_VALUE: Record<SiteType, number> = { metropolis: 4, city: 3, town: 2, pass: 2, field: 1 }
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' }
 /** 势力在简报里的单字标记，未列出的用势力名。 */
-const FACTION_MARKS: Record<FactionId, string> = { liubei: '刘', caocao: '曹', sunquan: '孙' }
+const FACTION_MARKS: Record<FactionId, string> = {
+  caocao: '曹',
+  liubei: '刘',
+  sunquan: '孙',
+  liuzhang: '璋',
+  mateng: '马',
+  hansui: '韩',
+  gongsunkang: '公',
+  shixie: '士',
+  zhanglu: '张',
+}
 
 function siteOf(state: GameState, siteId: SiteId): Site {
   const site = state.geography.sites.find((item) => item.id === siteId)
@@ -292,9 +303,53 @@ interface Playthrough {
   destroyedAt: Map<FactionId, number>
 }
 
+/** 就着玩家的自有领地向外看：与本方接壤、尚可一战的势力里最弱的一位；无则返回 null。 */
+function warTargetOf(state: GameState): FactionId | null {
+  const player = state.playerFaction
+  const own = state.geography.sites.filter((site) => site.owner === player)
+  const candidate = state.factions
+    .filter((faction) => faction.id !== player && !areAllied(state, player, faction.id))
+    .filter((faction) =>
+      state.geography.sites.some(
+        (site) =>
+          site.owner === faction.id && own.some((base) => base.neighbors.includes(site.id)),
+      ),
+    )
+    .sort((a, b) => factionTroops(state, a.id) - factionTroops(state, b.id))[0]
+
+  return candidate?.id ?? null
+}
+
+/**
+ * 战火由玩家的宣战点燃：开局无战事时，先收拾完无主之地，再无主可打便向一位邻邦宣战。
+ * 无主之地随时可打（有守军），故不等同于开战；打尽了才需要点火。
+ */
+function igniteWar(state: GameState): string | null {
+  const player = state.playerFaction
+  if (
+    state.factions.some(
+      (faction) => faction.id !== player && areHostile(state, player, faction.id),
+    )
+  ) {
+    return null
+  }
+
+  if (state.geography.sites.some((site) => site.owner === null && isAttackable(state, site.id))) {
+    return null
+  }
+
+  const target = warTargetOf(state)
+  if (target === null) {
+    return null
+  }
+
+  const result = declareWar(state, target)
+  return result.ok ? result.record.outcome : null
+}
+
 /** 跑一局固定种子的推演，返回逐季日志与最终状态。 */
-function runPlaythrough(): Playthrough {
-  const state = createInitialState({ scenario: SANGUO_ACCEPTANCE, seed: SEED })
+function runPlaythrough(scenario: Scenario): Playthrough {
+  const state = createInitialState({ scenario, seed: SEED })
   const drawRandom = createRandom(DRAW_SEED)
   const lines: string[] = []
   let battles = 0
@@ -315,6 +370,12 @@ function runPlaythrough(): Playthrough {
     apBudget += before
     const actions: string[] = []
     let attacked = 0
+
+    // 开局无战事的剧本里先宣战点火，之后各季不再重复。
+    const war = igniteWar(state)
+    if (war !== null) {
+      actions.push(war)
+    }
 
     if (
       !seekExhausted &&
@@ -570,12 +631,23 @@ function summarize(run: Playthrough): string {
 }
 
 test('荆扬一隅固定种子推演', () => {
-  const run = runPlaythrough()
+  const run = runPlaythrough(SANGUO_ACCEPTANCE)
   console.log(`\n===== 核心玩法推演（荆扬一隅，种子 ${SEED}，上限 ${SEASONS} 季）=====`)
   console.log(run.lines.join('\n'))
   console.log(summarize(run))
 
   // 同一存档重复推演结果一致
-  expect(runPlaythrough().lines).toEqual(run.lines)
+  expect(runPlaythrough(SANGUO_ACCEPTANCE).lines).toEqual(run.lines)
+  expect(run.battles).toBeGreaterThan(0)
+})
+
+test('建安十三年固定种子推演', () => {
+  const run = runPlaythrough(SANGUO_208)
+  console.log(`\n===== 核心玩法推演（建安十三年，种子 ${SEED}，上限 ${SEASONS} 季）=====`)
+  console.log(run.lines.join('\n'))
+  console.log(summarize(run))
+
+  // 同一存档重复推演结果一致
+  expect(runPlaythrough(SANGUO_208).lines).toEqual(run.lines)
   expect(run.battles).toBeGreaterThan(0)
 })

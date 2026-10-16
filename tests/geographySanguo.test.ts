@@ -47,12 +47,15 @@ const FORCED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [
 
 /**
  * 几何上无第三点阻挡、但史实上并无直接通道的点对，与 tools/buildAdjacency.mjs 的 EXCLUDED_EDGES 保持一致。
- * 长安在关中、白帝城在巴东，中隔秦岭与大巴山；临淄与小沛隔兖、徐二州；晋阳与蓟隔冀州。
+ * 长安在关中、白帝城在巴东，中隔秦岭与大巴山；临淄与小沛隔兖、徐二州；晋阳与蓟隔冀州；
+ * 柳城与临淄隔渤海；龙编与江州隔云贵高原（南中）。
  */
 const EXCLUDED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [
   ['changan', 'baidicheng'],
   ['linzi', 'xiaopei'],
   ['jinyang', 'jicheng'],
+  ['liucheng', 'linzi'],
+  ['longbian', 'jiangzhou'],
 ]
 
 const forcedEdgeKeys = new Set(FORCED_EDGES.map(([a, b]) => [a, b].sort().join('|')))
@@ -67,9 +70,9 @@ describe('三国地理数据', () => {
     expect(validateGeography(GEOGRAPHY_SANGUO, FACTION_IDS)).toEqual([])
   })
 
-  it('覆盖十三个州、五十五个战略点，州名不重复', () => {
+  it('覆盖十三个州、六十个战略点，州名不重复', () => {
     expect(GEOGRAPHY_SANGUO.provinces).toHaveLength(13)
-    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(55)
+    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(60)
     expect(new Set(GEOGRAPHY_SANGUO.provinces.map((province) => province.name)).size).toBe(13)
   })
 
@@ -131,7 +134,7 @@ describe('三国地理数据', () => {
     expect(caocao.length).toBe(26)
     expect(sunquan.length).toBe(7)
     expect(liubei.length).toBe(1)
-    expect(unowned.length).toBe(21)
+    expect(unowned.length).toBe(7)
     expect(caocao.length).toBeGreaterThan(sunquan.length)
     expect(sunquan.length).toBeGreaterThan(0)
     expect(unowned.length).toBeGreaterThan(0)
@@ -146,7 +149,7 @@ describe('三国地理数据', () => {
     expect(geography.provinces.map((province) => province.owner)).toEqual(authors)
   })
 
-  it('建安十三年：曹操据江北诸州，孙权据扬州，益、凉、交无归属', () => {
+  it('建安十三年：曹操据江北诸州，孙权据扬州，益、凉、交各归新主', () => {
     const ownerOf = (provinceId: string) =>
       GEOGRAPHY_SANGUO.provinces.find((province) => province.id === provinceId)?.owner
 
@@ -154,9 +157,9 @@ describe('三国地理数据', () => {
       expect(ownerOf(provinceId)).toBe('caocao')
     }
     expect(ownerOf('yang')).toBe('sunquan')
-    expect(ownerOf('yi')).toBeNull()
-    expect(ownerOf('liang')).toBeNull()
-    expect(ownerOf('jiao')).toBeNull()
+    expect(ownerOf('yi')).toBe('liuzhang')
+    expect(ownerOf('liang')).toBe('hansui')
+    expect(ownerOf('jiao')).toBe('shixie')
   })
 
   it('从江夏出发可以走遍所有战略点', () => {
@@ -253,7 +256,7 @@ describe('三国地理数据', () => {
       GEOGRAPHY_SANGUO.sites.reduce((sum, site) => sum + site.neighbors.length, 0) / 2
     const completeGraphEdgeCount = (siteCount * (siteCount - 1)) / 2
 
-    expect(completeGraphEdgeCount).toBe(1485)
+    expect(completeGraphEdgeCount).toBe(1770)
     expect(edgeCount).toBeLessThan(siteCount * 4)
   })
 })

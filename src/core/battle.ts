@@ -3,6 +3,7 @@ import { attitudeOf, releaseCaptives, takeCaptive } from './captives'
 import { isServing } from './characters'
 import { damageOnCapture, DEVELOPMENT_LABELS } from './development'
 import { resolveProvinceOwners } from './geography'
+import { GUARD_CHARACTER_PREFIX, guardFor } from './guards'
 import { LOSS_EXP, WIN_EXP } from './growth'
 import { LOYALTY_LOSS, loseLoyalty, maybeDefect, wildTierFor } from './loyalty'
 import {
@@ -24,10 +25,11 @@ import type {
   GameState,
   Personality,
   Site,
+  SiteGuard,
   SiteId,
 } from './model'
 import { createRandom, type Random } from './random'
-import { areAllied } from './relations'
+import { areAllied, areHostile } from './relations'
 
 /** 一场战斗的士气：双方开战默认满值，由单挑增减。 */
 export const MORALE_FULL = 100
@@ -50,6 +52,8 @@ const WINNER_CASUALTY_RATE = 0.2
 const ACTED_DEFENDER_RATIO = 0.5
 /** 迎战守军的至多人数，与攻方编成同宽。 */
 const GARRISON_SIZE = 3
+/** 无主守军失守后溃散的去向权重：多数溃散，少数头目被斩。 */
+const GUARD_ROUT_CHANCE = 0.5
 /** 单挑的士气增减。 */
 const DUEL_MORALE_DELTA = 10
 /** 单挑判定时叠加在武力上的随机幅度：幅度够大，武力小差不再是必败，冷门时有发生。 */
@@ -115,6 +119,33 @@ export function stationedDefendersAt(state: GameState, siteId: SiteId): Characte
   return site === undefined ? [] : defendersAt(state, site)
 }
 
+/**
+ * 无主战略点的守军化为临时武将：并入迎战编成但不写入 `state.characters`，
+ * 结算中的兵力与经验写回因此随对象丢弃，不影响存档。名号与能力皆取守军记录。
+ */
+function guardCharacter(site: Site, guard: SiteGuard): Character {
+  return {
+    id: `${GUARD_CHARACTER_PREFIX}${site.id}`,
+    name: guard.name,
+    status: 'serving',
+    factionId: null,
+    provinceId: site.provinceId,
+    might: guard.might,
+    command: guard.command,
+    intellect: guard.intellect,
+    politics: 0,
+    age: 0,
+    personality: 'steady',
+    affinities: {},
+    loyalty: 0,
+    isMonarch: false,
+    stationedSiteId: site.id,
+    troops: guard.troops,
+    exp: 0,
+    tier: null,
+  }
+}
+
 /** 守军的迎战编成：至多三名武将，与攻方同构。 */
 export interface Garrison {
   /** 迎战的三名武将，按兵力由多到少；无守军时为空。 */
@@ -127,12 +158,22 @@ export interface Garrison {
  * 某战略点的迎战守军：默认从守军中取兵力最多的三人作为迎战编成；给了 `party` 就按此编成
  * （守方在编成弹窗自选，与攻方同为至多三人）。其中统率最高者为主将、智谋最高者为军师。
  * 败军退守会让一处战略点的守军越堆越多，只三人迎战才不会让最后一城无止境地变强；
- * 与攻方同为至多三人，双方兵力增长的口径才对等。无主或无人驻守时兵力为零。
+ * 与攻方同为至多三人，双方兵力增长的口径才对等。守将不足三人时，无主点以凭险自守的守军迎战，
+ * 有主点由地方民兵就地成军，故只有战略点不存在时兵力才为零。
  */
 export function garrisonAt(state: GameState, siteId: SiteId, party?: Party): Garrison {
   const pool = stationedDefendersAt(state, siteId)
   const chosen = party === undefined ? pool : pool.filter((member) => partyIds(party).includes(member.id))
-  const members = [...chosen].sort((a, b) => b.troops - a.troops).slice(0, GARRISON_SIZE)
+  let members = [...chosen].sort((a, b) => b.troops - a.troops).slice(0, GARRISON_SIZE)
+
+  // 守将尽出或调空时，无主点以凭险自守的地方武装迎战，有主点则由地方民兵就地成军；
+  // 凡攻打据点都要真打一场、付出血本，不存在无人可挡的空城。
+  if (members.length === 0) {
+    const site = state.geography.sites.find((item) => item.id === siteId)
+    if (site !== undefined) {
+      members = [guardCharacter(site, site.guard ?? guardFor(site))]
+    }
+  }
 
   if (members.length === 0) {
     return { members, side: { troops: 0, intellect: 0, morale: MORALE_FULL } }
@@ -345,7 +386,7 @@ function resolveDefenders(
   return { fates, captives }
 }
 
-/** 该战略点是否为指定势力可进攻的目标：非自有、非同同盟，且至少有一个自有战略点与它相邻。缺省按玩家势力评判。 */
+/** 该战略点是否为指定势力可进攻的目标：无主之地，或已宣战（敌对）的他方领地，且至少有一个自有战略点与它相邻。缺省按玩家势力评判。 */
 export function isAttackable(
   state: GameState,
   targetSiteId: SiteId,
@@ -355,7 +396,8 @@ export function isAttackable(
   if (target === undefined || target.owner === factionId) {
     return false
   }
-  if (target.owner !== null && areAllied(state, factionId, target.owner)) {
+  // 同盟不能开战；中立须先宣战转为敌对，无主之地随时可点名去打。
+  if (target.owner !== null && !areHostile(state, factionId, target.owner)) {
     return false
   }
 
@@ -377,7 +419,7 @@ export function attackCandidates(
   if (target === undefined || target.owner === factionId) {
     return []
   }
-  if (target.owner !== null && areAllied(state, factionId, target.owner)) {
+  if (target.owner !== null && !areHostile(state, factionId, target.owner)) {
     return []
   }
 
@@ -609,6 +651,9 @@ export function attackBlockReason(
   if (target.owner !== null && areAllied(state, factionId, target.owner)) {
     return '与对方同盟，不能进攻'
   }
+  if (target.owner !== null && !areHostile(state, factionId, target.owner)) {
+    return '与对方非敌对，须先宣战'
+  }
   if (commander === null) {
     return '必须指定主将'
   }
@@ -821,6 +866,7 @@ export function attack(
       let defenderFates: string[] = []
       let releasedNotes: string[] = []
       let damaged: DevelopmentKind[] = []
+      let guardFateNote = ''
 
       // 出战经验只落在实际接战的双方：胜 +2、败 +3（败仗反而长进更多），供成长累积强化额度。
       const attackerExp = attackerWins ? WIN_EXP : LOSS_EXP
@@ -843,6 +889,12 @@ export function attack(
         }
         const previousOwner = target.owner
         target.owner = factionId
+        // 无主守军失守：凭险自守的地方武装就此了结，按随机流给一句去向，不留俘虏、不迁移。
+        if (previousOwner === null && target.guard !== undefined) {
+          const fate = random.next() < GUARD_ROUT_CHANCE ? '溃散' : '被斩'
+          guardFateNote = `；守军 ${target.guard.name} ${fate}`
+          delete target.guard
+        }
         // 易主时的战火损耗：前任的开发设施随机降 1–2 项。
         damaged = damageOnCapture(target, random)
         for (const member of fighters) {
@@ -890,7 +942,7 @@ export function attack(
       return {
         targetId: target.id,
         outcome: attackerWins
-          ? `${duelLead}${generalNames} 攻占 ${target.name}${fateNote}${releaseNote}${damageNote}`
+          ? `${duelLead}${generalNames} 攻占 ${target.name}${fateNote}${guardFateNote}${releaseNote}${damageNote}`
           : `${duelLead}${generalNames} 进攻 ${target.name} 失利`,
         battle: report,
       }

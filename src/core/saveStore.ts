@@ -2,9 +2,10 @@ import type { GameDate, GameState } from './model'
 
 /**
  * 存档版本。改动会打破旧存档与世界一致性的内容时递增：
- * 存档内含整份地理归属，剧本改了归属之后，旧存档会让玩家看到一个过时的天下。
+ * 存档内含整份地理归属，剧本改了归属之后，旧存档会让玩家看到一个过时的天下；
+ * 本次新增无主战略点的守军字段，旧存档里无主之地缺守军，随之升版。
  */
-export const SCHEMA_VERSION = 30
+export const SCHEMA_VERSION = 34
 
 /** 手动存档槽位数量，槽位编号从 1 开始。 */
 export const SLOT_COUNT = 10

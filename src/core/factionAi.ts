@@ -12,12 +12,11 @@ import {
 } from './battle'
 import { recruitWillingCaptives } from './captives'
 import { isServing } from './characters'
-import { ALLIANCE_FAVOR, alliance, declareWar } from './diplomacy'
+import { ALLIANCE_FAVOR, alliance } from './diplomacy'
 import { granaryOf } from './granary'
 import { estimateOf } from './intelligence'
 import {
   attackGrainCost,
-  factionTroops,
   harvestGrain,
   hasActedThisTurn,
   isFactionDestroyed,
@@ -40,11 +39,13 @@ import { areHostile, favorBetween, relationBetween } from './relations'
 import { seekTalent } from './seekTalent'
 
 /**
- * 其他势力的自主行动。每季按最小行为集出手，顺序为寻访 → 外交 → 进攻 → 征兵：
- * 先补一名新人（新人当季即可参战），再看要不要结盟或宣战，然后用有余力的武将进攻，
- * 最后把剩下的行动力用于征兵。
+ * 其他势力的自主行动。每季按最小行为集出手，顺序为寻访 → 外交 → 征粮 → 进攻 → 征兵：
+ * 先补一名新人（新人当季即可参战），再看要不要结盟，粮仓见底则派人征粮，
+ * 然后用有余力的武将进攻，最后把剩下的行动力用于征兵；营中「愿降」的俘虏在出手之初先行归附。
+ * 进攻只在无主之地与敌对势力中挑目标——同盟与中立一概不打。
  * 行为只走规则层既有动作，随机取自随存档落盘的模拟流，固定种子下可复现。
- * 他方对别人只知大概：进攻与宣战所据的对方实力都是估计值（见 intelligence），判断因此不是定数。
+ * 他方守成：不自行向中立势力宣战，点火改由玩家的宣战；对别人只知大概——
+ * 进攻所据的对方实力都是估计值（见 intelligence），判断因此不是定数。
  */
 
 /** 进攻前要求我方战力高于守方的倍数；取 1 即「有优势就动手」。 */
@@ -53,10 +54,6 @@ const ATTACK_MARGIN = 1
 const SITE_VALUE: Record<SiteType, number> = { metropolis: 4, city: 3, town: 2, pass: 2, field: 1 }
 /** 一支编成至多三人，与玩家一致。 */
 const PARTY_SIZE = 3
-/** 中立而好感不高于此、且己方明显更强时，他方才对外宣战。 */
-const WAR_FAVOR_LINE = 25
-/** 对外宣战要求的兵力倍数。 */
-const WAR_STRENGTH_MARGIN = 1.5
 
 function sitesOf(state: GameState, factionId: FactionId): Site[] {
   return state.geography.sites.filter((site) => site.owner === factionId)
@@ -202,7 +199,7 @@ function* attackOnce(
 
 /**
  * 外交一步：只与中立势力往来——同盟与敌对不改动。
- * 好感高且行动力够则提议结盟；好感低而己方明显占优则宣战；都不做则静默。
+ * 好感高且行动力够则提议结盟，否则静默；他方不自行宣战，点火改由玩家的宣战。
  */
 function diplomacyOnce(state: GameState, factionId: FactionId): void {
   for (const other of state.factions) {
@@ -216,26 +213,6 @@ function diplomacyOnce(state: GameState, factionId: FactionId): void {
       return
     }
   }
-
-  const random = createRandom(state.randomState)
-  for (const other of state.factions) {
-    if (other.id === factionId || relationBetween(state, factionId, other.id) !== 'neutral') {
-      continue
-    }
-    if (favorBetween(state, factionId, other.id) > WAR_FAVOR_LINE) {
-      continue
-    }
-    if (
-      factionTroops(state, factionId) >
-      estimateOf(factionTroops(state, other.id), random) * WAR_STRENGTH_MARGIN
-    ) {
-      state.randomState = random.getState()
-      declareWar(state, other.id, factionId)
-      return
-    }
-  }
-
-  state.randomState = random.getState()
 }
 
 /** 把余下的行动力用于征兵，直到用尽、无人可补、粮尽或驻地丁口已枯。 */

@@ -64,6 +64,23 @@ export interface SiteDevelopment {
 export type DevelopmentKind = keyof SiteDevelopment
 
 /**
+ * 无主战略点的守军：凭险自守的地方武装，独立于武将体系之外——
+ * 不计忠诚与偏好、不产俘虏、不败退迁移、不随季增长；名号、兵力与武力、统率、智谋三项能力齐备。
+ */
+export interface SiteGuard {
+  /** 名号，如「山贼·头目」。 */
+  name: string
+  /** 兵力。 */
+  troops: number
+  /** 武力，参与单挑结算。 */
+  might: number
+  /** 统率，参与编成与主将取用。 */
+  command: number
+  /** 智谋，参与战力结算。 */
+  intellect: number
+}
+
+/**
  * 战略点：领土与进攻的基本单位。
  * 不以行政级别为限，城市、关隘、野地皆可成为战略点。
  */
@@ -85,6 +102,11 @@ export interface Site {
   granary?: number
   /** 三项开发等级；剧本数据可省略，开局时补为全 0。 */
   development?: SiteDevelopment
+  /**
+   * 无主战略点凭险自守的守军；开局时补上，有主点不设。
+   * 独立于武将体系，进攻得胜占领时清除。
+   */
+  guard?: SiteGuard
 }
 
 /** 天下地理结构。 */
@@ -196,6 +218,43 @@ export interface Scenario {
   relations?: FactionRelation[]
 }
 
+/**
+ * 事件触发条件：只读既有状态，一组条件全满足才成为候选。
+ * `date` 按年号纪年与季节比较（不比较年号文本，当前只此一个年号）。
+ * `favor` 的 `below` 意为「小于」、`above` 意为「大于」。
+ */
+export type EventCondition =
+  | { kind: 'date'; from?: GameDate; to?: GameDate }
+  | { kind: 'factionAlive'; factionId: FactionId }
+  | { kind: 'relation'; factions: [FactionId, FactionId]; is: RelationKind }
+  | { kind: 'favor'; factions: [FactionId, FactionId]; below?: number; above?: number }
+  | { kind: 'resource'; factionId: FactionId; grainBelow?: number; moneyBelow?: number }
+
+/**
+ * 事件效果：一律转发给既有模块，只改现有字段，不借单个事件引入新机制。
+ * 新增一类效果须有对应机制，因此这里是固定词表而非可自由扩展的数据。
+ */
+export type EventEffect =
+  | { kind: 'setRelation'; factions: [FactionId, FactionId]; to: RelationKind }
+  | { kind: 'adjustFavor'; factions: [FactionId, FactionId]; delta: number }
+  | { kind: 'adjustGrain'; factionId: FactionId; delta: number }
+  | { kind: 'adjustMoney'; factionId: FactionId; delta: number }
+  | { kind: 'adjustLoyalty'; characterId: CharacterId; delta: number }
+  | { kind: 'adjustAffinity'; characterId: CharacterId; factionId: FactionId; delta: number }
+
+/** 一条事件：条件、权重、效果与文本皆为数据，新增事件只加数据、不改代码。 */
+export interface EventDefinition {
+  id: string
+  /** 触发时写入历史的一句话。 */
+  text: string
+  /** 触发一次后不再候选；缺省可反复触发，由条件自限。 */
+  once?: boolean
+  weight: number
+  /** 全部满足才成为候选。 */
+  conditions: EventCondition[]
+  effects: EventEffect[]
+}
+
 /** 玩家可执行的行动。 */
 export type ActionKind =
   | 'seekTalent'
@@ -218,8 +277,8 @@ export type ActionKind =
   | 'executeCaptive'
   | 'releaseCaptive'
 
-/** 写入历史的记录类型：行动之外，世界结算（如叛离）也占一条。 */
-export type ActionRecordKind = ActionKind | 'defect'
+/** 写入历史的记录类型：行动之外，世界结算（如叛离）与事件也各占一条。 */
+export type ActionRecordKind = ActionKind | 'defect' | 'event'
 
 /** 战报中一方的要点。 */
 export interface BattleReportSide {
@@ -290,8 +349,8 @@ export interface BattleReport {
 /** 一条行动记录：行动类型、势力、时间、目标与结果。 */
 export interface ActionRecord {
   kind: ActionRecordKind
-  /** 发起行动的势力。 */
-  factionId: FactionId
+  /** 发起行动的势力；天下大事这类不属任何势力的记录为空。 */
+  factionId: FactionId | null
   /** 行动发生的日期。 */
   date: GameDate
   /** 行动目标，如寻访所在的州；没有具体目标时为 null。 */
@@ -315,6 +374,8 @@ export interface GameState {
   captives: Record<FactionId, CaptiveRecord[]>
   /** 全局行动历史，按发生顺序追加，回合推进不清空。 */
   history: ActionRecord[]
+  /** 已触发过的一次性事件标识，避免条件长期成立时反复触发。 */
+  firedEvents: string[]
   /** 势力间的关系；未列出的势力对为中立。 */
   relations: FactionRelation[]
   playerFaction: FactionId

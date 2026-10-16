@@ -615,6 +615,26 @@ function ageText(age: number): string {
   return age < 20 ? '未冠' : `${age} 岁`
 }
 
+/** 数的中文写法；守军规模的粗算只在个位数千、个位数万之间取值。 */
+const SCALE_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'] as const
+
+/**
+ * 无主守军规模的定性说法：不足千作「不足千」，其余四舍五入到千，过万则四舍五入到万，
+ * 以中文数字表达（如 3000 → 约三千，12000 → 约一万）。只给粗数，不让玩家去算术。
+ */
+function guardScaleText(troops: number): string {
+  if (troops < 1000) {
+    return '不足千'
+  }
+
+  const thousands = Math.round(troops / 1000)
+  if (thousands < 10) {
+    return `约${SCALE_DIGITS[thousands]}千`
+  }
+
+  return `约${SCALE_DIGITS[Math.round(troops / 10000)]}万`
+}
+
 /** 武将的即战摘要：兵力（连同带兵上限）与四项能力。 */
 function officerSummaryText(character: Character): string {
   return `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
@@ -661,11 +681,27 @@ function renderSitePanel(
   const officers = state.characters.filter(
     (character) => isServing(character) && character.stationedSiteId === site.id,
   )
+  // 无主战略点凭险自守的守军：单独列一行，与驻守武将区分开。
+  const guardRows =
+    site.owner === null && site.guard !== undefined
+      ? [
+          createListItem(
+            'site-panel__guard',
+            `守军　${site.guard.name}，${guardScaleText(site.guard.troops)}`,
+          ),
+        ]
+      : []
+  // 有守军时不再报「无驻守武将」，免得与守军一行自相矛盾。
+  const officerRows =
+    officers.length > 0
+      ? officers.map((officer) => createListItem('site-panel__officer', officer.name))
+      : guardRows.length > 0
+        ? []
+        : [createListItem('site-panel__empty', '无驻守武将')]
 
   requireElement<HTMLElement>(panel, '.site-panel__officers').replaceChildren(
-    ...(officers.length === 0
-      ? [createListItem('site-panel__empty', '无驻守武将')]
-      : officers.map((officer) => createListItem('site-panel__officer', officer.name))),
+    ...officerRows,
+    ...guardRows,
   )
 
   requireElement<HTMLButtonElement>(panel, '[data-action="attack-here"]').hidden = !isAttackable(
@@ -1185,21 +1221,16 @@ function intelButtons(state: GameState, stage: BattleStage): HTMLButtonElement[]
 
   if (stage.mode === 'attack') {
     if (garrisonCommanderAt(state, stage.siteId) !== null) {
-      buttons.push(
-        stageButton(
-          `主将 ${characterNameOf(state, stage.party.commander)} 出马`,
-          'stage-pick',
-          stage.party.commander,
-        ),
-      )
-      if (stage.party.deputy != null) {
-        buttons.push(
-          stageButton(
-            `副将 ${characterNameOf(state, stage.party.deputy)} 出马`,
-            'stage-pick',
-            stage.party.deputy,
-          ),
-        )
+      // 与守方对称：出马者限编成中的主将或副将，君主不参与。
+      const roles: readonly [string, CharacterId | null | undefined][] = [
+        ['主将', stage.party.commander],
+        ['副将', stage.party.deputy],
+      ]
+      for (const [label, id] of roles) {
+        const member = id == null ? undefined : state.characters.find((item) => item.id === id)
+        if (member !== undefined && !member.isMonarch) {
+          buttons.push(stageButton(`${label} ${member.name} 出马`, 'stage-pick', member.id))
+        }
       }
     }
     buttons.push(stageButton('不单挑，直接开战', 'stage-fight'))
@@ -1841,7 +1872,7 @@ function renderAllCharacters(list: Element, state: GameState): number {
 }
 
 interface HistoryFactionGroup {
-  factionId: FactionId
+  factionId: FactionId | null
   outcomes: string[]
 }
 
@@ -1899,7 +1930,8 @@ function renderHistory(list: Element, state: GameState): void {
 
         const name = document.createElement('p')
         name.className = 'history__faction-name'
-        name.textContent = factionNames.get(faction.factionId) ?? faction.factionId
+        name.textContent =
+          faction.factionId === null ? '天下' : (factionNames.get(faction.factionId) ?? faction.factionId)
 
         const actions = document.createElement('ul')
         actions.className = 'history__actions'

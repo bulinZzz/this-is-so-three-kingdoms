@@ -65,6 +65,7 @@ describe('宣战', () => {
 
   it('已经敌对时被拒且不扣行动力', () => {
     const game = state()
+    game.relations = [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }]
     const apBefore = game.actionPoints.liubei
 
     const result = declareWar(game, 'caocao')
@@ -113,6 +114,7 @@ describe('停战与结盟', () => {
 
   it('好感达标且对方应允时转为中立', () => {
     const game = state()
+    game.relations = [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }]
     adjustFavor(game, 'liubei', 'caocao', 75)
     forceRollBelow(game, 0.5)
 
@@ -133,6 +135,7 @@ describe('停战与结盟', () => {
 
   it('敌对时不能结盟', () => {
     const game = state()
+    game.relations = [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 90 }]
 
     const result = alliance(game, 'caocao')
 
@@ -169,6 +172,8 @@ describe('索取', () => {
 
   it('对方拒绝时索不到粮，好感小幅下降', () => {
     const game = state()
+    // 好感低于中性时对方才倾向拒绝，据此取得稳定的拒绝结果。
+    game.relations = [{ factions: ['liubei', 'caocao'], kind: 'neutral', favor: 25 }]
     forceRollAbove(game, 0.99)
     const grainBefore = factionOf(game, 'liubei').grain
     const favorBefore = favorBetween(game, 'liubei', 'caocao')

@@ -73,6 +73,8 @@ function loopScenario(): Scenario {
       { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 10000 },
       { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 10000 },
     ],
+    // 本局验证交战，两家开局即敌对——进攻他方领地须先宣战。
+    relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
     geography: {
       provinces: [{ id: 'p', name: '州', owner: 'caocao' }],
       sites: [
@@ -145,6 +147,8 @@ describe('完整循环（无画面）', () => {
 
     session.endTurn()
 
+    // 他方本季可能已抢先占下赤壁；进攻他方领地，须先宣战。
+    expect(session.declareWar('caocao').ok).toBe(true)
     expect(session.attack({ commander: 'guanyu' }, 'chibi').ok).toBe(true)
 
     expect(siteOwner(state, 'chibi')).toBe('liubei')
@@ -154,7 +158,7 @@ describe('完整循环（无画面）', () => {
       state.history
         .filter((record) => record.factionId === state.playerFaction)
         .map((record) => record.kind),
-    ).toEqual(['seekTalent', 'recruit', 'attack'])
+    ).toEqual(['seekTalent', 'recruit', 'declareWar', 'attack'])
     expect(state.currentTurn).toBe(2)
   })
 
@@ -164,6 +168,7 @@ describe('完整循环（无画面）', () => {
       session.seekTalent('jiangxia')
       session.recruit('guanyu')
       session.endTurn()
+      session.declareWar('caocao')
       session.attack({ commander: 'guanyu' }, 'chibi')
       session.endTurn()
       session.seekTalent('chibi')
@@ -185,6 +190,7 @@ describe('完整循环（无画面）', () => {
       const reloaded = new GameSession(store, { drawSeed: 9 })
       expect(reloaded.loadSlot(1)).toBe(true)
       reloaded.endTurn()
+      reloaded.declareWar('caocao')
       reloaded.attack({ commander: 'guanyu' }, 'chibi')
       reloaded.seekTalent('chibi')
 
@@ -252,6 +258,8 @@ function j7Scenario(): Scenario {
       { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 100000 },
       { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 100000 },
     ],
+    // 本局验证交战与俘获，两家开局即敌对——进攻他方领地须先宣战。
+    relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
     geography: {
       provinces: [
         { id: 'p1', name: '州一', owner: null },
@@ -265,14 +273,25 @@ function j7Scenario(): Scenario {
       ],
     },
     characters: [
-      // 我方主力：兵力碾压乙城，可在单挑中取胜并攻下城池。
+      // 我方主力：兵力足以驻守乙城，使曹操不出兵来犯，链才走得直。
       serving({
         id: 'veteran',
         name: '宿将',
         factionId: 'liubei',
         stationedSiteId: 'a',
-        troops: 8000,
+        troops: 20000,
         might: 100,
+        command: 90,
+        loyalty: 95,
+        affinities: { liubei: 95 },
+      }),
+      // 留守：宿将出征后由它守住甲城，免得他方趁虚而入打断这条链。
+      serving({
+        id: 'warden',
+        name: '留守',
+        factionId: 'liubei',
+        stationedSiteId: 'a',
+        troops: 15000,
         command: 90,
         loyalty: 95,
         affinities: { liubei: 95 },

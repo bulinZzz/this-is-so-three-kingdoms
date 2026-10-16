@@ -2,7 +2,7 @@ import type { Character } from './model'
 
 /**
  * 建安十三年（208 年）的人物数据，按所在州分布，供寻访抽取。
- * 在仕者驻守各自势力的战略点并统率一支部队；不在三家之列的势力，其部属按在野处理。
+ * 九家势力的君主与部属各按本州落位、驻守自有战略点并统率一支部队；未出仕者按在野列入各州，供寻访。
  * 在野者标注寻访卡池层级：荆襄名士置于基础池，保证刘备据江夏时可在荆州寻得；名将置于高层。
  * 势力倾向记各将对各势力的偏好（0–100，50 为中性），只记非中性者；忠诚与性格另按人给定，与偏好无关。
  * 能力与兵力取自演义印象，年龄按史书推算，具体平衡待核心玩法验证后再调。
@@ -65,6 +65,33 @@ const RAW_CHARACTERS: Character[] = [
   { id: 'ganning', name: '甘宁', status: 'serving', factionId: 'sunquan', provinceId: 'yang', might: 92, command: 82, intellect: 72, politics: 40, age: 33, personality: 'brave', affinities: { sunquan: 68 }, loyalty: 80, isMonarch: false, stationedSiteId: 'danyang', troops: 4000, tier: null },
   { id: 'lumeng', name: '吕蒙', status: 'serving', factionId: 'sunquan', provinceId: 'yang', might: 81, command: 89, intellect: 84, politics: 78, age: 30, personality: 'scheming', affinities: { sunquan: 88 }, loyalty: 90, isMonarch: false, stationedSiteId: 'poyang', troops: 5000, tier: null },
 
+  // 刘璋（益州）
+  { id: 'liuzhang', name: '刘璋', status: 'serving', factionId: 'liuzhang', provinceId: 'yi', might: 42, command: 55, intellect: 65, politics: 72, age: 41, personality: 'cautious', affinities: { liuzhang: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'chengdu', troops: 8000, tier: null },
+  { id: 'huangquan', name: '黄权', status: 'serving', factionId: 'liuzhang', provinceId: 'yi', might: 55, command: 72, intellect: 85, politics: 82, age: 22, personality: 'steady', affinities: { liuzhang: 85, liubei: 62 }, loyalty: 84, isMonarch: false, stationedSiteId: 'jiangzhou', troops: 2000, tier: null },
+  { id: 'liyan', name: '李严', status: 'serving', factionId: 'liuzhang', provinceId: 'yi', might: 72, command: 78, intellect: 80, politics: 80, age: 30, personality: 'scheming', affinities: { liuzhang: 78, liubei: 62 }, loyalty: 80, isMonarch: false, stationedSiteId: 'fucheng', troops: 2000, tier: null },
+  { id: 'yanyan', name: '严颜', status: 'serving', factionId: 'liuzhang', provinceId: 'yi', might: 85, command: 82, intellect: 66, politics: 50, age: 58, personality: 'brave', affinities: { liuzhang: 82, liubei: 68 }, loyalty: 82, isMonarch: false, stationedSiteId: 'baidicheng', troops: 2000, tier: null },
+
+  // 马腾（关中）
+  { id: 'mateng', name: '马腾', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 84, command: 80, intellect: 58, politics: 62, age: 52, personality: 'brave', affinities: { mateng: 98, hansui: 58 }, loyalty: 100, isMonarch: true, stationedSiteId: 'changan', troops: 7000, tier: null },
+  { id: 'machao', name: '马超', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 97, command: 90, intellect: 55, politics: 40, age: 32, personality: 'brave', affinities: { mateng: 95, caocao: 45 }, loyalty: 88, isMonarch: false, stationedSiteId: 'wuzhangyuan', troops: 8000, tier: null },
+  { id: 'pangde', name: '庞德', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 94, command: 85, intellect: 62, politics: 45, age: 38, personality: 'steady', affinities: { mateng: 88, caocao: 72 }, loyalty: 82, isMonarch: false, stationedSiteId: 'chencang', troops: 4000, tier: null },
+
+  // 韩遂（陇右）
+  { id: 'hansui', name: '韩遂', status: 'serving', factionId: 'hansui', provinceId: 'liang', might: 74, command: 78, intellect: 76, politics: 66, age: 58, personality: 'scheming', affinities: { hansui: 98, mateng: 58 }, loyalty: 100, isMonarch: true, stationedSiteId: 'tianshui', troops: 7000, tier: null },
+  { id: 'yanxing', name: '阎行', status: 'serving', factionId: 'hansui', provinceId: 'liang', might: 86, command: 78, intellect: 58, politics: 45, age: 34, personality: 'brave', affinities: { hansui: 85 }, loyalty: 82, isMonarch: false, stationedSiteId: 'jieting', troops: 3000, tier: null },
+
+  // 公孙康（辽东）
+  { id: 'gongsunkang', name: '公孙康', status: 'serving', factionId: 'gongsunkang', provinceId: 'you', might: 62, command: 72, intellect: 66, politics: 70, age: 32, personality: 'cautious', affinities: { gongsunkang: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'xiangping', troops: 6000, tier: null },
+  { id: 'gongsungong', name: '公孙恭', status: 'serving', factionId: 'gongsunkang', provinceId: 'you', might: 52, command: 62, intellect: 60, politics: 64, age: 36, personality: 'steady', affinities: { gongsunkang: 90 }, loyalty: 84, isMonarch: false, stationedSiteId: 'xiangping', troops: 2000, tier: null },
+
+  // 张鲁（汉中）
+  { id: 'zhanglu', name: '张鲁', status: 'serving', factionId: 'zhanglu', provinceId: 'liang', might: 60, command: 70, intellect: 72, politics: 70, age: 38, personality: 'cautious', affinities: { zhanglu: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'hanzhong', troops: 8000, tier: null },
+  { id: 'yanpu', name: '阎圃', status: 'serving', factionId: 'zhanglu', provinceId: 'liang', might: 35, command: 58, intellect: 80, politics: 78, age: 40, personality: 'cautious', affinities: { zhanglu: 82 }, loyalty: 84, isMonarch: false, stationedSiteId: 'hanzhong', troops: 2000, tier: null },
+
+  // 士燮（交州）
+  { id: 'shixie', name: '士燮', status: 'serving', factionId: 'shixie', provinceId: 'jiao', might: 50, command: 68, intellect: 76, politics: 80, age: 71, personality: 'cautious', affinities: { shixie: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'longbian', troops: 5000, tier: null },
+  { id: 'shiyi', name: '士壹', status: 'serving', factionId: 'shixie', provinceId: 'jiao', might: 48, command: 60, intellect: 62, politics: 70, age: 56, personality: 'steady', affinities: { shixie: 90 }, loyalty: 86, isMonarch: false, stationedSiteId: 'hepu', troops: 2000, tier: null },
+
   // 在野（荆州）——荆襄名士置于基础池
   { id: 'huangzhong', name: '黄忠', status: 'wild', factionId: null, provinceId: 'jing', might: 93, command: 88, intellect: 62, politics: 45, age: 60, personality: 'brave', affinities: { liubei: 85 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'basic' },
   { id: 'weiyan', name: '魏延', status: 'wild', factionId: null, provinceId: 'jing', might: 90, command: 86, intellect: 72, politics: 40, age: 34, personality: 'proud', affinities: { liubei: 80 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'basic' },
@@ -79,21 +106,13 @@ const RAW_CHARACTERS: Character[] = [
   // 在野（司隶）
   { id: 'simayi', name: '司马懿', status: 'wild', factionId: null, provinceId: 'sili', might: 63, command: 90, intellect: 98, politics: 92, age: 29, personality: 'scheming', affinities: { caocao: 75 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'third' },
   // 在野（凉州）
-  { id: 'machao', name: '马超', status: 'wild', factionId: null, provinceId: 'liang', might: 97, command: 90, intellect: 55, politics: 40, age: 32, personality: 'brave', affinities: {}, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'third' },
-  { id: 'pangde', name: '庞德', status: 'wild', factionId: null, provinceId: 'liang', might: 94, command: 85, intellect: 62, politics: 45, age: 38, personality: 'steady', affinities: { caocao: 78 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
-  { id: 'madai', name: '马岱', status: 'wild', factionId: null, provinceId: 'liang', might: 82, command: 78, intellect: 62, politics: 45, age: 25, personality: 'steady', affinities: {}, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
-  { id: 'zhanglu', name: '张鲁', status: 'wild', factionId: null, provinceId: 'liang', might: 60, command: 70, intellect: 72, politics: 70, age: 38, personality: 'cautious', affinities: {}, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
-  { id: 'yanpu', name: '阎圃', status: 'wild', factionId: null, provinceId: 'liang', might: 35, command: 58, intellect: 80, politics: 78, age: 40, personality: 'cautious', affinities: {}, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'basic' },
+  { id: 'madai', name: '马岱', status: 'wild', factionId: null, provinceId: 'liang', might: 82, command: 78, intellect: 62, politics: 45, age: 25, personality: 'steady', affinities: { mateng: 82 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
   // 在野（益州）
   { id: 'fazheng', name: '法正', status: 'wild', factionId: null, provinceId: 'yi', might: 40, command: 70, intellect: 93, politics: 85, age: 32, personality: 'scheming', affinities: { liubei: 85 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'third' },
   { id: 'zhangsong', name: '张松', status: 'wild', factionId: null, provinceId: 'yi', might: 20, command: 40, intellect: 84, politics: 78, age: 38, personality: 'open', affinities: { liubei: 82 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
-  { id: 'huangquan', name: '黄权', status: 'wild', factionId: null, provinceId: 'yi', might: 55, command: 72, intellect: 85, politics: 82, age: 22, personality: 'steady', affinities: { liubei: 65 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
-  { id: 'liyan', name: '李严', status: 'wild', factionId: null, provinceId: 'yi', might: 72, command: 78, intellect: 80, politics: 80, age: 30, personality: 'scheming', affinities: { liubei: 62 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
-  { id: 'yanyan', name: '严颜', status: 'wild', factionId: null, provinceId: 'yi', might: 85, command: 82, intellect: 66, politics: 50, age: 58, personality: 'brave', affinities: { liubei: 68 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
-  // 在野（幽州、并州、交州）
+  // 在野（幽州、并州）
   { id: 'tianchou', name: '田畴', status: 'wild', factionId: null, provinceId: 'you', might: 50, command: 65, intellect: 82, politics: 80, age: 39, personality: 'steady', affinities: { caocao: 68 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
   { id: 'zhangyan', name: '张燕', status: 'wild', factionId: null, provinceId: 'bing', might: 80, command: 78, intellect: 62, politics: 55, age: 48, personality: 'brave', affinities: { caocao: 65 }, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
-  { id: 'shixie', name: '士燮', status: 'wild', factionId: null, provinceId: 'jiao', might: 50, command: 68, intellect: 76, politics: 80, age: 71, personality: 'cautious', affinities: {}, loyalty: 0, isMonarch: false, stationedSiteId: null, troops: 0, tier: 'second' },
 ]
 
 /** 能力起步的上限：与本色上限同为 100，载入时不再压缩数值，只作越界时的截断。 */

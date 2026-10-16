@@ -320,6 +320,12 @@
   color: #6f6250;
 }
 
+/* 无主守军一行：与空态同为平铺小字，稍亮以显其为具体情报。 */
+.site-panel__guard {
+  font-size: 12px;
+  color: #c8b081;
+}
+
 .order__body {
   display: flex;
   flex: 1;

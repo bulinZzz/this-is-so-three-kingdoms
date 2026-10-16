@@ -11,12 +11,15 @@ export const SANGUO_208: Scenario = {
     { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 20000, money: 20000 },
     { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 6000, money: 3000 },
     { id: 'sunquan', name: '孙权', color: '#b0413e', grain: 12000, money: 10000 },
+    { id: 'liuzhang', name: '刘璋', color: '#7d5ba6', grain: 14000, money: 9000 },
+    { id: 'mateng', name: '马腾', color: '#c05a2e', grain: 6000, money: 3000 },
+    { id: 'hansui', name: '韩遂', color: '#7a8a3c', grain: 6000, money: 3000 },
+    { id: 'gongsunkang', name: '公孙康', color: '#2f8f8f', grain: 5000, money: 3000 },
+    { id: 'shixie', name: '士燮', color: '#a84f78', grain: 6000, money: 3500 },
+    { id: 'zhanglu', name: '张鲁', color: '#c8a03c', grain: 7000, money: 5000 },
   ],
-  relations: [
-    { factions: ['liubei', 'sunquan'], kind: 'ally', favor: 70 },
-    { factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 },
-    { factions: ['caocao', 'sunquan'], kind: 'hostile', favor: 25 },
-  ],
+  // 开局无战事：只保留孙刘同盟，其余势力对一律中立，战火由玩家的宣战点燃。
+  relations: [{ factions: ['liubei', 'sunquan'], kind: 'ally', favor: 70 }],
   geography: GEOGRAPHY_SANGUO,
   characters: CHARACTERS_SANGUO,
 }

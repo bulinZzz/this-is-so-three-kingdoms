@@ -14,12 +14,13 @@ import {
 import { SANGUO_208 } from '../src/core/scenarios'
 
 describe('势力关系', () => {
-  it('开局关系取自剧本：刘孙同盟，刘曹与曹孙敌对', () => {
+  it('开局关系取自剧本：孙刘同盟，其余一律中立', () => {
     const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
 
     expect(areAllied(state, 'liubei', 'sunquan')).toBe(true)
-    expect(areHostile(state, 'liubei', 'caocao')).toBe(true)
-    expect(areHostile(state, 'caocao', 'sunquan')).toBe(true)
+    expect(areHostile(state, 'liubei', 'caocao')).toBe(false)
+    expect(areHostile(state, 'caocao', 'sunquan')).toBe(false)
+    expect(relationBetween(state, 'liubei', 'caocao')).toBe(NEUTRAL)
     // 关系对称：反过来查也是同一结果。
     expect(relationBetween(state, 'sunquan', 'liubei')).toBe('ally')
   })
@@ -60,9 +61,10 @@ describe('好感与状态', () => {
 
     setRelation(state, 'liubei', 'caocao', 'neutral')
     expect(relationBetween(state, 'liubei', 'caocao')).toBe('neutral')
-    expect(favorBetween(state, 'liubei', 'caocao')).toBe(25)
+    expect(favorBetween(state, 'liubei', 'caocao')).toBe(NEUTRAL_FAVOR)
 
-    setRelation(state, 'liubei', 'sunquan', 'ally')
+    setRelation(state, 'caocao', 'sunquan', 'hostile')
+    expect(relationBetween(state, 'liubei', 'sunquan')).toBe('ally')
     expect(areAllied(state, 'liubei', 'sunquan')).toBe(true)
   })
 })

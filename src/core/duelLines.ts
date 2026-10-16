@@ -1,3 +1,4 @@
+import { guardResponseLineOf } from './guards'
 import type { Character, CharacterId, Personality } from './model'
 
 /** 名将出马时的挑战台词，按武将 id；不在名单里者按性格出通用台词。 */
@@ -66,7 +67,12 @@ export function duelLineOf(character: Character): string {
   return NAMED_CHALLENGES[character.id] ?? PERSONALITY_CHALLENGES[character.personality]
 }
 
-/** 某武将应战时的回话。 */
+/** 某武将应战时的回话；守军头目按名号另出一句，不入寻常武将的名单与性格之分。 */
 export function duelResponseLineOf(character: Character): string {
+  const guardLine = guardResponseLineOf(character)
+  if (guardLine !== null) {
+    return guardLine
+  }
+
   return NAMED_RESPONSES[character.id] ?? PERSONALITY_RESPONSES[character.personality]
 }

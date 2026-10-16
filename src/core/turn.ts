@@ -2,6 +2,7 @@ import { ACTION_POINTS_PER_TURN } from './actions'
 import type { DefenseChoice } from './battle'
 import { growAges } from './characters'
 import { growPopulation, settleGrain, settleMoney } from './economy'
+import { fireEvents } from './events'
 import { factionTurnStream, runFactionTurns, type FactionTurnSignal } from './factionAi'
 import { growTroopLimits } from './military'
 import type { FactionId, GameState, Season } from './model'
@@ -12,8 +13,8 @@ const SEASONS: readonly Season[] = ['spring', 'summer', 'autumn', 'winter']
 
 /**
  * 结束当前回合，进入下一个季节，冬季之后跨入下一年的春季；当季行动力恢复为预算，
- * 武将的行动次数一并重置，各势力结算粮食（各点运回减军粮）与金钱收入、
- * 各战略点人口与存粮缓增、在仕武将的带兵上限随季小幅提高，跨年时全体武将年龄加一。
+ * 武将的行动次数一并重置，随即按数据求值一次本季事件，各势力结算粮食（各点运回减军粮）
+ * 与金钱收入、各战略点人口与存粮缓增、在仕武将的带兵上限随季小幅提高，跨年时全体武将年龄加一。
  * 兵力不随季增长——兵只从征兵来。行动历史跨回合保留。
  */
 export function advanceTurn(state: GameState): void {
@@ -32,6 +33,7 @@ export function advanceTurn(state: GameState): void {
     state.currentDate.season = SEASONS[index + 1]
   }
 
+  fireEvents(state)
   settleGrain(state)
   settleMoney(state)
   growPopulation(state)

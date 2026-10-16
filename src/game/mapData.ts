@@ -43,6 +43,9 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
 
   // 幽州
   jicheng: [116.4, 39.9],
+  // 幽州（辽西、辽东）
+  liucheng: [120.45, 41.55],
+  xiangping: [123.17, 41.28],
 
   // 扬州
   shouchun: [117.16, 32.58],
@@ -88,6 +91,9 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
 
   // 交州
   panyu: [113.26, 23.13],
+  hepu: [109.2, 21.66],
+  longbian: [106.0, 21.1],
+  jiuzhen: [106.4, 20.0],
 }
 
 /**
