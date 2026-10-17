@@ -756,15 +756,13 @@ function renderSitePanel(
           ),
         ]
       : []
-  // 有守军时不再报「无驻守武将」，免得与守军一行自相矛盾；野地无人烟，谈不上驻守。
+  // 有守军时不再报「无驻守武将」，免得与守军一行自相矛盾；野地无归属，驻在其上的人马一样列出来。
   const officerRows =
-    site.type === 'field'
-      ? []
-      : officers.length > 0
-        ? officers.map((officer) => createListItem('site-panel__officer', officer.name))
-        : guardRows.length > 0
-          ? []
-          : [createListItem('site-panel__empty', '无驻守武将')]
+    officers.length > 0
+      ? officers.map((officer) => createListItem('site-panel__officer', officer.name))
+      : guardRows.length > 0
+        ? []
+        : [createListItem('site-panel__empty', '无驻守武将')]
 
   requireElement<HTMLElement>(panel, '.site-panel__officers').replaceChildren(
     ...officerRows,

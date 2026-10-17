@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GEOGRAPHY_SANGUO } from '../src/core/geographySanguo'
+import { GEOGRAPHY_SANGUO_NEW } from '../src/core/geographySanguoNew'
 import type { SiteId } from '../src/core/model'
 import mapBounds from '../src/game/mapBounds.json'
 import { MAP_VERTICES, PROVINCE_OUTLINES, RIVER_LINES } from '../src/game/mapData'
@@ -113,8 +114,11 @@ function isContiguous(ring: readonly string[], common: ReadonlySet<string>): boo
 }
 
 describe('地图布局', () => {
+  // 两张版图共用同一份坐标表，故一并核对；同一战略点在两张图上只作一处。
+  const allSites = [...new Map([...GEOGRAPHY_SANGUO.sites, ...GEOGRAPHY_SANGUO_NEW.sites].map((site) => [site.id, site])).values()]
+
   it('剧本中每个战略点都有地理坐标，且没有多余坐标', () => {
-    const expected = GEOGRAPHY_SANGUO.sites.map((site) => site.id).sort()
+    const expected = allSites.map((site) => site.id).sort()
 
     expect(siteIdsWithLayout().sort()).toEqual(expected)
   })
@@ -122,7 +126,7 @@ describe('地图布局', () => {
   it('每个战略点都落在所属州的轮廓内', () => {
     const shapes = new Map(provinceShapes().map((shape) => [shape.id, shape]))
 
-    for (const site of GEOGRAPHY_SANGUO.sites) {
+    for (const site of allSites) {
       const shape = shapes.get(site.provinceId)
       expect(shape, `缺少 ${site.provinceId} 的轮廓`).toBeDefined()
       const inside = (shape?.polygons ?? []).some((polygon) => isInside(regionOf(site.id), polygon))

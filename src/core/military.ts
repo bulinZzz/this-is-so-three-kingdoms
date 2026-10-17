@@ -259,7 +259,32 @@ export function stationAdjacentTo(
 }
 
 /**
- * 调动：把一批武将及其部队移到相邻的自有战略点。
+ * 某战略点是否可作指定势力的调动目的地：自有战略点，或没有他方驻军的野地。
+ * 野地无归属，空着就能进驻；驻有他方人马则须先以进攻逐走（中立与同盟的驻军也动不得），
+ * 自己的驻军不妨碍增援。
+ */
+function canStationAt(state: GameState, targetSiteId: SiteId, factionId: FactionId): boolean {
+  const target = state.geography.sites.find((site) => site.id === targetSiteId)
+  if (target === undefined) {
+    return false
+  }
+  if (target.owner !== null) {
+    return target.owner === factionId
+  }
+
+  return (
+    target.type === 'field' &&
+    !state.characters.some(
+      (character) =>
+        isServing(character) &&
+        character.stationedSiteId === target.id &&
+        character.factionId !== factionId,
+    )
+  )
+}
+
+/**
+ * 调动：把一批武将及其部队移到相邻的一处可进驻之地（自有战略点，或没有他方驻军的野地）。
  * 参战者须驻守在与目标相邻的自有战略点、本季未行动；每名武将每季至多调动或进攻一次。
  */
 export function transfer(
@@ -281,8 +306,8 @@ export function transfer(
       if (target === null) {
         return '目标战略点不存在'
       }
-      if (target.owner !== factionId) {
-        return '目标不是自有战略点'
+      if (!canStationAt(current, targetSiteId, factionId)) {
+        return '目标不是自有战略点，也不是可进驻的野地'
       }
       if (characters.length === 0) {
         return '没有可调动的武将'
@@ -323,18 +348,17 @@ export function transfer(
   })
 }
 
-/** 该战略点是否可作为调动目标：自有，且至少有一个自有战略点与它相邻。 */
+/** 该战略点是否可作为玩家调动的目标：可进驻，且至少有一个自有战略点与它相邻。 */
 export function isTransferTarget(state: GameState, targetSiteId: SiteId): boolean {
-  const target = state.geography.sites.find((site) => site.id === targetSiteId)
-  if (target === undefined || target.owner !== state.playerFaction) {
+  if (!canStationAt(state, targetSiteId, state.playerFaction)) {
     return false
   }
 
   return state.geography.sites.some(
     (site) =>
-      site.id !== target.id &&
+      site.id !== targetSiteId &&
       site.owner === state.playerFaction &&
-      site.neighbors.includes(target.id),
+      site.neighbors.includes(targetSiteId),
   )
 }
 

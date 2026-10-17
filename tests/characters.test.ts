@@ -21,6 +21,8 @@ const GEOGRAPHY: Geography = {
   sites: [
     { id: 'jiangxia', name: '江夏', type: 'city', population: 80000, provinceId: 'jing', owner: 'liubei', neighbors: [] },
     { id: 'xudu', name: '许都', type: 'city', population: 120000, provinceId: 'yu', owner: 'caocao', neighbors: [] },
+    // 野地无归属，任何势力都可驻守。
+    { id: 'dangyang', name: '当阳', type: 'field', population: 0, provinceId: 'jing', owner: null, neighbors: [] },
   ],
 }
 
@@ -166,6 +168,16 @@ describe('validateCharacters', () => {
         GEOGRAPHY,
       ),
     ).toContain('武将 a 的驻地 xudu 不属于其势力')
+  })
+
+  it('野地无归属，在仕者驻在野地不算越界', () => {
+    expect(
+      validateCharacters(
+        [character({ status: 'serving', factionId: 'liubei', stationedSiteId: 'dangyang' })],
+        FACTION_IDS,
+        GEOGRAPHY,
+      ),
+    ).toEqual([])
   })
 
   it('在野或退场武将不应隶属势力', () => {

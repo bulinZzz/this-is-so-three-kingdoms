@@ -52,7 +52,7 @@ const AGE_MAX = 100
 
 /**
  * 校验人物数据是否自洽：标识唯一、所在州存在、能力数值齐备、年龄在范围内、性格为既定标签、
- * 倾向指向的势力存在且偏好合法，在仕者必有有效势力与自有驻地、君主唯一，
+ * 倾向指向的势力存在且偏好合法，在仕者必有有效势力与驻地、驻地须是可去之处、君主唯一，
  * 在野与退场者不隶属势力也无驻地。返回全部问题，为空表示数据可用。
  */
 export function validateCharacters(
@@ -65,6 +65,7 @@ export function validateCharacters(
   const factionIdSet = new Set(factionIds)
   const provinceIdSet = new Set(geography.provinces.map((province) => province.id))
   const siteOwner = new Map(geography.sites.map((site) => [site.id, site.owner]))
+  const siteType = new Map(geography.sites.map((site) => [site.id, site.type]))
   const monarchCounts = new Map<FactionId, number>()
 
   for (const character of characters) {
@@ -144,7 +145,8 @@ export function validateCharacters(
         problems.push(`在仕武将 ${character.id} 没有驻地`)
       } else if (!siteOwner.has(station)) {
         problems.push(`武将 ${character.id} 的驻地不存在：${station}`)
-      } else if (siteOwner.get(station) !== character.factionId) {
+      } else if (siteOwner.get(station) !== character.factionId && siteType.get(station) !== 'field') {
+        // 野地无归属，任何势力都可驻军；城池与关隘则须为本方所有，借驻他处不算。
         problems.push(`武将 ${character.id} 的驻地 ${station} 不属于其势力`)
       }
 

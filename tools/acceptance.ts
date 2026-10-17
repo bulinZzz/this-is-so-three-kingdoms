@@ -106,9 +106,9 @@ function siteOf(state: GameState, siteId: SiteId): Site {
   return site
 }
 
-/** 守方战力（不含随机浮动），直接取接战守军的战力要素。 */
+/** 守方战力（不含随机浮动），直接取接战守军的战力要素，含其据点的防守补正。 */
 function defenderPowerOf(state: GameState, siteId: SiteId): number {
-  return battlePower(garrisonAt(state, siteId).side, { defending: true })
+  return battlePower(garrisonAt(state, siteId).side, { defendingAt: siteOf(state, siteId).type })
 }
 
 /** 就该目标排出的最小可用编成：主将取统率最高，兵力不足时依次加副将、军师。 */

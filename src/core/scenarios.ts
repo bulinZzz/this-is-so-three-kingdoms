@@ -1,5 +1,7 @@
 import { CHARACTERS_SANGUO } from './charactersSanguo'
+import { CHARACTERS_SANGUO_NEW } from './charactersSanguoNew'
 import { GEOGRAPHY_SANGUO } from './geographySanguo'
+import { GEOGRAPHY_SANGUO_NEW } from './geographySanguoNew'
 import type { Character, FactionId, Geography, Scenario, SiteId } from './model'
 
 export const SANGUO_208: Scenario = {
@@ -23,6 +25,30 @@ export const SANGUO_208: Scenario = {
   relations: [{ factions: ['liubei', 'sunquan'], kind: 'ally', favor: 70 }],
   geography: GEOGRAPHY_SANGUO,
   characters: CHARACTERS_SANGUO,
+}
+
+/**
+ * 「建安十三年（新）」：从头重做的版图，同一个时刻与秋季开局，逐点搭建。
+ * 势力沿用旧版并另立荆南一家，关系沿用旧版，地理与人物逐个补入，眼下只立起荆州一隅；
+ * 两版并存，新图建齐后再撤旧图。
+ */
+export const SANGUO_208_NEW: Scenario = {
+  id: 'sanguo-208-new',
+  name: '建安十三年（新）',
+  startDate: { era: '建安', year: 13, season: 'autumn' },
+  playerFaction: 'liubei',
+  factions: [
+    ...SANGUO_208.factions.map((faction) => ({ ...faction })),
+    // 荆南四郡自成一家，不并入曹操；刘备南下取四郡时北军不会来救（见地理数据说明）。
+    { id: 'jingnan', name: '荆南', color: '#6b7a8f', grain: 8000, money: 5000 },
+  ],
+  // 开局无战事：孙刘同盟沿用旧版，其余势力对一律中立，战火由玩家的宣战点燃。
+  relations: (SANGUO_208.relations ?? []).map((relation) => ({
+    ...relation,
+    factions: [...relation.factions] as [FactionId, FactionId],
+  })),
+  geography: GEOGRAPHY_SANGUO_NEW,
+  characters: CHARACTERS_SANGUO_NEW,
 }
 
 /** 验收开局截取的战略点，取自正式地理数据，邻接关系随之。 */
@@ -151,4 +177,4 @@ export const SANGUO_ACCEPTANCE: Scenario = {
 }
 
 /** 可供开局选择的剧本。 */
-export const SCENARIOS: readonly Scenario[] = [SANGUO_208, SANGUO_ACCEPTANCE]
+export const SCENARIOS: readonly Scenario[] = [SANGUO_208, SANGUO_208_NEW, SANGUO_ACCEPTANCE]

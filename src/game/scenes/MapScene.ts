@@ -33,7 +33,7 @@ export interface MapStateSource {
 }
 
 /** 开局视野对准玩家所在的战略点，坐标直接取自战略点数据，不另存一份。 */
-const FOCUS_SITE: SiteId = 'jiangxia'
+const FOCUS_SITE: SiteId = 'gongan'
 /**
  * 开局缩放相对「整幅可见」的倍数。
  * 开局视野以整幅可见为基准，再夹进铺满视口的缩放范围。

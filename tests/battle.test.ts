@@ -11,6 +11,7 @@ import {
   duel,
   duelAnswererAt,
   duelHeadline,
+  defenderFactionAt,
   garrisonAt,
   garrisonCommanderAt,
   isAttackable,
@@ -21,7 +22,7 @@ import {
 import { takeCaptive } from '../src/core/captives'
 import { createInitialState } from '../src/core/createInitialState'
 import { declareWar } from '../src/core/diplomacy'
-import { attackGrainCost, hasActedThisTurn, markActed } from '../src/core/military'
+import { attackGrainCost, hasActedThisTurn, isTransferTarget, markActed, transfer } from '../src/core/military'
 import type { BattleReport, Character, GameState, Scenario } from '../src/core/model'
 import type { Random } from '../src/core/random'
 import { beginTurn, endTurn } from '../src/core/turn'
@@ -146,8 +147,12 @@ function warState(seed = 208): GameState {
 describe('战力计算', () => {
   const side = { troops: 1000, intellect: 50, morale: MORALE_FULL }
 
-  it('守方获得防守补正', () => {
-    expect(battlePower(side, { defending: true })).toBeCloseTo(battlePower(side) * 1.2)
+  it('守方按其据点类型获得防守补正：野地无险可依，关隘与都会最坚', () => {
+    expect(battlePower(side, { defendingAt: 'field' })).toBeCloseTo(battlePower(side))
+    expect(battlePower(side, { defendingAt: 'town' })).toBeCloseTo(battlePower(side) * 1.1)
+    expect(battlePower(side, { defendingAt: 'city' })).toBeCloseTo(battlePower(side) * 1.2)
+    expect(battlePower(side, { defendingAt: 'pass' })).toBeCloseTo(battlePower(side) * 1.3)
+    expect(battlePower(side, { defendingAt: 'metropolis' })).toBeCloseTo(battlePower(side) * 1.3)
   })
 
   it('智谋或士气越高，战力越强', () => {
@@ -522,6 +527,132 @@ describe('进攻', () => {
 
     const after = state.geography.sites.map((site) => ({ id: site.id, neighbors: [...site.neighbors] }))
     expect(after).toEqual(before)
+  })
+})
+
+describe('野地', () => {
+  /**
+   * 己方城池甲与一片相邻的无归属野地丙的最小对局。
+   * 野地并入行军图：可驻军、可作调动与进攻的目标，但不入任何势力的版图。
+   * `garrison` 指定野地驻军属于哪一方，取 null 表示无人驻守。
+   */
+  function fieldScene(garrison: 'caocao' | 'liubei' | null): GameState {
+    const holder: Character | null =
+      garrison === null
+        ? null
+        : {
+            id: 'holder',
+            name: '野地守将',
+            status: 'serving',
+            factionId: garrison,
+            provinceId: 'jing',
+            might: 70,
+            command: 70,
+            intellect: 50,
+            politics: 50,
+            age: 40,
+            personality: 'steady',
+            affinities: garrison === 'caocao' ? { caocao: 90 } : { liubei: 90 },
+            loyalty: 90,
+            isMonarch: false,
+            stationedSiteId: 'f',
+            troops: 1000,
+            tier: null,
+          }
+
+    const scenario: Scenario = {
+      id: 'field-test',
+      name: '野地测试',
+      startDate: { era: '建安', year: 13, season: 'autumn' },
+      playerFaction: 'liubei',
+      factions: [
+        { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 100000 },
+        { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 100000 },
+      ],
+      relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
+      geography: {
+        provinces: [{ id: 'jing', name: '荆州', owner: null }],
+        sites: [
+          { id: 'a', name: '甲', type: 'city', population: 50000, provinceId: 'jing', owner: 'liubei', neighbors: ['f'] },
+          { id: 'f', name: '野地', type: 'field', population: 0, provinceId: 'jing', owner: null, neighbors: ['a'] },
+          // 曹操得有一处据点，否则名下无地会被判为已离场，敌对关系随之失效。
+          { id: 'b', name: '乙', type: 'city', population: 50000, provinceId: 'jing', owner: 'caocao', neighbors: [] },
+        ],
+      },
+      characters: [
+        {
+          id: 'attacker',
+          name: '攻将',
+          status: 'serving',
+          factionId: 'liubei',
+          provinceId: 'jing',
+          might: 80,
+          command: 80,
+          intellect: 50,
+          politics: 50,
+          age: 40,
+          personality: 'steady',
+          affinities: { liubei: 90 },
+          loyalty: 90,
+          isMonarch: false,
+          stationedSiteId: 'a',
+          troops: 10000,
+          tier: null,
+        },
+        ...(holder === null ? [] : [holder]),
+      ],
+    }
+
+    return createInitialState({ scenario, seed: 208 })
+  }
+
+  it('守方势力取自归属：城池看归属，野地看驻军', () => {
+    const empty = fieldScene(null)
+    const held = fieldScene('caocao')
+
+    expect(defenderFactionAt(empty, siteOf(empty, 'a'))).toBe('liubei')
+    expect(defenderFactionAt(empty, siteOf(empty, 'f'))).toBe(null)
+    expect(defenderFactionAt(held, siteOf(held, 'f'))).toBe('caocao')
+  })
+
+  it('空野地无仗可打，却可作调动目标', () => {
+    const state = fieldScene(null)
+
+    expect(isAttackable(state, 'f')).toBe(false)
+    expect(isTransferTarget(state, 'f')).toBe(true)
+  })
+
+  it('野地驻有他方人马时可进攻，但不能直接调动', () => {
+    const state = fieldScene('caocao')
+
+    expect(isAttackable(state, 'f')).toBe(true)
+    expect(isTransferTarget(state, 'f')).toBe(false)
+    expect(transfer(state, ['attacker'], 'f')).toEqual({
+      ok: false,
+      reason: '目标不是自有战略点，也不是可进驻的野地',
+    })
+  })
+
+  it('野地驻有己方人马时不可进攻，却可派兵增援', () => {
+    const state = fieldScene('liubei')
+
+    expect(isAttackable(state, 'f')).toBe(false)
+    expect(isTransferTarget(state, 'f')).toBe(true)
+    expect(transfer(state, ['attacker'], 'f').ok).toBe(true)
+    expect(characterOf(state, 'attacker').stationedSiteId).toBe('f')
+  })
+
+  it('攻下野地只逐走守军：归属不变，胜方仍旧进驻', () => {
+    const state = fieldScene('caocao')
+    const result = attack(state, { commander: 'attacker' }, 'f')
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.record.outcome).toContain('击破 野地 守军')
+      expect(result.record.battle?.attackerWins).toBe(true)
+    }
+    expect(siteOf(state, 'f').owner).toBe(null)
+    expect(characterOf(state, 'attacker').stationedSiteId).toBe('f')
   })
 })
 

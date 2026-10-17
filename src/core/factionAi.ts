@@ -4,6 +4,7 @@ import {
   attack,
   attackCandidates,
   battlePower,
+  defenderFactionAt,
   garrisonAt,
   isAttackable,
   partySide,
@@ -156,7 +157,7 @@ function* attackOnce(
         cost: attackGrainCost(side.troops),
         // 守军的实力无从确知：按估计值来比，我方也就有判断失误的余地。
         defence: estimateOf(
-          battlePower(garrisonAt(state, site.id).side, { defending: true }),
+          battlePower(garrisonAt(state, site.id).side, { defendingAt: site.type }),
           random,
         ),
       }
@@ -181,7 +182,8 @@ function* attackOnce(
   state.randomState = random.getState()
   const party = challenger === null ? plan.party : { ...plan.party, challenger }
 
-  if (plan.site.owner !== state.playerFaction) {
+  // 目标由玩家守御时（含驻在野地上的守军）暂停，先让界面定下迎战编成与是否单挑，再把这一战的结果交回。
+  if (defenderFactionAt(state, plan.site) !== state.playerFaction) {
     attack(state, party, plan.site.id, factionId)
     return
   }

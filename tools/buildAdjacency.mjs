@@ -1,14 +1,16 @@
 // 战略点邻接推导器
 //
-// 依据 src/game/mapData.ts 中的 SITE_COORDINATES，按 Gabriel 图推导可占战略点的相邻关系：
-// 两点相邻，当且仅当没有第三个可占战略点落在以这两点为直径的圆内。
+// 依据 src/game/mapData.ts 中的 SITE_COORDINATES，按 Gabriel 图推导战略点的相邻关系：
+// 两点相邻，当且仅当没有第三个参与推导的战略点落在以这两点为直径的圆内。
 // 邻接表按投影距离升序排列。
 //
-// 野地是无归属的公共区域，不属于行军图：既不作节点，也不作阻挡。
-// 故两城之间纵有野地，仍可直接行军。
+// 参与推导的节点取自被推导的那份地理数据：只有在它里面登记、且在 SITE_COORDINATES 里有坐标的点才入图。
+// 野地默认不入图——旧图里野地是无归属的公共区域，两城之间纵有野地仍可直接行军，故它既不作节点也不作阻挡；
+// 新图里野地可参与行军，传 `--fields` 令野地一并入图。
 //
-// 本脚本只打印结果，不修改任何文件；运行时不依赖 Phaser。
-// 运行：node tools/buildAdjacency.mjs
+// 本脚本只打印结果，不修改任何文件；运行时不依赖 Phaser。运行：
+//   node tools/buildAdjacency.mjs                                                       # 旧图
+//   node tools/buildAdjacency.mjs geographySanguoNew GEOGRAPHY_SANGUO_NEW --fields      # 新图，野地入图
 //
 // Node 无法直接加载 src/game/mapLayout.ts（其内部为无扩展名的相对导入），
 // 故此处复制该模块的投影参数，取值与 src/game/mapLayout.ts 保持一致。
@@ -18,15 +20,23 @@ import { readFileSync } from 'node:fs'
 /**
  * 强制相邻的战略点对：几何规则（Gabriel 图）之外，因史实需要必须连通的两点。
  * 每项为 [点甲, 点乙]，并在注释中说明理由；这些点对无条件写入邻接表，不再受几何约束。
+ * 只对已入图的点生效：引用未入图的点即跳过，故同一张表可为不同 geography 复用。
  */
 const FORCED_EDGES = [
   // 零陵与武陵同属荆南，湘江与沅水水道相通；长沙落在两点直径圆内，仅凭几何会误判为不相邻。
   ['lingling', 'wuling'],
+  // 公安与彝陵同临长江，水路相通；江陵落在两点直径圆内，仅凭几何会误判为不相邻。
+  ['gongan', 'yiling'],
+  // 武陵与彝陵同临长江，入荆南多取此道；江陵落在两点直径圆内，仅凭几何会误判为不相邻。
+  ['wuling', 'yiling'],
+  // 公安与长沙由长江转洞庭湖入湘江相通，荆南不必只从武陵一处进入；武陵落在两点直径圆内（擦边），仅凭几何会误判为不相邻。
+  ['gongan', 'changsha'],
 ]
 
 /**
  * 强制不相邻的战略点对：几何上无第三点阻挡，但两地之间隔着秦岭、巴山，并无直接通道。
  * 每项为 [点甲, 点乙]，并在注释中说明理由；这些点对从邻接表中删除。
+ * 与强制相邻同理，只对已入图的点生效。
  */
 const EXCLUDED_EDGES = [
   // 长安在关中、白帝城在巴东，中隔秦岭与大巴山，须经汉中或葭萌关绕行。
@@ -79,17 +89,29 @@ function evaluateObject(block) {
   return new Function(`return ${object}`)()
 }
 
+// 被推导的地理模块与导出名取自命令行，缺省为旧图；`--fields` 令野地一并入图。
+const [geographyModule = 'geographySanguo', geographyExport = 'GEOGRAPHY_SANGUO'] =
+  process.argv.slice(2)
+const includeFields = process.argv.includes('--fields')
+
 const mapData = readFileSync(new URL('../src/game/mapData.ts', import.meta.url), 'utf8')
-const geographySource = readFileSync(new URL('../src/core/geographySanguo.ts', import.meta.url), 'utf8')
+const geographySource = readFileSync(
+  new URL(`../src/core/${geographyModule}.ts`, import.meta.url),
+  'utf8',
+)
 
 const coordinates = evaluateObject(extractBlock(mapData, 'SITE_COORDINATES'))
-const geography = evaluateObject(extractBlock(geographySource, 'GEOGRAPHY_SANGUO'))
+const geography = evaluateObject(extractBlock(geographySource, geographyExport))
 
 const names = new Map(geography.sites.map((site) => [site.id, site.name]))
+const siteIds = new Set(geography.sites.map((site) => site.id))
 const fieldIds = new Set(
   geography.sites.filter((site) => site.type === 'field').map((site) => site.id),
 )
-const ids = Object.keys(coordinates).filter((id) => !fieldIds.has(id))
+// 按 mapData 的书写顺序取节点，输出才稳定可比。
+const ids = Object.keys(coordinates).filter(
+  (id) => siteIds.has(id) && (includeFields || !fieldIds.has(id)),
+)
 
 const projected = new Map(ids.map((id) => [id, projectLonLat(coordinates[id])]))
 const pixelDistance = (a, b) => {
@@ -124,16 +146,12 @@ function buildAdjacency() {
     }
   }
   for (const [u, v] of FORCED_EDGES) {
-    if (!adjacency.has(u) || !adjacency.has(v)) {
-      throw new Error(`强制相邻引用了未知战略点：${u} - ${v}`)
-    }
+    if (!adjacency.has(u) || !adjacency.has(v)) continue
     if (!adjacency.get(u).includes(v)) adjacency.get(u).push(v)
     if (!adjacency.get(v).includes(u)) adjacency.get(v).push(u)
   }
   for (const [u, v] of EXCLUDED_EDGES) {
-    if (!adjacency.has(u) || !adjacency.has(v)) {
-      throw new Error(`强制不相邻引用了未知战略点：${u} - ${v}`)
-    }
+    if (!adjacency.has(u) || !adjacency.has(v)) continue
     const listU = adjacency.get(u)
     const listV = adjacency.get(v)
     const indexU = listU.indexOf(v)
@@ -149,6 +167,7 @@ function buildAdjacency() {
 
 const adjacency = buildAdjacency()
 
+console.log(`地理数据：${geographyModule}.ts 的 ${geographyExport}；节点 ${ids.length} 个`)
 for (const id of ids) {
   const list = adjacency.get(id)
   console.log(`${names.get(id) ?? '?'} ${id}`)
@@ -161,20 +180,24 @@ for (const id of ids) {
 const edgeCount = ids.reduce((sum, id) => sum + adjacency.get(id).length, 0) / 2
 console.log(`总边数：${edgeCount}`)
 
-const start = 'xinye'
-const visited = new Set([start])
-const queue = [start]
-while (queue.length > 0) {
-  const current = queue.shift()
-  for (const neighbor of adjacency.get(current) ?? []) {
-    if (!visited.has(neighbor)) {
-      visited.add(neighbor)
-      queue.push(neighbor)
+const start = ids[0]
+if (start === undefined) {
+  console.log('没有可参与推导的战略点')
+} else {
+  const visited = new Set([start])
+  const queue = [start]
+  while (queue.length > 0) {
+    const current = queue.shift()
+    for (const neighbor of adjacency.get(current) ?? []) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor)
+        queue.push(neighbor)
+      }
     }
   }
-}
-const reachable = ids.every((id) => visited.has(id))
-console.log(`从新野可达全部战略点：${reachable ? '是' : '否'}（${visited.size}/${ids.length}）`)
-if (!reachable) {
-  console.log(`不可达：${ids.filter((id) => !visited.has(id)).join(', ')}`)
+  const reachable = ids.every((id) => visited.has(id))
+  console.log(`从 ${start} 可达全部战略点：${reachable ? '是' : '否'}（${visited.size}/${ids.length}）`)
+  if (!reachable) {
+    console.log(`不可达：${ids.filter((id) => !visited.has(id)).join(', ')}`)
+  }
 }

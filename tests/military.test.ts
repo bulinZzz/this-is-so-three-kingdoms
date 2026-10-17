@@ -246,7 +246,7 @@ describe('调动', () => {
 
     expect(transfer(state, ['xiahoudun'], 'tongguan')).toEqual({
       ok: false,
-      reason: '目标不是自有战略点',
+      reason: '目标不是自有战略点，也不是可进驻的野地',
     })
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
   })

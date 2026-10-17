@@ -27,6 +27,7 @@ import type {
   Site,
   SiteGuard,
   SiteId,
+  SiteType,
 } from './model'
 import { createRandom, type Random } from './random'
 import { areAllied, areHostile } from './relations'
@@ -41,8 +42,14 @@ const MORALE_MAX = 120
 const INTELLECT_POWER_PER_POINT = 0.005
 /** 士气为 0 时的战力系数；士气满值时系数为 1。 */
 const MORALE_POWER_FLOOR = 0.5
-/** 防守方战力补正。 */
-const DEFENSE_BONUS = 1.2
+/** 防守方的战力补正，按战略点类型分档：野地无险可依，关隘与都会最坚。 */
+const DEFENSE_BONUS: Record<SiteType, number> = {
+  field: 1,
+  town: 1.1,
+  city: 1.2,
+  pass: 1.3,
+  metropolis: 1.3,
+}
 /** 战力随机波动幅度，双方各在 1±此值 之间。 */
 const POWER_VARIANCE = 0.1
 /** 败方与胜方的伤亡率。败方不宜过重：一次攻城失利若打残主力，整局会一蹶不振。 */
@@ -90,11 +97,11 @@ export interface BattleSide {
   morale: number
 }
 
-/** 一方的战力（不含随机波动）：兵力 × 智谋加成 × 士气系数，防守方再乘防守补正。 */
-export function battlePower(side: BattleSide, options: { defending?: boolean } = {}): number {
+/** 一方的战力（不含随机波动）：兵力 × 智谋加成 × 士气系数，防守方再乘其据点的防守补正。 */
+export function battlePower(side: BattleSide, options: { defendingAt?: SiteType } = {}): number {
   const base = side.troops * intellectFactor(side.intellect) * moraleFactor(side.morale)
 
-  return options.defending === true ? base * DEFENSE_BONUS : base
+  return options.defendingAt === undefined ? base : base * DEFENSE_BONUS[options.defendingAt]
 }
 
 /** 一次伤亡结算后的兵力。 */
@@ -102,13 +109,17 @@ function applyLoss(troops: number, rate: number): number {
   return Math.max(0, Math.round(troops * (1 - rate)))
 }
 
-/** 某战略点上该战略点归属势力的守军。退场者不在其中。 */
+/**
+ * 某战略点上的守军。城池与关隘的守军是该点归属势力的驻将；野地无归属，
+ * 凡驻守其上的武将都算它的守军——野地不入任何势力的版图，驻军便是它唯一的归属标识。
+ * 退场者不在其中。
+ */
 function defendersAt(state: GameState, site: Site): Character[] {
   return state.characters.filter(
     (character) =>
       isServing(character) &&
-      character.factionId === site.owner &&
-      character.stationedSiteId === site.id,
+      character.stationedSiteId === site.id &&
+      (site.type === 'field' || character.factionId === site.owner),
   )
 }
 
@@ -117,6 +128,16 @@ export function stationedDefendersAt(state: GameState, siteId: SiteId): Characte
   const site = state.geography.sites.find((item) => item.id === siteId)
 
   return site === undefined ? [] : defendersAt(state, site)
+}
+
+/**
+ * 一处目标的守方势力：城池与关隘取其归属势力（无主为 null）；野地无归属，取其驻军的势力，
+ * 无人驻守时为 null。进攻可否发起、守方是否由玩家定夺，都以此为准。
+ */
+export function defenderFactionAt(state: GameState, target: Site): FactionId | null {
+  return target.type === 'field'
+    ? (defendersAt(state, target)[0]?.factionId ?? null)
+    : target.owner
 }
 
 /**
@@ -167,7 +188,8 @@ export function garrisonAt(state: GameState, siteId: SiteId, party?: Party): Gar
   let members = [...chosen].sort((a, b) => b.troops - a.troops).slice(0, GARRISON_SIZE)
 
   // 守将尽出或调空时，无主点以凭险自守的地方武装迎战，有主点则由地方民兵就地成军；
-  // 凡攻打据点都要真打一场、付出血本，不存在无人可挡的空城。野地无守备，也无从攻打。
+  // 凡攻打据点都要真打一场、付出血本，不存在无人可挡的空城。野地无守备可依，也无人可调，
+  // 空野地便无仗可打（见 isAttackable）。
   if (members.length === 0) {
     const site = state.geography.sites.find((item) => item.id === siteId)
     const guard = site === undefined ? null : site.guard ?? guardFor(site)
@@ -387,19 +409,30 @@ function resolveDefenders(
   return { fates, captives }
 }
 
-/** 该战略点是否为指定势力可进攻的目标：无主之地，或已宣战（敌对）的他方领地，且至少有一个自有战略点与它相邻。缺省按玩家势力评判。 */
+/**
+ * 该战略点是否为指定势力可进攻的目标，且至少有一个自有战略点与它相邻。缺省按玩家势力评判。
+ * 城池与关隘：无主之地可攻，他方领地须已宣战（敌对），同盟与中立都打不得。
+ * 野地无归属，只在驻有他方人马时才打得起来——与驻军敌对可攻，中立与同盟的驻军都动不得，空野地无仗可打。
+ */
 export function isAttackable(
   state: GameState,
   targetSiteId: SiteId,
   factionId: FactionId = state.playerFaction,
 ): boolean {
   const target = state.geography.sites.find((site) => site.id === targetSiteId)
-  // 野地无归属、非据点，不在可攻占之列。
-  if (target === undefined || target.owner === factionId || target.type === 'field') {
+  if (target === undefined) {
     return false
   }
-  // 同盟不能开战；中立须先宣战转为敌对，无主之地随时可点名去打。
-  if (target.owner !== null && !areHostile(state, factionId, target.owner)) {
+
+  const defender = defenderFactionAt(state, target)
+  if (defender === factionId) {
+    return false
+  }
+  // 空野地没有可攻的对象；无主的城池与关隘另论，随时可点名去打。
+  if (defender === null && target.type === 'field') {
+    return false
+  }
+  if (defender !== null && !areHostile(state, factionId, defender)) {
     return false
   }
 
@@ -417,11 +450,7 @@ export function attackCandidates(
   targetSiteId: SiteId,
   factionId: FactionId = state.playerFaction,
 ): Character[] {
-  const target = state.geography.sites.find((site) => site.id === targetSiteId)
-  if (target === undefined || target.owner === factionId || target.type === 'field') {
-    return []
-  }
-  if (target.owner !== null && !areHostile(state, factionId, target.owner)) {
+  if (!isAttackable(state, targetSiteId, factionId)) {
     return []
   }
 
@@ -515,7 +544,7 @@ function resolveDuel(
 
   // 攻方不提，守方再提：守方是玩家时按界面的决定，是他人时按策略判断。单挑只发生一次。
   const defenderId =
-    target.owner === state.playerFaction
+    defenderFactionAt(state, target) === state.playerFaction
       ? defenderChallengerId
       : aiDuelChallenger(garrison.members, attackAnswerer(state, party), random)
   if (defenderId === null || defenderId === undefined) {
@@ -594,7 +623,8 @@ export function battleOutlook(
   defenders?: Party,
 ): BattleOutlook {
   const garrison = garrisonAt(state, targetSiteId, defenders)
-  const defenderPower = battlePower(garrison.side, { defending: true })
+  const site = state.geography.sites.find((item) => item.id === targetSiteId)
+  const defenderPower = battlePower(garrison.side, { defendingAt: site?.type })
   if (defenderPower <= 0) {
     return '不战而下'
   }
@@ -649,16 +679,18 @@ export function attackBlockReason(
   if (target === null) {
     return '目标战略点不存在'
   }
-  if (target.type === 'field') {
-    return '野地无归属，不是可攻占的目标'
+  const defender = defenderFactionAt(state, target)
+  if (defender === factionId) {
+    return target.type === 'field' ? '目标野地驻有己方人马' : '目标已是自有战略点'
   }
-  if (target.owner === factionId) {
-    return '目标已是自有战略点'
-  }
-  if (target.owner !== null && areAllied(state, factionId, target.owner)) {
+  if (defender === null) {
+    // 无主的城池与关隘可随时攻取；空野地无人可打，也就无从进攻。
+    if (target.type === 'field') {
+      return '目标野地没有可攻的驻军'
+    }
+  } else if (areAllied(state, factionId, defender)) {
     return '与对方同盟，不能进攻'
-  }
-  if (target.owner !== null && !areHostile(state, factionId, target.owner)) {
+  } else if (!areHostile(state, factionId, defender)) {
     return '与对方非敌对，须先宣战'
   }
   if (commander === null) {
@@ -777,6 +809,8 @@ export function attack(
       if (target === null || commander === null || members.length === 0) {
         return { outcome: '进攻未生效' }
       }
+      // 野地无归属：打的是驻军，不是地盘，胜利只逐走守军。
+      const isField = target.type === 'field'
 
       // 单挑先于交战结算：它只改本场士气与阵亡，二者随即计入战力。
       const duel = resolveDuel(
@@ -818,7 +852,7 @@ export function attack(
         ...garrison.side,
         morale: clampBattleMorale(MORALE_FULL + defenderMoraleDelta),
       }
-      const defenderPower = battlePower(defenderSide, { defending: true }) * variance(random)
+      const defenderPower = battlePower(defenderSide, { defendingAt: target.type }) * variance(random)
       const attackerPower = battlePower(side) * variance(random)
 
       // 开发者模式下由界面指定胜负；否则战力高者胜，守方兵力为零时视为不战而下。
@@ -903,22 +937,27 @@ export function attack(
           }
         }
         const previousOwner = target.owner
-        target.owner = factionId
-        // 无主守军失守：凭险自守的地方武装就此了结，按随机流给一句去向，不留俘虏、不迁移。
-        if (previousOwner === null && target.guard !== undefined) {
-          const fate = random.next() < GUARD_ROUT_CHANCE ? '溃散' : '被斩'
-          guardFateNote = `；守军 ${target.guard.name} ${fate}`
-          delete target.guard
+        // 野地不入任何势力的版图：胜利只逐走守军，不改归属，也不牵动州归属与开发损耗。
+        if (!isField) {
+          target.owner = factionId
+          // 无主守军失守：凭险自守的地方武装就此了结，按随机流给一句去向，不留俘虏、不迁移。
+          if (previousOwner === null && target.guard !== undefined) {
+            const fate = random.next() < GUARD_ROUT_CHANCE ? '溃散' : '被斩'
+            guardFateNote = `；守军 ${target.guard.name} ${fate}`
+            delete target.guard
+          }
+          // 易主时的战火损耗：前任的开发设施随机降 1–2 项。
+          damaged = damageOnCapture(target, random)
         }
-        // 易主时的战火损耗：前任的开发设施随机降 1–2 项。
-        damaged = damageOnCapture(target, random)
         for (const member of fighters) {
           member.stationedSiteId = target.id
         }
         const captured = resolveDefenders(current, defenders, target, factionId, random)
         defenderFates = captured.fates
         report.captives = captured.captives
-        resolveProvinceOwners(current.geography)
+        if (!isField) {
+          resolveProvinceOwners(current.geography)
+        }
         // 就此打灭的一方，其营中俘虏一概开释为在野。
         if (
           previousOwner !== null &&
@@ -954,10 +993,12 @@ export function attack(
           ? `；战火波及，${damaged.map((kind) => DEVELOPMENT_LABELS[kind]).join('、')} 各降一级`
           : ''
 
+      const conquestNote = isField ? `击破 ${target.name} 守军` : `攻占 ${target.name}`
+
       return {
         targetId: target.id,
         outcome: attackerWins
-          ? `${duelLead}${generalNames} 攻占 ${target.name}${fateNote}${guardFateNote}${releaseNote}${damageNote}`
+          ? `${duelLead}${generalNames} ${conquestNote}${fateNote}${guardFateNote}${releaseNote}${damageNote}`
           : `${duelLead}${generalNames} 进攻 ${target.name} 失利`,
         battle: report,
       }

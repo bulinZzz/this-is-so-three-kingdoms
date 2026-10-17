@@ -65,6 +65,9 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   fancheng: [112.16, 32.06],
   xiangyang: [112.12, 32.01],
   jiangling: [112.19, 30.35],
+  // 公安（油江口）本是江陵下游、长江南岸的一处渡口，与江陵相近；
+  // 图上略向南挪，免得两枚战略点图标重叠。
+  gongan: [112.3, 29.88],
   jiangxia: [114.31, 30.55],
   chibi: [113.85, 29.95],
   changbanpo: [111.79, 30.83],
