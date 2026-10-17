@@ -1,8 +1,11 @@
 // 战略点邻接推导器
 //
-// 依据 src/game/mapData.ts 中的 SITE_COORDINATES，按 Gabriel 图推导全部战略点的相邻关系：
-// 两点相邻，当且仅当没有第三个战略点落在以这两点为直径的圆内。
+// 依据 src/game/mapData.ts 中的 SITE_COORDINATES，按 Gabriel 图推导可占战略点的相邻关系：
+// 两点相邻，当且仅当没有第三个可占战略点落在以这两点为直径的圆内。
 // 邻接表按投影距离升序排列。
+//
+// 野地是无归属的公共区域，不属于行军图：既不作节点，也不作阻挡。
+// 故两城之间纵有野地，仍可直接行军。
 //
 // 本脚本只打印结果，不修改任何文件；运行时不依赖 Phaser。
 // 运行：node tools/buildAdjacency.mjs
@@ -17,10 +20,6 @@ import { readFileSync } from 'node:fs'
  * 每项为 [点甲, 点乙]，并在注释中说明理由；这些点对无条件写入邻接表，不再受几何约束。
  */
 const FORCED_EDGES = [
-  // 赤壁之战为孙刘联军；柴桑是周瑜的前线基地。
-  ['chibi', 'chaisang'],
-  // 江陵与夷陵之间是长江水道，舟行直通；当阳的长坂坡落在这条直径圆内，仅凭几何会误判为不相邻。
-  ['jiangling', 'yiling'],
   // 零陵与武陵同属荆南，湘江与沅水水道相通；长沙落在两点直径圆内，仅凭几何会误判为不相邻。
   ['lingling', 'wuling'],
 ]
@@ -87,7 +86,10 @@ const coordinates = evaluateObject(extractBlock(mapData, 'SITE_COORDINATES'))
 const geography = evaluateObject(extractBlock(geographySource, 'GEOGRAPHY_SANGUO'))
 
 const names = new Map(geography.sites.map((site) => [site.id, site.name]))
-const ids = Object.keys(coordinates)
+const fieldIds = new Set(
+  geography.sites.filter((site) => site.type === 'field').map((site) => site.id),
+)
+const ids = Object.keys(coordinates).filter((id) => !fieldIds.has(id))
 
 const projected = new Map(ids.map((id) => [id, projectLonLat(coordinates[id])]))
 const pixelDistance = (a, b) => {

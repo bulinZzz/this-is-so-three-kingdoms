@@ -95,6 +95,7 @@ const FACTION_MARKS: Record<FactionId, string> = {
   gongsunkang: '公',
   shixie: '士',
   zhanglu: '张',
+  yuanshi: '袁',
 }
 
 function siteOf(state: GameState, siteId: SiteId): Site {

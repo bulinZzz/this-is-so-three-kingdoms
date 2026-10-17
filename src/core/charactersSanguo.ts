@@ -2,7 +2,8 @@ import type { Character } from './model'
 
 /**
  * 建安十三年（208 年）的人物数据，按所在州分布，供寻访抽取。
- * 九家势力的君主与部属各按本州落位、驻守自有战略点并统率一支部队；未出仕者按在野列入各州，供寻访。
+ * 十家势力的部属各按本州落位、驻守自有战略点并统率一支部队；未出仕者按在野列入各州，供寻访。
+ * 袁氏是唯一的无君主势力：袁绍已死，三子相争，故不设君主，只列部属。
  * 在野者标注寻访卡池层级：荆襄名士置于基础池，保证刘备据江夏时可在荆州寻得；名将置于高层。
  * 势力倾向记各将对各势力的偏好（0–100，50 为中性），只记非中性者；忠诚与性格另按人给定，与偏好无关。
  * 能力与兵力取自演义印象，年龄按史书推算，具体平衡待核心玩法验证后再调。
@@ -27,7 +28,7 @@ const RAW_CHARACTERS: Character[] = [
   { id: 'caocao', name: '曹操', status: 'serving', factionId: 'caocao', provinceId: 'yu', might: 72, command: 96, intellect: 91, politics: 92, age: 53, personality: 'scheming', affinities: { caocao: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'xudu', troops: 20000, tier: null },
   // 曹操（司隶）
   { id: 'xiahoudun', name: '夏侯惇', status: 'serving', factionId: 'caocao', provinceId: 'sili', might: 90, command: 88, intellect: 55, politics: 60, age: 51, personality: 'brave', affinities: { caocao: 95 }, loyalty: 95, isMonarch: false, stationedSiteId: 'luoyang', troops: 8000, tier: null },
-  { id: 'xiahouyuan', name: '夏侯渊', status: 'serving', factionId: 'caocao', provinceId: 'sili', might: 91, command: 90, intellect: 60, politics: 55, age: 51, personality: 'brave', affinities: { caocao: 92 }, loyalty: 93, isMonarch: false, stationedSiteId: 'sishui', troops: 8000, tier: null },
+  { id: 'xiahouyuan', name: '夏侯渊', status: 'serving', factionId: 'caocao', provinceId: 'sili', might: 91, command: 90, intellect: 60, politics: 55, age: 51, personality: 'brave', affinities: { caocao: 92 }, loyalty: 93, isMonarch: false, stationedSiteId: 'hulao', troops: 8000, tier: null },
   { id: 'jiaxu', name: '贾诩', status: 'serving', factionId: 'caocao', provinceId: 'sili', might: 45, command: 70, intellect: 97, politics: 85, age: 61, personality: 'scheming', affinities: { caocao: 65 }, loyalty: 82, isMonarch: false, stationedSiteId: 'hulao', troops: 2000, tier: null },
   // 曹操（豫州）
   { id: 'xunyu', name: '荀彧', status: 'serving', factionId: 'caocao', provinceId: 'yu', might: 30, command: 60, intellect: 96, politics: 96, age: 45, personality: 'steady', affinities: { caocao: 80 }, loyalty: 88, isMonarch: false, stationedSiteId: 'xudu', troops: 1000, tier: null },
@@ -44,13 +45,22 @@ const RAW_CHARACTERS: Character[] = [
   // 曹操（徐州）
   { id: 'zhangliao', name: '张辽', status: 'serving', factionId: 'caocao', provinceId: 'xu', might: 92, command: 93, intellect: 78, politics: 65, age: 39, personality: 'steady', affinities: { caocao: 88, liubei: 65 }, loyalty: 85, isMonarch: false, stationedSiteId: 'xiapi', troops: 7000, tier: null },
   { id: 'xuhuang', name: '徐晃', status: 'serving', factionId: 'caocao', provinceId: 'xu', might: 91, command: 89, intellect: 70, politics: 60, age: 39, personality: 'steady', affinities: { caocao: 86 }, loyalty: 86, isMonarch: false, stationedSiteId: 'pengcheng', troops: 6000, tier: null },
-  // 曹操（冀州）
-  { id: 'zhanghe', name: '张郃', status: 'serving', factionId: 'caocao', provinceId: 'ji', might: 88, command: 90, intellect: 76, politics: 68, age: 41, personality: 'cautious', affinities: { caocao: 70 }, loyalty: 80, isMonarch: false, stationedSiteId: 'ye', troops: 6000, tier: null },
-  { id: 'gaolan', name: '高览', status: 'serving', factionId: 'caocao', provinceId: 'ji', might: 85, command: 80, intellect: 62, politics: 45, age: 38, personality: 'steady', affinities: { caocao: 68 }, loyalty: 78, isMonarch: false, stationedSiteId: 'nanpi', troops: 4000, tier: null },
-  { id: 'caochun', name: '曹纯', status: 'serving', factionId: 'caocao', provinceId: 'ji', might: 85, command: 84, intellect: 66, politics: 60, age: 38, personality: 'brave', affinities: { caocao: 90 }, loyalty: 90, isMonarch: false, stationedSiteId: 'ye', troops: 4000, tier: null },
+  // 曹操（官渡降将，随河北易主移驻兖州）
+  { id: 'zhanghe', name: '张郃', status: 'serving', factionId: 'caocao', provinceId: 'yan', might: 88, command: 90, intellect: 76, politics: 68, age: 41, personality: 'cautious', affinities: { caocao: 70 }, loyalty: 80, isMonarch: false, stationedSiteId: 'baima', troops: 6000, tier: null },
+  { id: 'gaolan', name: '高览', status: 'serving', factionId: 'caocao', provinceId: 'yan', might: 85, command: 80, intellect: 62, politics: 45, age: 38, personality: 'steady', affinities: { caocao: 68 }, loyalty: 78, isMonarch: false, stationedSiteId: 'puyang', troops: 4000, tier: null },
+  { id: 'caochun', name: '曹纯', status: 'serving', factionId: 'caocao', provinceId: 'yan', might: 85, command: 84, intellect: 66, politics: 60, age: 38, personality: 'brave', affinities: { caocao: 90 }, loyalty: 90, isMonarch: false, stationedSiteId: 'chenliu', troops: 4000, tier: null },
   // 曹操（荆州）
   { id: 'wenpin', name: '文聘', status: 'serving', factionId: 'caocao', provinceId: 'jing', might: 82, command: 84, intellect: 68, politics: 66, age: 38, personality: 'steady', affinities: { caocao: 72 }, loyalty: 82, isMonarch: false, stationedSiteId: 'jiangling', troops: 4000, tier: null },
   { id: 'caimao', name: '蔡瑁', status: 'serving', factionId: 'caocao', provinceId: 'jing', might: 65, command: 70, intellect: 66, politics: 60, age: 43, personality: 'scheming', affinities: { caocao: 30 }, loyalty: 70, isMonarch: false, stationedSiteId: 'xiangyang', troops: 3000, tier: null },
+
+  // 袁氏（河北、幽、并、青；官渡之后袁绍已死，三子相争，无君主）
+  { id: 'yuanshang', name: '袁尚', status: 'serving', factionId: 'yuanshi', provinceId: 'ji', might: 72, command: 76, intellect: 64, politics: 62, age: 26, personality: 'cautious', affinities: { yuanshi: 92 }, loyalty: 92, isMonarch: false, stationedSiteId: 'ye', troops: 8000, tier: null },
+  { id: 'shenpei', name: '审配', status: 'serving', factionId: 'yuanshi', provinceId: 'ji', might: 62, command: 78, intellect: 84, politics: 78, age: 46, personality: 'steady', affinities: { yuanshi: 94 }, loyalty: 95, isMonarch: false, stationedSiteId: 'ye', troops: 6000, tier: null },
+  { id: 'yuantan', name: '袁谭', status: 'serving', factionId: 'yuanshi', provinceId: 'ji', might: 74, command: 72, intellect: 58, politics: 55, age: 30, personality: 'brave', affinities: { yuanshi: 90 }, loyalty: 88, isMonarch: false, stationedSiteId: 'nanpi', troops: 9000, tier: null },
+  { id: 'guotu', name: '郭图', status: 'serving', factionId: 'yuanshi', provinceId: 'ji', might: 40, command: 55, intellect: 80, politics: 76, age: 45, personality: 'scheming', affinities: { yuanshi: 86 }, loyalty: 80, isMonarch: false, stationedSiteId: 'nanpi', troops: 2000, tier: null },
+  { id: 'yuanxi', name: '袁熙', status: 'serving', factionId: 'yuanshi', provinceId: 'you', might: 68, command: 70, intellect: 60, politics: 58, age: 27, personality: 'steady', affinities: { yuanshi: 88 }, loyalty: 85, isMonarch: false, stationedSiteId: 'jicheng', troops: 7000, tier: null },
+  { id: 'gaogan', name: '高干', status: 'serving', factionId: 'yuanshi', provinceId: 'bing', might: 76, command: 78, intellect: 66, politics: 62, age: 35, personality: 'brave', affinities: { yuanshi: 86 }, loyalty: 82, isMonarch: false, stationedSiteId: 'jinyang', troops: 7000, tier: null },
+  { id: 'xinping', name: '辛评', status: 'serving', factionId: 'yuanshi', provinceId: 'qing', might: 45, command: 60, intellect: 78, politics: 74, age: 44, personality: 'open', affinities: { yuanshi: 84 }, loyalty: 82, isMonarch: false, stationedSiteId: 'linzi', troops: 2000, tier: null },
 
   // 孙权（扬州）
   { id: 'sunquan', name: '孙权', status: 'serving', factionId: 'sunquan', provinceId: 'yang', might: 70, command: 82, intellect: 80, politics: 88, age: 26, personality: 'cautious', affinities: { sunquan: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'jianye', troops: 15000, tier: null },
@@ -73,12 +83,12 @@ const RAW_CHARACTERS: Character[] = [
 
   // 马腾（关中）
   { id: 'mateng', name: '马腾', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 84, command: 80, intellect: 58, politics: 62, age: 52, personality: 'brave', affinities: { mateng: 98, hansui: 58 }, loyalty: 100, isMonarch: true, stationedSiteId: 'changan', troops: 7000, tier: null },
-  { id: 'machao', name: '马超', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 97, command: 90, intellect: 55, politics: 40, age: 32, personality: 'brave', affinities: { mateng: 95, caocao: 45 }, loyalty: 88, isMonarch: false, stationedSiteId: 'wuzhangyuan', troops: 8000, tier: null },
+  { id: 'machao', name: '马超', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 97, command: 90, intellect: 55, politics: 40, age: 32, personality: 'brave', affinities: { mateng: 95, caocao: 45 }, loyalty: 88, isMonarch: false, stationedSiteId: 'changan', troops: 8000, tier: null },
   { id: 'pangde', name: '庞德', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 94, command: 85, intellect: 62, politics: 45, age: 38, personality: 'steady', affinities: { mateng: 88, caocao: 72 }, loyalty: 82, isMonarch: false, stationedSiteId: 'chencang', troops: 4000, tier: null },
 
   // 韩遂（陇右）
   { id: 'hansui', name: '韩遂', status: 'serving', factionId: 'hansui', provinceId: 'liang', might: 74, command: 78, intellect: 76, politics: 66, age: 58, personality: 'scheming', affinities: { hansui: 98, mateng: 58 }, loyalty: 100, isMonarch: true, stationedSiteId: 'tianshui', troops: 7000, tier: null },
-  { id: 'yanxing', name: '阎行', status: 'serving', factionId: 'hansui', provinceId: 'liang', might: 86, command: 78, intellect: 58, politics: 45, age: 34, personality: 'brave', affinities: { hansui: 85 }, loyalty: 82, isMonarch: false, stationedSiteId: 'jieting', troops: 3000, tier: null },
+  { id: 'yanxing', name: '阎行', status: 'serving', factionId: 'hansui', provinceId: 'liang', might: 86, command: 78, intellect: 58, politics: 45, age: 34, personality: 'brave', affinities: { hansui: 85 }, loyalty: 82, isMonarch: false, stationedSiteId: 'tianshui', troops: 3000, tier: null },
 
   // 公孙康（辽东）
   { id: 'gongsunkang', name: '公孙康', status: 'serving', factionId: 'gongsunkang', provinceId: 'you', might: 62, command: 72, intellect: 66, politics: 70, age: 32, personality: 'cautious', affinities: { gongsunkang: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'xiangping', troops: 6000, tier: null },

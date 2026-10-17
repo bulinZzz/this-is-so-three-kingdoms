@@ -54,8 +54,9 @@ describe('建设花费与上限', () => {
     const state = richState()
 
     expect(developmentLimit(siteOf(state, 'jiangxia'))).toBe(5)
-    expect(developmentLimit(siteOf(state, 'sishui'))).toBe(3)
-    expect(developmentLimit(siteOf(state, 'guandu'))).toBe(2)
+    expect(developmentLimit(siteOf(state, 'hulao'))).toBe(3)
+    // 野地无归属，不可建设。
+    expect(developmentLimit(siteOf(state, 'chibi'))).toBe(0)
   })
 })
 

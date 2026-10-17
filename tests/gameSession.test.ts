@@ -269,10 +269,10 @@ describe('GameSession 作战接口', () => {
       notified += 1
     })
 
-    const result = session.attack({ commander: 'guanyu' }, 'chibi')
+    const result = session.attack({ commander: 'guanyu' }, 'changsha')
 
     expect(result.ok).toBe(true)
-    expect(state.geography.sites.find((site) => site.id === 'chibi')?.owner).toBe('liubei')
+    expect(state.geography.sites.find((site) => site.id === 'changsha')?.owner).toBe('liubei')
     expect(notified).toBe(1)
   })
 
@@ -283,7 +283,7 @@ describe('GameSession 作战接口', () => {
       notified += 1
     })
 
-    const result = session.transfer(['guanyu'], 'chibi')
+    const result = session.transfer(['guanyu'], 'changsha')
 
     expect(result.ok).toBe(false)
     expect(notified).toBe(0)

@@ -64,11 +64,12 @@ export interface SiteDevelopment {
 export type DevelopmentKind = keyof SiteDevelopment
 
 /**
- * 无主战略点的守军：凭险自守的地方武装，独立于武将体系之外——
+ * 无主的城池与关隘的守军：凭险自守的地方武装，独立于武将体系之外——
  * 不计忠诚与偏好、不产俘虏、不败退迁移、不随季增长；名号、兵力与武力、统率、智谋三项能力齐备。
+ * 野地无归属、无人烟，不设守军。
  */
 export interface SiteGuard {
-  /** 名号，如「山贼·头目」。 */
+  /** 名号，如「义军·领袖」。 */
   name: string
   /** 兵力。 */
   troops: number

@@ -148,13 +148,17 @@ describe('advanceTurn', () => {
     expect(wild.every((character) => character.troops === 0)).toBe(true)
   })
 
-  it('结束回合后各战略点人口缓增', () => {
+  it('结束回合后可占战略点人口缓增，野地无人烟', () => {
     const state = createInitialState({ seed: 208 })
     const before = new Map(state.geography.sites.map((site) => [site.id, site.population]))
 
     advanceTurn(state)
 
     for (const site of state.geography.sites) {
+      if (site.type === 'field') {
+        expect(site.population).toBe(0)
+        continue
+      }
       expect(site.population).toBeGreaterThan(before.get(site.id) ?? 0)
     }
   })
@@ -217,6 +221,7 @@ describe('resolveFactionOrder', () => {
       'gongsunkang',
       'shixie',
       'zhanglu',
+      'yuanshi',
     ])
   })
 

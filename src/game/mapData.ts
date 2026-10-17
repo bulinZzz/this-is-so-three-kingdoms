@@ -11,8 +11,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   // 司隶
   changan: [108.94, 34.34],
   luoyang: [112.45, 34.62],
-  sishui: [113.25, 34.79],
-  hulao: [113.05, 34.82],
+  hulao: [113.25, 34.79],
   tongguan: [110.25, 34.55],
   wuzhangyuan: [107.62, 34.28],
   chencang: [107.2, 34.36],
@@ -98,13 +97,11 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
 
 /**
  * 表现层的错位量，单位为像素。
- * 少数地点在真实地理上过于接近（虎牢关与汜水关同为一关、樊城与襄阳隔汉水相望、
- * 洛阳与二关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、
+ * 少数地点在真实地理上过于接近（樊城与襄阳隔汉水相望、
+ * 洛阳与虎牢关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、
  * 雒城与成都隔成都平原相望、陈仓与五丈原在渭水两岸相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
  */
 export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: number }>> = {
-  sishui: { dx: 0, dy: 13 },
-  hulao: { dx: 0, dy: -13 },
   fancheng: { dx: -13, dy: -6 },
   xiangyang: { dx: 13, dy: 6 },
   puyang: { dx: 1, dy: -2 },

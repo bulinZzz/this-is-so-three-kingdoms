@@ -21,14 +21,15 @@ describe('三国人物数据', () => {
     }
   })
 
-  it('三家各有且只有一名君主', () => {
+  it('除袁氏外各势力各有且只有一名君主，袁氏不设君主', () => {
     for (const factionId of FACTION_IDS) {
       const monarchs = CHARACTERS_SANGUO.filter(
         (character) =>
           character.status === 'serving' && character.factionId === factionId && character.isMonarch,
       )
 
-      expect(monarchs).toHaveLength(1)
+      // 袁氏是唯一的无君主势力：袁绍已死，三子相争，只列部属。
+      expect(monarchs).toHaveLength(factionId === 'yuanshi' ? 0 : 1)
     }
   })
 

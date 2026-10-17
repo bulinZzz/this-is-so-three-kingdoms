@@ -223,11 +223,11 @@ describe('调动', () => {
   it('一次可调多人，按人数消耗行动力', () => {
     const state = caocaoTurn()
 
-    const result = transfer(state, ['xiahoudun', 'xiahouyuan'], 'hulao')
+    const result = transfer(state, ['yujin', 'gaolan'], 'baima')
 
     expect(result.ok).toBe(true)
-    expect(characterOf(state, 'xiahoudun').stationedSiteId).toBe('hulao')
-    expect(characterOf(state, 'xiahouyuan').stationedSiteId).toBe('hulao')
+    expect(characterOf(state, 'yujin').stationedSiteId).toBe('baima')
+    expect(characterOf(state, 'gaolan').stationedSiteId).toBe('baima')
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.transfer * 2)
   })
 

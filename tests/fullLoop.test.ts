@@ -147,12 +147,12 @@ describe('完整循环（无画面）', () => {
 
     session.endTurn()
 
-    // 他方本季可能已抢先占下赤壁；进攻他方领地，须先宣战。
+    // 长沙是无主大城，与江夏相邻；他方本季也会行动并写入历史，只核对玩家自己的行动序列。
     expect(session.declareWar('caocao').ok).toBe(true)
-    expect(session.attack({ commander: 'guanyu' }, 'chibi').ok).toBe(true)
+    expect(session.attack({ commander: 'guanyu' }, 'changsha').ok).toBe(true)
 
-    expect(siteOwner(state, 'chibi')).toBe('liubei')
-    expect(characterOf(state, 'guanyu').stationedSiteId).toBe('chibi')
+    expect(siteOwner(state, 'changsha')).toBe('liubei')
+    expect(characterOf(state, 'guanyu').stationedSiteId).toBe('changsha')
     // 他方本季也会行动并写入历史，只核对玩家自己的行动序列。
     expect(
       state.history
@@ -169,9 +169,9 @@ describe('完整循环（无画面）', () => {
       session.recruit('guanyu')
       session.endTurn()
       session.declareWar('caocao')
-      session.attack({ commander: 'guanyu' }, 'chibi')
+      session.attack({ commander: 'guanyu' }, 'changsha')
       session.endTurn()
-      session.seekTalent('chibi')
+      session.seekTalent('changsha')
 
       return session.getState()
     }
@@ -191,8 +191,8 @@ describe('完整循环（无画面）', () => {
       expect(reloaded.loadSlot(1)).toBe(true)
       reloaded.endTurn()
       reloaded.declareWar('caocao')
-      reloaded.attack({ commander: 'guanyu' }, 'chibi')
-      reloaded.seekTalent('chibi')
+      reloaded.attack({ commander: 'guanyu' }, 'changsha')
+      reloaded.seekTalent('changsha')
 
       return reloaded.getState()
     }

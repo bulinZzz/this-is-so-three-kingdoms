@@ -11,11 +11,12 @@ export interface NewGameOptions {
   seed?: number
 }
 
-/** 为所有无主战略点补上凭险自守的守军；有主点不设。在已克隆的地理上写入，不动剧本数据。 */
+/** 为所有无主战略点补上凭险自守的守军；有主点与野地不设。在已克隆的地理上写入，不动剧本数据。 */
 function withGuards(geography: Geography): Geography {
   for (const site of geography.sites) {
-    if (site.owner === null) {
-      site.guard = guardFor(site)
+    const guard = site.owner === null ? guardFor(site) : null
+    if (guard !== null) {
+      site.guard = guard
     }
   }
 

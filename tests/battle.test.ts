@@ -163,10 +163,10 @@ describe('战力计算', () => {
 describe('守军迎战编成', () => {
   it('无主战略点有凭险自守的守军，名号与兵力俱备', () => {
     const state = createInitialState({ seed: 208 })
-    const guard = siteOf(state, 'chibi').guard
+    const guard = siteOf(state, 'changsha').guard
 
     expect(guard?.name).toContain('·')
-    expect(garrisonAt(state, 'chibi').side.troops).toBeGreaterThan(0)
+    expect(garrisonAt(state, 'changsha').side.troops).toBeGreaterThan(0)
   })
 
   it('至多三人迎战，取兵力最多的三名，主将取其中统率最高者', () => {
@@ -194,49 +194,49 @@ describe('无主战略点守军', () => {
     // 兵力不足以撼动守军：出阵也占不下来。
     const weak = createInitialState({ seed: 208 })
     characterOf(weak, 'guanyu').troops = 100
-    const weakResult = attack(weak, { commander: 'guanyu' }, 'chibi')
+    const weakResult = attack(weak, { commander: 'guanyu' }, 'changsha')
 
     expect(weakResult.ok).toBe(true)
     if (weakResult.ok) {
       expect(weakResult.record.battle?.attackerWins).toBe(false)
     }
-    expect(siteOf(weak, 'chibi').owner).toBeNull()
-    expect(siteOf(weak, 'chibi').guard).toBeDefined()
+    expect(siteOf(weak, 'changsha').owner).toBeNull()
+    expect(siteOf(weak, 'changsha').guard).toBeDefined()
 
     // 单支主力足可取胜：占领后守军清空、归属改为攻方。
     const strong = createInitialState({ seed: 208 })
-    const strongResult = attack(strong, { commander: 'guanyu' }, 'chibi')
+    const strongResult = attack(strong, { commander: 'guanyu' }, 'changsha')
 
     expect(strongResult.ok).toBe(true)
     if (strongResult.ok) {
       expect(strongResult.record.battle?.attackerWins).toBe(true)
     }
-    expect(siteOf(strong, 'chibi').owner).toBe('liubei')
-    expect(siteOf(strong, 'chibi').guard).toBeUndefined()
+    expect(siteOf(strong, 'changsha').owner).toBe('liubei')
+    expect(siteOf(strong, 'changsha').guard).toBeUndefined()
   })
 
-  it('强度随类型与人口变化', () => {
+  it('强度随类型与人口变化：关隘的民兵少于都会', () => {
     const state = createInitialState({ seed: 208 })
 
-    // 野地（赤壁，人口一万）守军少；城市（长沙，人口八万）守军多。
-    const fieldGuard = siteOf(state, 'chibi').guard?.troops ?? 0
-    const cityGuard = siteOf(state, 'changsha').guard?.troops ?? 0
+    // 潼关（关隘，人口二万）与宛（都会，人口十二万）都无守将驻守，就地成军。
+    const passGuard = garrisonAt(state, 'tongguan').side.troops
+    const metropolisGuard = garrisonAt(state, 'wancheng').side.troops
 
-    expect(fieldGuard).toBeGreaterThan(0)
-    expect(cityGuard).toBeGreaterThan(fieldGuard)
+    expect(passGuard).toBeGreaterThan(0)
+    expect(metropolisGuard).toBeGreaterThan(passGuard)
   })
 
   it('固定种子下同一场对无主点的战斗可复现', () => {
     const fight = () => {
       const state = createInitialState({ seed: 208 })
-      const result = attack(state, { commander: 'guanyu' }, 'chibi')
+      const result = attack(state, { commander: 'guanyu' }, 'changsha')
 
       return {
         ok: result.ok,
         troops: characterOf(state, 'guanyu').troops,
         randomState: state.randomState,
-        owner: siteOf(state, 'chibi').owner,
-        guard: siteOf(state, 'chibi').guard,
+        owner: siteOf(state, 'changsha').owner,
+        guard: siteOf(state, 'changsha').guard,
       }
     }
 
@@ -248,11 +248,11 @@ describe('进攻', () => {
   it('无主战略点须交战方能占领，攻方得胜后入驻', () => {
     const state = createInitialState({ seed: 208 })
 
-    const result = attack(state, { commander: 'guanyu' }, 'chibi')
+    const result = attack(state, { commander: 'guanyu' }, 'changsha')
 
     expect(result.ok).toBe(true)
-    expect(siteOf(state, 'chibi').owner).toBe('liubei')
-    expect(characterOf(state, 'guanyu').stationedSiteId).toBe('chibi')
+    expect(siteOf(state, 'changsha').owner).toBe('liubei')
+    expect(characterOf(state, 'guanyu').stationedSiteId).toBe('changsha')
     // 交战有损耗，不再是「不战而下」的零伤亡。
     expect(characterOf(state, 'guanyu').troops).toBeLessThan(8000)
     expect(hasActedThisTurn(state, 'guanyu')).toBe(true)
@@ -287,7 +287,7 @@ describe('进攻', () => {
 
     const caimao = characterOf(state, 'caimao')
     if (caimao.status === 'serving') {
-      expect(['fancheng', 'changbanpo']).toContain(caimao.stationedSiteId)
+      expect(['fancheng', 'jiangling']).toContain(caimao.stationedSiteId)
     } else {
       expect(caimao.status).toBe('retired')
       expect(caimao.stationedSiteId).toBeNull()
@@ -309,12 +309,12 @@ describe('进攻', () => {
 
   it('攻占无主点后守军清空，去向写入记录', () => {
     const state = createInitialState({ seed: 208 })
-    const guardName = siteOf(state, 'chibi').guard?.name ?? ''
+    const guardName = siteOf(state, 'changsha').guard?.name ?? ''
 
-    const result = attack(state, { commander: 'guanyu' }, 'chibi')
+    const result = attack(state, { commander: 'guanyu' }, 'changsha')
 
     expect(result.ok).toBe(true)
-    expect(siteOf(state, 'chibi').guard).toBeUndefined()
+    expect(siteOf(state, 'changsha').guard).toBeUndefined()
     if (result.ok) {
       expect(result.record.outcome).toContain('守军')
       expect(result.record.outcome).toContain(guardName)
@@ -387,7 +387,7 @@ describe('进攻', () => {
 
     const caocao = characterOf(state, 'caocao')
     expect(caocao.status).toBe('serving')
-    expect(['fancheng', 'changbanpo']).toContain(caocao.stationedSiteId)
+    expect(['fancheng', 'jiangling']).toContain(caocao.stationedSiteId)
   })
 
   it('有退路时也不是必然逃亡，仍可能战死或被俘', () => {
@@ -437,17 +437,17 @@ describe('进攻', () => {
   it('编成不合规时拒绝', () => {
     const state = warState()
 
-    expect(attack(state, { commander: '' }, 'chibi')).toEqual({ ok: false, reason: '必须指定主将' })
-    expect(attack(state, { commander: 'caimao' }, 'chibi')).toEqual({
+    expect(attack(state, { commander: '' }, 'changsha')).toEqual({ ok: false, reason: '必须指定主将' })
+    expect(attack(state, { commander: 'caimao' }, 'changsha')).toEqual({
       ok: false,
       reason: '该武将不在此势力',
     })
-    expect(attack(state, { commander: 'guanyu', deputy: 'guanyu' }, 'chibi')).toEqual({
+    expect(attack(state, { commander: 'guanyu', deputy: 'guanyu' }, 'changsha')).toEqual({
       ok: false,
       reason: '主将、副将与军师不能是同一人',
     })
 
-    expect(attack(state, { commander: 'guanyu' }, 'chibi').ok).toBe(true)
+    expect(attack(state, { commander: 'guanyu' }, 'changsha').ok).toBe(true)
     expect(attack(state, { commander: 'guanyu', deputy: 'zhangfei' }, 'xiangyang')).toEqual({
       ok: false,
       reason: '关羽 本回合已行动',
@@ -457,30 +457,30 @@ describe('进攻', () => {
   it('与自有领地接壤的他方或无主战略点都可作为进攻目标', () => {
     const state = createInitialState({ seed: 208 })
 
-    expect(isAttackable(state, 'chibi')).toBe(true)
+    expect(isAttackable(state, 'changsha')).toBe(true)
     expect(isAttackable(state, 'jiangxia')).toBe(false)
     expect(isAttackable(state, 'xudu')).toBe(false)
 
     markActed(state, 'guanyu')
 
-    expect(isAttackable(state, 'chibi')).toBe(true)
+    expect(isAttackable(state, 'changsha')).toBe(true)
   })
 
   it('候选部属含本季已行动者，由界面标出不可选', () => {
     const state = createInitialState({ seed: 208 })
 
-    expect(attackCandidates(state, 'chibi').map((item) => item.id)).toContain('guanyu')
+    expect(attackCandidates(state, 'changsha').map((item) => item.id)).toContain('guanyu')
     expect(attackCandidates(state, 'jiangxia')).toEqual([])
 
     markActed(state, 'guanyu')
 
-    expect(attackCandidates(state, 'chibi').map((item) => item.id)).toContain('guanyu')
+    expect(attackCandidates(state, 'changsha').map((item) => item.id)).toContain('guanyu')
   })
 
   it('同一武将每回合只能进攻一次', () => {
     const state = warState()
 
-    expect(attack(state, { commander: 'guanyu' }, 'chibi').ok).toBe(true)
+    expect(attack(state, { commander: 'guanyu' }, 'changsha').ok).toBe(true)
     expect(attack(state, { commander: 'guanyu' }, 'xiangyang')).toEqual({
       ok: false,
       reason: '关羽 本回合已行动',
@@ -518,7 +518,7 @@ describe('进攻', () => {
     const state = createInitialState({ seed: 208 })
     const before = state.geography.sites.map((site) => ({ id: site.id, neighbors: [...site.neighbors] }))
 
-    attack(state, { commander: 'guanyu' }, 'chibi')
+    attack(state, { commander: 'guanyu' }, 'changsha')
 
     const after = state.geography.sites.map((site) => ({ id: site.id, neighbors: [...site.neighbors] }))
     expect(after).toEqual(before)
@@ -696,7 +696,7 @@ describe('单挑致阵亡与君主限制', () => {
 
   it('君主不可提出单挑', () => {
     const state = createInitialState({ seed: 208 })
-    const result = attack(state, { commander: 'liubei', challenger: 'liubei' }, 'chibi')
+    const result = attack(state, { commander: 'liubei', challenger: 'liubei' }, 'changsha')
 
     expect(result.ok).toBe(false)
     expect(!result.ok && result.reason).toBe('君主不参与单挑')
@@ -735,7 +735,7 @@ describe('单挑致阵亡与君主限制', () => {
     expect(garrisonCommanderAt(state, 'xiangyang')?.name).toBe('蔡瑁')
     expect(duelAnswererAt(state, 'xiangyang')?.name).toBe('蔡瑁')
     // 无主点的守军头目非君主，同样可以应战。
-    expect(duelAnswererAt(state, 'chibi')?.name).toBe(siteOf(state, 'chibi').guard?.name)
+    expect(duelAnswererAt(state, 'changsha')?.name).toBe(siteOf(state, 'changsha').guard?.name)
   })
 })
 

@@ -167,11 +167,12 @@ export function garrisonAt(state: GameState, siteId: SiteId, party?: Party): Gar
   let members = [...chosen].sort((a, b) => b.troops - a.troops).slice(0, GARRISON_SIZE)
 
   // 守将尽出或调空时，无主点以凭险自守的地方武装迎战，有主点则由地方民兵就地成军；
-  // 凡攻打据点都要真打一场、付出血本，不存在无人可挡的空城。
+  // 凡攻打据点都要真打一场、付出血本，不存在无人可挡的空城。野地无守备，也无从攻打。
   if (members.length === 0) {
     const site = state.geography.sites.find((item) => item.id === siteId)
-    if (site !== undefined) {
-      members = [guardCharacter(site, site.guard ?? guardFor(site))]
+    const guard = site === undefined ? null : site.guard ?? guardFor(site)
+    if (site !== undefined && guard !== null) {
+      members = [guardCharacter(site, guard)]
     }
   }
 
@@ -393,7 +394,8 @@ export function isAttackable(
   factionId: FactionId = state.playerFaction,
 ): boolean {
   const target = state.geography.sites.find((site) => site.id === targetSiteId)
-  if (target === undefined || target.owner === factionId) {
+  // 野地无归属、非据点，不在可攻占之列。
+  if (target === undefined || target.owner === factionId || target.type === 'field') {
     return false
   }
   // 同盟不能开战；中立须先宣战转为敌对，无主之地随时可点名去打。
@@ -416,7 +418,7 @@ export function attackCandidates(
   factionId: FactionId = state.playerFaction,
 ): Character[] {
   const target = state.geography.sites.find((site) => site.id === targetSiteId)
-  if (target === undefined || target.owner === factionId) {
+  if (target === undefined || target.owner === factionId || target.type === 'field') {
     return []
   }
   if (target.owner !== null && !areHostile(state, factionId, target.owner)) {
@@ -646,6 +648,9 @@ export function attackBlockReason(
 
   if (target === null) {
     return '目标战略点不存在'
+  }
+  if (target.type === 'field') {
+    return '野地无归属，不是可攻占的目标'
   }
   if (target.owner === factionId) {
     return '目标已是自有战略点'

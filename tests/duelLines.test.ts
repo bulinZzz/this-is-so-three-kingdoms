@@ -65,15 +65,15 @@ describe('单挑台词', () => {
   })
 
   it('守军头目按名号应战，各出一句', () => {
-    // 名号里的类别决定它说什么：山贼与义军不会同一句话。
-    expect(duelResponseLineOf(guardOf('山贼·头目'))).toBe('此山是我开，留下买路财！')
+    // 名号里的类别决定它说什么：戍卒与义军不会同一句话。
+    expect(duelResponseLineOf(guardOf('戍卒·校尉'))).toBe('此关有某把守，休想过关！')
     expect(duelResponseLineOf(guardOf('义军·领袖'))).not.toBe('请。')
-    expect(duelResponseLineOf(guardOf('海盗·头目'))).not.toBe(
-      duelResponseLineOf(guardOf('山贼·头目')),
+    expect(duelResponseLineOf(guardOf('戍卒·校尉'))).not.toBe(
+      duelResponseLineOf(guardOf('义军·领袖')),
     )
 
     // 名号词表里的每一类都有台词，不会落回寻常武将的「请。」。
-    for (const title of ['义军', '民兵', '戍卒', '关卒', '山贼', '流寇', '海盗']) {
+    for (const title of ['义军', '民兵', '戍卒', '关卒']) {
       expect(duelResponseLineOf(guardOf(`${title}·某`))).not.toBe('请。')
     }
   })

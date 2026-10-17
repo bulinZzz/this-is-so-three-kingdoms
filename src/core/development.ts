@@ -8,22 +8,22 @@ import type { Random } from './random'
  * 数值为初值，待实测与 acceptance 调整。
  */
 
-/** 三项开发的等级上限，按战略点类型定档。 */
+/** 三项开发的等级上限，按战略点类型定档；野地无归属，不可建设。 */
 export const DEVELOPMENT_LIMIT_BY_SITE_TYPE: Record<SiteType, number> = {
   metropolis: 6,
   city: 5,
   town: 3,
   pass: 3,
-  field: 2,
+  field: 0,
 }
 
-/** 战略点类型的人口上限基准；自然增长止于此，民居在此之上抬高。 */
+/** 战略点类型的人口上限基准；自然增长止于此，民居在此之上抬高。野地无人烟，无上限可言。 */
 export const POPULATION_CAP_BY_SITE_TYPE: Record<SiteType, number> = {
   metropolis: 200000,
   city: 150000,
   town: 100000,
   pass: 40000,
-  field: 20000,
+  field: 0,
 }
 
 /** 建设的基础花费：第 n 级花费 = 基础 × n，逐级递增。 */

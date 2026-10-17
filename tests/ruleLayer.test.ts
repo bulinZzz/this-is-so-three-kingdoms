@@ -93,9 +93,12 @@ describe('解耦回归', () => {
     expect(state.geography).toBe(geographyRef)
     expect(structure(state.geography)).toEqual(structure(snapshot))
 
-    // 人口是随季结算的活数据，不在地理结构的承诺之内：每季只增不减。
+    // 人口是随季结算的活数据，不在地理结构的承诺之内：可占战略点每季只增不减（野地无人烟，恒为零）。
     expect(
-      state.geography.sites.every((site, index) => site.population > snapshot.sites[index].population),
+      state.geography.sites.every(
+        (site, index) =>
+          site.type === 'field' || site.population > snapshot.sites[index].population,
+      ),
     ).toBe(true)
   })
 

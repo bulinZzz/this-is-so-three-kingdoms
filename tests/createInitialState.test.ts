@@ -20,6 +20,7 @@ describe('createInitialState', () => {
       '公孙康',
       '士燮',
       '张鲁',
+      '袁氏',
     ])
     expect(state.factions.some((faction) => faction.id === state.playerFaction)).toBe(true)
   })

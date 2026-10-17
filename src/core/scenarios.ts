@@ -17,6 +17,7 @@ export const SANGUO_208: Scenario = {
     { id: 'gongsunkang', name: '公孙康', color: '#2f8f8f', grain: 5000, money: 3000 },
     { id: 'shixie', name: '士燮', color: '#a84f78', grain: 6000, money: 3500 },
     { id: 'zhanglu', name: '张鲁', color: '#c8a03c', grain: 7000, money: 5000 },
+    { id: 'yuanshi', name: '袁氏', color: '#8a5a2b', grain: 16000, money: 12000 },
   ],
   // 开局无战事：只保留孙刘同盟，其余势力对一律中立，战火由玩家的宣战点燃。
   relations: [{ factions: ['liubei', 'sunquan'], kind: 'ally', favor: 70 }],
@@ -40,13 +41,12 @@ const ACCEPTANCE_SITE_IDS: ReadonlySet<string> = new Set([
   'yuzhang',
 ])
 
-/** 验收开局各战略点的归属；未列出的为无主。 */
+/** 验收开局各战略点的归属；未列出的为无主（含野地）。 */
 const ACCEPTANCE_SITE_OWNERS: Record<string, FactionId | null> = {
   jiangxia: 'liubei',
   xiangyang: 'caocao',
   fancheng: 'caocao',
   jiangling: 'caocao',
-  changbanpo: 'caocao',
   chaisang: 'sunquan',
   yuzhang: 'sunquan',
   chibi: null,
@@ -138,7 +138,7 @@ export const SANGUO_ACCEPTANCE: Scenario = {
     officerAt('caimao', 'caocao', 'xiangyang', 3000),
     officerAt('caoren', 'caocao', 'fancheng', 6000),
     officerAt('wenpin', 'caocao', 'jiangling', 4000),
-    officerAt('xuchu', 'caocao', 'changbanpo', 3000),
+    officerAt('xuchu', 'caocao', 'jiangling', 3000),
     officerAt('sunquan', 'sunquan', 'chaisang', 10000),
     officerAt('zhouyu', 'sunquan', 'chaisang', 8000),
     officerAt('lusu', 'sunquan', 'yuzhang', 3000),
