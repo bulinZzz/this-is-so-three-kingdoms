@@ -493,7 +493,13 @@ function renderFactions(list: Element, state: GameState): void {
 
     item.append(swatch, name)
 
-    if (faction.id === state.playerFaction) {
+    // 覆灭者已不在版图，只标结局，不再并列关系。
+    if (isFactionDestroyed(state, faction.id)) {
+      const badge = document.createElement('span')
+      badge.className = 'shell__badge shell__badge--destroyed'
+      badge.textContent = '已覆灭'
+      item.append(badge)
+    } else if (faction.id === state.playerFaction) {
       const badge = document.createElement('span')
       badge.className = 'shell__badge'
       badge.textContent = '我'
@@ -503,13 +509,6 @@ function renderFactions(list: Element, state: GameState): void {
       const badge = document.createElement('span')
       badge.className = `shell__badge shell__badge--${relation}`
       badge.textContent = relationLabel(relation)
-      item.append(badge)
-    }
-
-    if (isFactionDestroyed(state, faction.id)) {
-      const badge = document.createElement('span')
-      badge.className = 'shell__badge shell__badge--destroyed'
-      badge.textContent = '已覆灭'
       item.append(badge)
     }
 

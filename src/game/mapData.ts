@@ -51,6 +51,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   hefei: [117.22, 31.86],
   lujiang: [117.29, 31.26],
   jianye: [118.8, 32.06],
+  jingkou: [119.45, 31.95],
   wu: [120.62, 31.3],
   kuaiji: [120.58, 30.0],
   chaisang: [115.98, 29.71],

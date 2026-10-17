@@ -79,6 +79,32 @@ describe('建安十三年（新）', () => {
     expect(jingnanGates).toEqual(['wuling', 'changsha'])
   })
 
+  it('赤壁是无主野地，连通江陵、公安、长沙、柴桑四家', () => {
+    const chibi = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chibi')
+
+    expect(chibi?.type).toBe('field')
+    expect(chibi?.owner).toBeNull()
+    expect(chibi?.neighbors).toEqual(['gongan', 'jiangling', 'chaisang', 'changsha'])
+  })
+
+  it('柴桑属孙权，扬州随之归孙权', () => {
+    const chaisang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chaisang')
+    expect(chaisang?.owner).toBe('sunquan')
+
+    const yang = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'yang')
+    expect(yang?.owner).toBe('sunquan')
+  })
+
+  it('合肥属曹操、京口属孙权，两地眼下只在彼此之间相连', () => {
+    const hefei = GEOGRAPHY_NEW.sites.find((site) => site.id === 'hefei')
+    const jingkou = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jingkou')
+
+    expect(hefei?.owner).toBe('caocao')
+    expect(jingkou?.owner).toBe('sunquan')
+    expect(hefei?.neighbors).toEqual(['jingkou'])
+    expect(jingkou?.neighbors).toEqual(['hefei'])
+  })
+
   it('刘备取荆南时北军不会来援：曹操与荆南既非敌对，也不与荆南相邻', () => {
     const hostile = (SANGUO_208_NEW.relations ?? []).some(
       (relation) =>
