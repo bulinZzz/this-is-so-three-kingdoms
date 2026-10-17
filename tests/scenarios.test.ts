@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { validateCharacters } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import { validateGeography } from '../src/core/geography'
+import { troopLimit } from '../src/core/military'
 import { SCENARIOS, SANGUO_208, SANGUO_208_NEW, SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 import { endTurn } from '../src/core/turn'
 
@@ -95,14 +96,71 @@ describe('建安十三年（新）', () => {
     expect(yang?.owner).toBe('sunquan')
   })
 
-  it('合肥属曹操、京口属孙权，两地眼下只在彼此之间相连', () => {
+  it('合肥属曹操、京口与建业属孙权，两地由无主的濡须口串起而非直连', () => {
     const hefei = GEOGRAPHY_NEW.sites.find((site) => site.id === 'hefei')
     const jingkou = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jingkou')
+    const jianye = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jianye')
+    const ruxukou = GEOGRAPHY_NEW.sites.find((site) => site.id === 'ruxukou')
 
     expect(hefei?.owner).toBe('caocao')
     expect(jingkou?.owner).toBe('sunquan')
-    expect(hefei?.neighbors).toEqual(['jingkou'])
-    expect(jingkou?.neighbors).toEqual(['hefei'])
+    expect(jianye?.owner).toBe('sunquan')
+    expect(ruxukou?.type).toBe('field')
+    expect(ruxukou?.owner).toBeNull()
+
+    expect(hefei?.neighbors).toEqual(['ruxukou'])
+    expect(ruxukou?.neighbors).toEqual(['hefei', 'jianye'])
+    expect(jianye?.neighbors).toEqual(['jingkou', 'ruxukou'])
+    expect(jingkou?.neighbors).toEqual(['jianye'])
+  })
+
+  it('关中的槐里归马腾、长安与潼关归曹操，三点自成一隅', () => {
+    const huaili = GEOGRAPHY_NEW.sites.find((site) => site.id === 'huaili')
+    const changan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'changan')
+    const tongguan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'tongguan')
+
+    expect(huaili?.owner).toBe('mateng')
+    expect(changan?.owner).toBe('caocao')
+    expect(tongguan?.owner).toBe('caocao')
+    expect(huaili?.neighbors).toEqual(['changan'])
+    expect(changan?.neighbors).toEqual(['huaili', 'tongguan'])
+    expect(tongguan?.neighbors).toEqual(['changan'])
+
+    const sili = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'sili')
+    expect(sili?.owner).toBe('caocao')
+  })
+
+  it('南郑与阳平关归张鲁、葭萌关归刘璋，三点自成一隅', () => {
+    const nanzheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'nanzheng')
+    const yangpingguan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'yangpingguan')
+    const jiamengguan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiamengguan')
+
+    expect(nanzheng?.owner).toBe('zhanglu')
+    expect(yangpingguan?.owner).toBe('zhanglu')
+    expect(jiamengguan?.owner).toBe('liuzhang')
+    expect(nanzheng?.neighbors).toEqual(['yangpingguan'])
+    expect(yangpingguan?.neighbors).toEqual(['jiamengguan', 'nanzheng'])
+    expect(jiamengguan?.neighbors).toEqual(['yangpingguan'])
+
+    const liang = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'liang')
+    const yi = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'yi')
+    expect(liang?.owner).toBe('zhanglu')
+    expect(yi?.owner).toBe('liuzhang')
+
+    const atNanzheng = CHARACTERS_NEW.find((character) => character.stationedSiteId === 'nanzheng')
+    const atYangpingguan = CHARACTERS_NEW.find(
+      (character) => character.stationedSiteId === 'yangpingguan',
+    )
+    expect(atNanzheng?.name).toBe('张鲁')
+    expect(atYangpingguan?.name).toBe('张卫')
+  })
+
+  it('每位在仕武将的兵力不超过带兵上限', () => {
+    const serving = CHARACTERS_NEW.filter((character) => character.status === 'serving')
+
+    for (const character of serving) {
+      expect(character.troops, `${character.name} 兵力超限`).toBeLessThanOrEqual(troopLimit(character))
+    }
   })
 
   it('刘备取荆南时北军不会来援：曹操与荆南既非敌对，也不与荆南相邻', () => {

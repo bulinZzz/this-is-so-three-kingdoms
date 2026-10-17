@@ -10,6 +10,7 @@ export type LonLat = readonly [number, number]
 export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   // 司隶
   changan: [108.94, 34.34],
+  huaili: [108.25, 34.32],
   luoyang: [112.45, 34.62],
   hulao: [113.25, 34.79],
   tongguan: [110.25, 34.55],
@@ -52,6 +53,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   lujiang: [117.29, 31.26],
   jianye: [118.8, 32.06],
   jingkou: [119.45, 31.95],
+  ruxukou: [117.86, 31.6],
   wu: [120.62, 31.3],
   kuaiji: [120.58, 30.0],
   chaisang: [115.98, 29.71],
@@ -91,6 +93,8 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   jieting: [105.98, 35.0],
   qishan: [105.18, 34.19],
   tianshui: [105.34, 34.75],
+  nanzheng: [107.03, 33.07],
+  yangpingguan: [106.1, 33.0],
 
   // 交州
   panyu: [113.26, 23.13],

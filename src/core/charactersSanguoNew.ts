@@ -5,8 +5,9 @@ import type { Character } from './model'
  * 眼下是赤壁战后荆州一隅的四家人马：刘备一行驻公安，曹操诸将守江陵、襄阳与夷陵，
  * 荆南四郡由刘度、赵范、金旋、韩玄四位太守各守其郡，同属「荆南」，江东则周瑜守柴桑。
  * 扬州另有淮南与江东的前线：张辽、李典、乐进守合肥，孙权自据京口，太史慈副之。
+ * 关中另有一处：钟繇守长安，马腾率马超、马岱、庞德据槐里。汉中另有一处：张鲁据南郑，其弟张卫守阳平关。
  * 在仕者必须有隶属势力与驻地；城池与关隘的驻地须为本方所有，野地无归属，任何势力都可驻守。
- * 势力至多一名君主，也可以没有；孙权据京口，自为君主，曹操与荆南则无君主。
+ * 势力至多一名君主，也可以没有；孙权据京口、马腾据槐里、张鲁据南郑，各自为君主，曹操与荆南则无君主。
  */
 export const CHARACTERS_SANGUO_NEW: Character[] = [
   // 刘备（荆州，据公安）
@@ -30,9 +31,22 @@ export const CHARACTERS_SANGUO_NEW: Character[] = [
   { id: 'lidian', name: '李典', status: 'serving', factionId: 'caocao', provinceId: 'yang', might: 78, command: 80, intellect: 72, politics: 70, age: 34, personality: 'steady', affinities: { caocao: 85 }, loyalty: 88, isMonarch: false, stationedSiteId: 'hefei', troops: 5000, tier: null },
   { id: 'yuejin', name: '乐进', status: 'serving', factionId: 'caocao', provinceId: 'yang', might: 88, command: 82, intellect: 55, politics: 50, age: 48, personality: 'brave', affinities: { caocao: 88 }, loyalty: 90, isMonarch: false, stationedSiteId: 'hefei', troops: 5000, tier: null },
 
+  // 曹操（司隶，钟繇守长安）
+  { id: 'zhongyao', name: '钟繇', status: 'serving', factionId: 'caocao', provinceId: 'sili', might: 45, command: 62, intellect: 86, politics: 92, age: 58, personality: 'cautious', affinities: { caocao: 92 }, loyalty: 92, isMonarch: false, stationedSiteId: 'changan', troops: 5000, tier: null },
+
+  // 马腾（司隶，据槐里，四将同驻）
+  { id: 'mateng', name: '马腾', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 84, command: 80, intellect: 58, politics: 62, age: 52, personality: 'brave', affinities: { mateng: 98, hansui: 58 }, loyalty: 100, isMonarch: true, stationedSiteId: 'huaili', troops: 10000, tier: null },
+  { id: 'machao', name: '马超', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 97, command: 90, intellect: 55, politics: 40, age: 32, personality: 'brave', affinities: { mateng: 95, caocao: 45 }, loyalty: 88, isMonarch: false, stationedSiteId: 'huaili', troops: 5000, tier: null },
+  { id: 'madai', name: '马岱', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 82, command: 78, intellect: 62, politics: 45, age: 25, personality: 'steady', affinities: { mateng: 82 }, loyalty: 88, isMonarch: false, stationedSiteId: 'huaili', troops: 5000, tier: null },
+  { id: 'pangde', name: '庞德', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 94, command: 85, intellect: 62, politics: 45, age: 38, personality: 'steady', affinities: { mateng: 88, caocao: 72 }, loyalty: 82, isMonarch: false, stationedSiteId: 'huaili', troops: 5000, tier: null },
+
+  // 张鲁（凉州，据南郑，弟张卫守阳平关）
+  { id: 'zhanglu', name: '张鲁', status: 'serving', factionId: 'zhanglu', provinceId: 'liang', might: 60, command: 70, intellect: 72, politics: 70, age: 38, personality: 'cautious', affinities: { zhanglu: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'nanzheng', troops: 8000, tier: null },
+  { id: 'zhangwei', name: '张卫', status: 'serving', factionId: 'zhanglu', provinceId: 'liang', might: 72, command: 74, intellect: 48, politics: 42, age: 34, personality: 'brave', affinities: { zhanglu: 88 }, loyalty: 88, isMonarch: false, stationedSiteId: 'yangpingguan', troops: 5000, tier: null },
+
   // 孙权（扬州，周瑜守柴桑，孙权与太史慈据京口）
   { id: 'zhouyu', name: '周瑜', status: 'serving', factionId: 'sunquan', provinceId: 'yang', might: 78, command: 94, intellect: 92, politics: 85, age: 33, personality: 'proud', affinities: { sunquan: 95 }, loyalty: 95, isMonarch: false, stationedSiteId: 'chaisang', troops: 10000, tier: null },
-  { id: 'sunquan', name: '孙权', status: 'serving', factionId: 'sunquan', provinceId: 'yang', might: 70, command: 82, intellect: 80, politics: 88, age: 26, personality: 'cautious', affinities: { sunquan: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'jingkou', troops: 15000, tier: null },
+  { id: 'sunquan', name: '孙权', status: 'serving', factionId: 'sunquan', provinceId: 'yang', might: 70, command: 82, intellect: 80, politics: 88, age: 26, personality: 'cautious', affinities: { sunquan: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'jingkou', troops: 12000, tier: null },
   { id: 'taishici', name: '太史慈', status: 'serving', factionId: 'sunquan', provinceId: 'yang', might: 90, command: 84, intellect: 70, politics: 60, age: 42, personality: 'brave', affinities: { sunquan: 70 }, loyalty: 88, isMonarch: false, stationedSiteId: 'jingkou', troops: 5000, tier: null },
 
   // 荆南（荆州，四郡各守其郡；无君主，合成一家）

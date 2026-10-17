@@ -53,6 +53,12 @@ const EXCLUDED_EDGES = [
   ['longbian', 'jiangzhou'],
   // 合肥与柴桑在图上无第三点阻挡，但一在淮南、一在豫章，中隔大江与数郡，眼下两地尚未铺开，暂不相通。
   ['hefei', 'chaisang'],
+  // 潼关在关中、襄阳在南阳盆地，中隔秦岭；武关道本就经宛与武关，眼下这两点尚未入图，暂不相通。
+  ['tongguan', 'xiangyang'],
+  // 夷陵在荆州、南郑在汉中，中隔巴山与神农架，并无直接通道。
+  ['yiling', 'nanzheng'],
+  // 槐里在关中、南郑在汉中，中隔秦岭；褒斜道沿线的其他点尚未入图，眼下暂不相通。
+  ['huaili', 'nanzheng'],
 ]
 
 // 制图经纬度范围，唯一来源为 src/game/mapBounds.json，与 src/game/mapLayout.ts 共用；
