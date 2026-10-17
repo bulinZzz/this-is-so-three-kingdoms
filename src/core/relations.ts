@@ -44,9 +44,19 @@ export function areAllied(state: GameState, a: FactionId, b: FactionId): boolean
   return a !== b && relationBetween(state, a, b) === 'ally'
 }
 
-/** 两方是否敌对。同一个势力不算敌对。 */
+/** 一个势力是否已离开版图：名下不再有任何战略点。 */
+function holdsNoSite(state: GameState, factionId: FactionId): boolean {
+  return !state.geography.sites.some((site) => site.owner === factionId)
+}
+
+/** 两方是否敌对。同一个势力不算敌对；已离开版图的势力，其残留的敌对关系也不再算数。 */
 export function areHostile(state: GameState, a: FactionId, b: FactionId): boolean {
-  return a !== b && relationBetween(state, a, b) === 'hostile'
+  if (a === b || relationBetween(state, a, b) !== 'hostile') {
+    return false
+  }
+  // 覆灭者的关系记录原样留在 relations 里，供外交界面展示，判定上则要排除，
+  // 否则残局会一直以为战事未歇、拦下新的宣战。仍据城者即便暂无在仕武将，也仍是可攻取的对象。
+  return !holdsNoSite(state, a) && !holdsNoSite(state, b)
 }
 
 /** 记下（或更新）一对势力的状态，保留现有好感；未记录者新建，好感取中性。 */

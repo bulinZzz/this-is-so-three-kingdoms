@@ -49,8 +49,9 @@ import { endTurn } from '../src/core/turn'
  *   缺粮则向可开口的弱者索取、忠诚不足六十则赏赐、否则建农田 / 市集 / 民居）
  *   → 征粮（交给内政最高者，自驻地存粮取用）→ 调兵（朝最弱目标集结）。
  * 兵只从征兵来、粮落在战略点上：兵力完全靠征兵积累，粮要派人去取，两者都由代理逐季操持。
- * 外交只做索取与宣战：荆扬一隅里同盟与敌对都是开局定局，赠礼、停战与结盟无处可施；
- * 建安十三年开局无战事，代理先收拾无主之地，再无主可打才向一位邻邦宣战，把战火点燃。
+ * 外交只做索取与宣战：赠礼、停战与结盟无处可施。宣战不限关系——同盟亦可宣战，
+ * 与玩家手中的手段一致，但次序上先把非同盟打完，接壤处再无外人时才撕盟。
+ * 代理先收拾无主之地，再无主可打便向最弱的一位邻邦宣战，把战火点燃。
  * 其他势力由 factionAi 自主行动，走与实机相同的回合收尾流程。
  * 它不代表最优打法，只用来观察数值松紧与局势走向；判断「好不好玩」仍要看实玩。
  */
@@ -313,21 +314,25 @@ interface Playthrough {
   destroyedAt: Map<FactionId, number>
 }
 
-/** 就着玩家的自有领地向外看：与本方接壤、尚可一战的势力里最弱的一位；无则返回 null。 */
+/**
+ * 就着玩家的自有领地向外看：接壤势力里最弱的一位。非同盟先于同盟——先把外人打完，
+ * 接壤处再无外人可打时才轮到同盟，撕盟是最后一步；无接壤者则返回 null。
+ */
 function warTargetOf(state: GameState): FactionId | null {
   const player = state.playerFaction
   const own = state.geography.sites.filter((site) => site.owner === player)
-  const candidate = state.factions
-    .filter((faction) => faction.id !== player && !areAllied(state, player, faction.id))
+  const adjacent = state.factions
+    .filter((faction) => faction.id !== player)
     .filter((faction) =>
       state.geography.sites.some(
         (site) =>
           site.owner === faction.id && own.some((base) => base.neighbors.includes(site.id)),
       ),
     )
-    .sort((a, b) => factionTroops(state, a.id) - factionTroops(state, b.id))[0]
+    .sort((a, b) => factionTroops(state, a.id) - factionTroops(state, b.id))
+  const outsider = adjacent.find((faction) => !areAllied(state, player, faction.id))
 
-  return candidate?.id ?? null
+  return (outsider ?? adjacent[0])?.id ?? null
 }
 
 /**

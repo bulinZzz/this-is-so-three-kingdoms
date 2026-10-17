@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { attack, isAttackable } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
+import { declareWar } from '../src/core/diplomacy'
 import {
   adjustFavor,
   areAllied,
@@ -23,6 +24,32 @@ describe('势力关系', () => {
     expect(relationBetween(state, 'liubei', 'caocao')).toBe(NEUTRAL)
     // 关系对称：反过来查也是同一结果。
     expect(relationBetween(state, 'sunquan', 'liubei')).toBe('ally')
+  })
+
+  it('同盟也能宣战，宣战只拒已经敌对者', () => {
+    const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
+
+    // 孙刘开局同盟，关系不是敌对，故宣战照办。
+    const result = declareWar(state, 'sunquan')
+
+    expect(result.ok).toBe(true)
+    expect(relationBetween(state, 'liubei', 'sunquan')).toBe('hostile')
+    expect(declareWar(state, 'sunquan')).toEqual({ ok: false, reason: '与对方已经敌对' })
+  })
+
+  it('势力失去全部据点后，其残留的敌对关系不再算敌对', () => {
+    const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
+
+    declareWar(state, 'caocao')
+    expect(areHostile(state, 'liubei', 'caocao')).toBe(true)
+
+    // 曹操的据点尽失即已离开版图；关系记录原样留着，判定上却不再算敌对。
+    for (const site of state.geography.sites.filter((item) => item.owner === 'caocao')) {
+      site.owner = 'liubei'
+    }
+
+    expect(relationBetween(state, 'liubei', 'caocao')).toBe('hostile')
+    expect(areHostile(state, 'liubei', 'caocao')).toBe(false)
   })
 
   it('同盟之间不能进攻', () => {
