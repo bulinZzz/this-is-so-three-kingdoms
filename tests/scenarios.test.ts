@@ -96,7 +96,7 @@ describe('建安十三年（新）', () => {
     expect(yang?.owner).toBe('sunquan')
   })
 
-  it('合肥属曹操、京口与建业属孙权，两地由无主的濡须口串起而非直连', () => {
+  it('合肥属曹操、建业与京口属孙权，两地由孙权所据的濡须口关隘串起而非直连', () => {
     const hefei = GEOGRAPHY_NEW.sites.find((site) => site.id === 'hefei')
     const jingkou = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jingkou')
     const jianye = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jianye')
@@ -105,8 +105,9 @@ describe('建安十三年（新）', () => {
     expect(hefei?.owner).toBe('caocao')
     expect(jingkou?.owner).toBe('sunquan')
     expect(jianye?.owner).toBe('sunquan')
-    expect(ruxukou?.type).toBe('field')
-    expect(ruxukou?.owner).toBeNull()
+    expect(ruxukou?.type).toBe('pass')
+    expect(ruxukou?.population).toBe(20000)
+    expect(ruxukou?.owner).toBe('sunquan')
 
     expect(hefei?.neighbors).toEqual(['ruxukou'])
     expect(ruxukou?.neighbors).toEqual(['hefei', 'jianye'])
@@ -130,7 +131,7 @@ describe('建安十三年（新）', () => {
     expect(sili?.owner).toBe('caocao')
   })
 
-  it('南郑与阳平关归张鲁、葭萌关归刘璋，三点自成一隅', () => {
+  it('南郑与阳平关归张鲁，葭萌关是汉中南入益州的关口', () => {
     const nanzheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'nanzheng')
     const yangpingguan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'yangpingguan')
     const jiamengguan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiamengguan')
@@ -140,12 +141,10 @@ describe('建安十三年（新）', () => {
     expect(jiamengguan?.owner).toBe('liuzhang')
     expect(nanzheng?.neighbors).toEqual(['yangpingguan'])
     expect(yangpingguan?.neighbors).toEqual(['jiamengguan', 'nanzheng'])
-    expect(jiamengguan?.neighbors).toEqual(['yangpingguan'])
+    expect(jiamengguan?.neighbors).toEqual(['yangpingguan', 'fucheng'])
 
     const liang = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'liang')
-    const yi = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'yi')
     expect(liang?.owner).toBe('zhanglu')
-    expect(yi?.owner).toBe('liuzhang')
 
     const atNanzheng = CHARACTERS_NEW.find((character) => character.stationedSiteId === 'nanzheng')
     const atYangpingguan = CHARACTERS_NEW.find(
@@ -153,6 +152,29 @@ describe('建安十三年（新）', () => {
     )
     expect(atNanzheng?.name).toBe('张鲁')
     expect(atYangpingguan?.name).toBe('张卫')
+  })
+
+  it('涪城、雒城与成都归刘璋，由葭萌关一线串起，眼下均无驻守', () => {
+    const fucheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'fucheng')
+    const luocheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'luocheng')
+    const chengdu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chengdu')
+
+    expect(chengdu?.type).toBe('metropolis')
+    expect(fucheng?.owner).toBe('liuzhang')
+    expect(luocheng?.owner).toBe('liuzhang')
+    expect(chengdu?.owner).toBe('liuzhang')
+
+    expect(fucheng?.neighbors).toEqual(['luocheng', 'jiamengguan'])
+    expect(luocheng?.neighbors).toEqual(['chengdu', 'fucheng'])
+    expect(chengdu?.neighbors).toEqual(['luocheng'])
+
+    const yi = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'yi')
+    expect(yi?.owner).toBe('liuzhang')
+
+    const stationed = CHARACTERS_NEW.filter((character) =>
+      ['fucheng', 'luocheng', 'chengdu'].includes(character.stationedSiteId ?? ''),
+    )
+    expect(stationed).toEqual([])
   })
 
   it('每位在仕武将的兵力不超过带兵上限', () => {
