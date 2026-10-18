@@ -66,8 +66,9 @@ describe('建安十三年（新）', () => {
       expect(site?.owner, `${id} 应归荆南`).toBe('jingnan')
     }
 
+    // 曹操据江陵、襄阳、樊城、宛与夷陵五点，多于荆南四郡，荆州归曹操。
     const jing = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'jing')
-    expect(jing?.owner).toBe('jingnan')
+    expect(jing?.owner).toBe('caocao')
   })
 
   it('公安进出荆南不止武陵一处，武陵不再独占门户', () => {
@@ -80,12 +81,31 @@ describe('建安十三年（新）', () => {
     expect(jingnanGates).toEqual(['wuling', 'changsha'])
   })
 
-  it('赤壁是无主野地，连通江陵、公安、长沙、柴桑四家', () => {
+  it('赤壁是无主野地，连通江陵、公安、长沙、柴桑四家，江北的江夏又与之相接', () => {
     const chibi = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chibi')
 
     expect(chibi?.type).toBe('field')
     expect(chibi?.owner).toBeNull()
-    expect(chibi?.neighbors).toEqual(['gongan', 'jiangling', 'chaisang', 'changsha'])
+    expect(chibi?.neighbors).toEqual(['jiangxia', 'gongan', 'jiangling', 'chaisang', 'changsha'])
+  })
+
+  it('樊城与襄阳隔汉水相望，宛在北为二城北上中原的门户', () => {
+    const fancheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'fancheng')
+    const xiangyang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'xiangyang')
+    const wancheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'wancheng')
+
+    expect(fancheng?.type).toBe('city')
+    expect(fancheng?.owner).toBe('caocao')
+    expect(fancheng?.neighbors).toEqual(['xiangyang', 'wancheng'])
+    expect(xiangyang?.neighbors).toEqual(['fancheng', 'yiling', 'jiangling'])
+
+    // 宛为南阳郡治，南接樊城，北通洛阳与许都，中原与荆州由是相通。
+    expect(wancheng?.type).toBe('metropolis')
+    expect(wancheng?.owner).toBe('caocao')
+    expect(wancheng?.neighbors).toEqual(['fancheng', 'xudu', 'luoyang'])
+
+    const atFancheng = CHARACTERS_NEW.filter((character) => character.stationedSiteId === 'fancheng')
+    expect(atFancheng.map((character) => character.name)).toEqual(['满宠'])
   })
 
   it('柴桑属孙权，扬州随之归孙权', () => {
@@ -94,6 +114,42 @@ describe('建安十三年（新）', () => {
 
     const yang = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'yang')
     expect(yang?.owner).toBe('sunquan')
+  })
+
+  it('江夏是长江中游的无主据点，东接柴桑、西临赤壁', () => {
+    const jiangxia = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiangxia')
+
+    expect(jiangxia?.type).toBe('city')
+    expect(jiangxia?.owner).toBeNull()
+    expect(jiangxia?.neighbors).toEqual(['chibi', 'chaisang'])
+
+    // 柴桑由是与江夏相接，江陵则只通公安、夷陵、赤壁与襄阳（赤壁一线的两侧另见上）。
+    const chaisang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chaisang')
+    const jiangling = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiangling')
+    expect(chaisang?.neighbors).toEqual(['jiangxia', 'chibi'])
+    expect(jiangling?.neighbors).toEqual(['gongan', 'yiling', 'chibi', 'xiangyang'])
+  })
+
+  it('金城在陇右归马腾、由韩遂驻守，只通关中的槐里；马腾与韩遂合为一家', () => {
+    const jincheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jincheng')
+
+    expect(jincheng?.type).toBe('city')
+    expect(jincheng?.owner).toBe('mateng')
+    expect(jincheng?.population).toBe(80000)
+    expect(jincheng?.provinceId).toBe('liang')
+    expect(jincheng?.neighbors).toEqual(['huaili'])
+
+    // 新版图不再另立韩遂一家：韩遂归马腾麾下、驻金城，马腾仍是这一家唯一的君主。
+    expect(FACTION_IDS_NEW).not.toContain('hansui')
+    const hansui = CHARACTERS_NEW.find((character) => character.id === 'hansui')
+    expect(hansui?.factionId).toBe('mateng')
+    expect(hansui?.stationedSiteId).toBe('jincheng')
+    expect(hansui?.isMonarch).toBe(false)
+
+    const matengMonarchs = CHARACTERS_NEW.filter(
+      (character) => character.factionId === 'mateng' && character.isMonarch,
+    )
+    expect(matengMonarchs.map((character) => character.name)).toEqual(['马腾'])
   })
 
   it('合肥属曹操、建业与京口属孙权，两地由孙权所据的濡须口关隘串起而非直连', () => {
@@ -109,10 +165,29 @@ describe('建安十三年（新）', () => {
     expect(ruxukou?.population).toBe(20000)
     expect(ruxukou?.owner).toBe('sunquan')
 
-    expect(hefei?.neighbors).toEqual(['ruxukou'])
+    expect(hefei?.neighbors).toEqual(['ruxukou', 'shouchun'])
     expect(ruxukou?.neighbors).toEqual(['hefei', 'jianye'])
     expect(jianye?.neighbors).toEqual(['jingkou', 'ruxukou'])
-    expect(jingkou?.neighbors).toEqual(['jianye'])
+    // 京口除与建业相连外，隔江又有广陵一处渡口（见下）。
+    expect(jingkou?.neighbors).toEqual(['guangling', 'jianye'])
+  })
+
+  it('淮南的寿春与广陵皆归曹操，寿春只通广陵，广陵隔江连京口', () => {
+    const shouchun = GEOGRAPHY_NEW.sites.find((site) => site.id === 'shouchun')
+    const guangling = GEOGRAPHY_NEW.sites.find((site) => site.id === 'guangling')
+
+    expect(shouchun?.type).toBe('city')
+    expect(shouchun?.owner).toBe('caocao')
+    expect(shouchun?.neighbors).toEqual(['hefei', 'guangling'])
+
+    // 广陵在江北、隔江与京口相望，是江东出入江北的渡口，眼下只连寿春与京口。
+    expect(guangling?.type).toBe('city')
+    expect(guangling?.owner).toBe('caocao')
+    expect(guangling?.neighbors).toEqual(['jingkou', 'shouchun'])
+
+    // 广陵落在徐州界内，归曹操后徐州暂由曹操所据。
+    const xu = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'xu')
+    expect(xu?.owner).toBe('caocao')
   })
 
   it('关中的槐里归马腾、长安与潼关归曹操，潼关东通洛阳入中原', () => {
@@ -123,7 +198,8 @@ describe('建安十三年（新）', () => {
     expect(huaili?.owner).toBe('mateng')
     expect(changan?.owner).toBe('caocao')
     expect(tongguan?.owner).toBe('caocao')
-    expect(huaili?.neighbors).toEqual(['changan'])
+    // 槐里东接长安，又西通陇右的金城（见下）。
+    expect(huaili?.neighbors).toEqual(['changan', 'jincheng'])
     expect(changan?.neighbors).toEqual(['huaili', 'tongguan'])
     expect(tongguan?.neighbors).toEqual(['changan', 'luoyang'])
 
@@ -150,10 +226,10 @@ describe('建安十三年（新）', () => {
     expect(ye?.type).toBe('metropolis')
 
     // 洛阳—虎牢关—许都/陈留串成中原一线，邺经陈留南下。
-    expect(luoyang?.neighbors).toEqual(['hulao', 'tongguan'])
+    expect(luoyang?.neighbors).toEqual(['hulao', 'wancheng', 'tongguan'])
     expect(hulao?.neighbors).toEqual(['luoyang', 'xudu', 'chenliu'])
     expect(chenliu?.neighbors).toEqual(['xudu', 'hulao', 'ye'])
-    expect(xudu?.neighbors).toEqual(['chenliu', 'hulao'])
+    expect(xudu?.neighbors).toEqual(['chenliu', 'hulao', 'wancheng'])
     expect(ye?.neighbors).toEqual(['chenliu'])
 
     // 冀、兖、豫三州随点归曹操。
@@ -177,9 +253,19 @@ describe('建安十三年（新）', () => {
     expect(nanzheng?.owner).toBe('zhanglu')
     expect(yangpingguan?.owner).toBe('zhanglu')
     expect(jiamengguan?.owner).toBe('liuzhang')
-    expect(nanzheng?.neighbors).toEqual(['dingjunshan', 'yangpingguan'])
+    expect(nanzheng?.neighbors).toEqual(['dingjunshan', 'yangpingguan', 'shangyong'])
     expect(yangpingguan?.neighbors).toEqual(['jiamengguan', 'nanzheng'])
     expect(jiamengguan?.neighbors).toEqual(['yangpingguan', 'dingjunshan', 'fucheng'])
+
+    // 上庸是汉中郡东三县之一，随汉中归张鲁；当汉水上游，东经秭归入巴东、西接南郑，不直通襄阳、也不接白帝城与关中。
+    const shangyong = GEOGRAPHY_NEW.sites.find((site) => site.id === 'shangyong')
+    expect(shangyong?.type).toBe('town')
+    expect(shangyong?.owner).toBe('zhanglu')
+    expect(shangyong?.neighbors).toEqual(['zigui', 'nanzheng'])
+    expect(shangyong?.neighbors).not.toContain('xiangyang')
+    expect(shangyong?.neighbors).not.toContain('baidicheng')
+    expect(shangyong?.neighbors).not.toContain('changan')
+    expect(shangyong?.neighbors).not.toContain('tongguan')
 
     // 定军山在汉中腹地，是无归属的野地；阳平关险不可拔，定军山则通南缘的葭萌关，是绕开关隘、北上取汉中的一路。
     expect(dingjunshan?.type).toBe('field')
@@ -234,17 +320,28 @@ describe('建安十三年（新）', () => {
     expect(liuzhang?.factionId).toBe('liuzhang')
   })
 
-  it('江州与白帝城归刘璋，涪城—江州—白帝城—夷陵串成入蜀门户', () => {
+  it('江州与白帝城归刘璋，涪城—江州—白帝城—秭归—夷陵串成入蜀门户', () => {
     const fucheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'fucheng')
     const jiangzhou = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiangzhou')
     const baidicheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'baidicheng')
+    const zigui = GEOGRAPHY_NEW.sites.find((site) => site.id === 'zigui')
     const yiling = GEOGRAPHY_NEW.sites.find((site) => site.id === 'yiling')
 
     expect(jiangzhou?.owner).toBe('liuzhang')
     expect(baidicheng?.owner).toBe('liuzhang')
     expect(jiangzhou?.neighbors).toEqual(['luocheng', 'fucheng', 'baidicheng'])
-    expect(baidicheng?.neighbors).toEqual(['yiling', 'jiangzhou'])
-    expect(yiling?.neighbors).toContain('baidicheng')
+    expect(baidicheng?.neighbors).toEqual(['zigui', 'jiangzhou'])
+
+    // 秭归当巫峡之口，是无归属的县城，夹在夷陵与白帝城之间；夷陵不再直通白帝城。
+    expect(zigui?.type).toBe('town')
+    expect(zigui?.owner).toBeNull()
+    expect(zigui?.neighbors).toEqual(['yiling', 'baidicheng', 'shangyong'])
+    // 夷陵是曹操在荆州的前哨小城，由曹洪驻守；与武陵不通，曹操不与荆南贴邻。
+    expect(yiling?.type).toBe('town')
+    expect(yiling?.owner).toBe('caocao')
+    expect(yiling?.neighbors).toContain('zigui')
+    expect(yiling?.neighbors).not.toContain('baidicheng')
+    expect(yiling?.neighbors).not.toContain('wuling')
 
     // 与涪城—江州重复的成都—江州走廊、横断巴山的白帝城—南郑，暂不相通
     const chengdu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chengdu')

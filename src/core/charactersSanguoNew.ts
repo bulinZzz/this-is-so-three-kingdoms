@@ -2,10 +2,11 @@ import type { Character } from './model'
 
 /**
  * 「建安十三年（新）」的人物数据，正在逐个添加。
- * 眼下是赤壁战后荆州一隅的四家人马：刘备一行驻公安，曹操诸将守江陵、襄阳与夷陵，
+ * 眼下是赤壁战后荆州一隅的四家人马：刘备一行驻公安，曹操诸将守江陵、襄阳、樊城与夷陵，
  * 荆南四郡由刘度、赵范、金旋、韩玄四位太守各守其郡，同属「荆南」，江东则周瑜守柴桑。
  * 扬州另有淮南与江东的前线：张辽、李典、乐进守合肥，孙权自据建业，太史慈守京口。
- * 关中另有一处：钟繇守长安，马腾率马超、马岱、庞德据槐里。汉中另有一处：张鲁据南郑，阎圃同在城中，其弟张卫守阳平关。
+ * 关中另有一处：钟繇守长安，马腾率马超、马岱、庞德据槐里；陇右的韩遂已与马腾合为一家、奉马腾为主，驻金城。
+ * 汉中另有一处：张鲁据南郑，阎圃同在城中，其弟张卫守阳平关。
  * 益州另有刘璋一家：刘璋据成都，黄权、刘巴同在；北出涪城有杨怀、高沛，绵竹有费观、李严、董和，雒城有刘循、张任、吴懿、吴兰、雷铜，巴郡江州有严颜。
  * 在仕者必须有隶属势力与驻地；城池与关隘的驻地须为本方所有，野地无归属，任何势力都可驻守。
  * 势力至多一名君主，也可以没有；孙权据建业、马腾据槐里、张鲁据南郑、刘璋据成都，各自为君主，曹操与荆南则无君主。
@@ -25,8 +26,9 @@ export const CHARACTERS_SANGUO_NEW: Character[] = [
   { id: 'niujin', name: '牛金', status: 'serving', factionId: 'caocao', provinceId: 'jing', might: 80, command: 78, intellect: 45, politics: 40, age: 36, personality: 'brave', affinities: { caocao: 80 }, loyalty: 85, isMonarch: false, stationedSiteId: 'jiangling', troops: 11500, tier: null },
   { id: 'caochun', name: '曹纯', status: 'serving', factionId: 'caocao', provinceId: 'jing', might: 85, command: 84, intellect: 66, politics: 60, age: 38, personality: 'brave', affinities: { caocao: 90 }, loyalty: 90, isMonarch: false, stationedSiteId: 'jiangling', troops: 11500, tier: null },
 
-  // 曹操（荆州，夏侯惇守襄阳、曹洪守夷陵）
+  // 曹操（荆州，夏侯惇守襄阳、满宠守樊城、曹洪守夷陵）
   { id: 'xiahoudun', name: '夏侯惇', status: 'serving', factionId: 'caocao', provinceId: 'jing', might: 90, command: 88, intellect: 55, politics: 60, age: 51, personality: 'brave', affinities: { caocao: 95 }, loyalty: 95, isMonarch: false, stationedSiteId: 'xiangyang', troops: 13000, tier: null },
+  { id: 'manchong', name: '满宠', status: 'serving', factionId: 'caocao', provinceId: 'jing', might: 68, command: 82, intellect: 80, politics: 82, age: 42, personality: 'steady', affinities: { caocao: 88 }, loyalty: 88, isMonarch: false, stationedSiteId: 'fancheng', troops: 11500, tier: null },
   { id: 'caohong', name: '曹洪', status: 'serving', factionId: 'caocao', provinceId: 'jing', might: 86, command: 78, intellect: 50, politics: 55, age: 39, personality: 'brave', affinities: { caocao: 90 }, loyalty: 92, isMonarch: false, stationedSiteId: 'yiling', troops: 11500, tier: null },
 
   // 曹操（扬州，张辽、李典、乐进守合肥）
@@ -38,10 +40,12 @@ export const CHARACTERS_SANGUO_NEW: Character[] = [
   { id: 'zhongyao', name: '钟繇', status: 'serving', factionId: 'caocao', provinceId: 'sili', might: 45, command: 62, intellect: 86, politics: 92, age: 58, personality: 'cautious', affinities: { caocao: 92 }, loyalty: 92, isMonarch: false, stationedSiteId: 'changan', troops: 9000, tier: null },
 
   // 马腾（司隶，据槐里，四将同驻；与张鲁同处独立势力一层）
-  { id: 'mateng', name: '马腾', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 84, command: 80, intellect: 58, politics: 62, age: 52, personality: 'brave', affinities: { mateng: 98, hansui: 58 }, loyalty: 100, isMonarch: true, stationedSiteId: 'huaili', troops: 7000, tier: null },
+  { id: 'mateng', name: '马腾', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 84, command: 80, intellect: 58, politics: 62, age: 52, personality: 'brave', affinities: { mateng: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'huaili', troops: 7000, tier: null },
   { id: 'machao', name: '马超', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 97, command: 90, intellect: 55, politics: 40, age: 32, personality: 'brave', affinities: { mateng: 95, caocao: 45 }, loyalty: 88, isMonarch: false, stationedSiteId: 'huaili', troops: 10000, tier: null },
   { id: 'madai', name: '马岱', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 82, command: 78, intellect: 62, politics: 45, age: 25, personality: 'steady', affinities: { mateng: 82 }, loyalty: 88, isMonarch: false, stationedSiteId: 'huaili', troops: 6000, tier: null },
   { id: 'pangde', name: '庞德', status: 'serving', factionId: 'mateng', provinceId: 'sili', might: 94, command: 85, intellect: 62, politics: 45, age: 38, personality: 'steady', affinities: { mateng: 88, caocao: 72 }, loyalty: 82, isMonarch: false, stationedSiteId: 'huaili', troops: 7000, tier: null },
+  // 韩遂本是陇右之雄，与马腾久有嫌隙，眼下合为一家、奉马腾为主，自守金城；忠诚偏低，正是这份旧怨的写照。
+  { id: 'hansui', name: '韩遂', status: 'serving', factionId: 'mateng', provinceId: 'liang', might: 74, command: 78, intellect: 76, politics: 66, age: 58, personality: 'scheming', affinities: { mateng: 58 }, loyalty: 70, isMonarch: false, stationedSiteId: 'jincheng', troops: 6000, tier: null },
 
   // 张鲁（凉州，据南郑，弟张卫守阳平关；与马腾同处独立势力一层）
   { id: 'zhanglu', name: '张鲁', status: 'serving', factionId: 'zhanglu', provinceId: 'liang', might: 60, command: 70, intellect: 72, politics: 70, age: 38, personality: 'cautious', affinities: { zhanglu: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'nanzheng', troops: 10000, tier: null },

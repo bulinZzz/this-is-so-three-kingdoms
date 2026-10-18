@@ -30,6 +30,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   // 徐州
   pengcheng: [117.19, 34.27],
   xiapi: [117.94, 33.91],
+  guangling: [119.42, 32.39],
 
   // 青州
   linzi: [118.31, 36.83],
@@ -75,6 +76,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   chibi: [113.85, 29.95],
   changbanpo: [111.79, 30.83],
   yiling: [111.29, 30.7],
+  zigui: [110.98, 30.83],
   wuling: [111.69, 29.03],
   lingling: [111.61, 26.42],
   changsha: [112.94, 28.23],
@@ -88,12 +90,14 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   fucheng: [104.75, 31.47],
   luocheng: [104.28, 30.98],
   mianzhu: [104.12, 31.34],
+  shangyong: [110.2, 32.2],
 
   // 凉州
   hanzhong: [107.03, 33.07],
   jieting: [105.98, 35.0],
   qishan: [105.18, 34.19],
   tianshui: [105.34, 34.75],
+  jincheng: [103.8, 36.06],
   nanzheng: [107.03, 33.07],
   yangpingguan: [106.1, 33.0],
   dingjunshan: [106.7, 33.05],
@@ -108,7 +112,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
 /**
  * 表现层的错位量，单位为像素。
  * 少数地点在真实地理上过于接近（樊城与襄阳隔汉水相望、
- * 洛阳与虎牢关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、
+ * 洛阳与虎牢关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、夷陵与秭归同在西陵峡口、
  * 雒城、绵竹与成都同在成都平原上相距不远、陈仓与五丈原在渭水两岸相距不远、
  * 定军山在沔阳与南郑之间与南郑相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
  */
@@ -117,6 +121,7 @@ export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: numb
   xiangyang: { dx: 13, dy: 6 },
   puyang: { dx: 1, dy: -2 },
   changbanpo: { dx: 0, dy: -8 },
+  zigui: { dx: -11, dy: -10 },
   luocheng: { dx: 10, dy: 0 },
   chencang: { dx: -12, dy: 8 },
   dingjunshan: { dx: -6, dy: 12 },
