@@ -87,6 +87,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   jiangzhou: [106.55, 29.56],
   fucheng: [104.75, 31.47],
   luocheng: [104.28, 30.98],
+  mianzhu: [104.12, 31.34],
 
   // 凉州
   hanzhong: [107.03, 33.07],
@@ -95,6 +96,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   tianshui: [105.34, 34.75],
   nanzheng: [107.03, 33.07],
   yangpingguan: [106.1, 33.0],
+  dingjunshan: [106.7, 33.05],
 
   // 交州
   panyu: [113.26, 23.13],
@@ -107,15 +109,17 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
  * 表现层的错位量，单位为像素。
  * 少数地点在真实地理上过于接近（樊城与襄阳隔汉水相望、
  * 洛阳与虎牢关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、
- * 雒城与成都隔成都平原相望、陈仓与五丈原在渭水两岸相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
+ * 雒城、绵竹与成都同在成都平原上相距不远、陈仓与五丈原在渭水两岸相距不远、
+ * 定军山在沔阳与南郑之间与南郑相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
  */
 export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: number }>> = {
   fancheng: { dx: -13, dy: -6 },
   xiangyang: { dx: 13, dy: 6 },
   puyang: { dx: 1, dy: -2 },
   changbanpo: { dx: 0, dy: -8 },
-  luocheng: { dx: 0, dy: -10 },
+  luocheng: { dx: 10, dy: 0 },
   chencang: { dx: -12, dy: 8 },
+  dingjunshan: { dx: -6, dy: 12 },
 }
 
 /**

@@ -29,8 +29,8 @@ export const SANGUO_208: Scenario = {
 
 /**
  * 「建安十三年（新）」：从头重做的版图，同一个时刻与秋季开局，逐点搭建。
- * 势力沿用旧版并另立荆南一家，关系沿用旧版，地理与人物逐个补入，眼下只立起荆州一隅；
- * 两版并存，新图建齐后再撤旧图。
+ * 势力沿用旧版但去袁氏、另立荆南一家（袁氏已亡，河北与中原尽归曹操），关系沿用旧版，
+ * 地理与人物逐个补入；两版并存，新图建齐后再撤旧图。
  */
 export const SANGUO_208_NEW: Scenario = {
   id: 'sanguo-208-new',
@@ -38,7 +38,10 @@ export const SANGUO_208_NEW: Scenario = {
   startDate: { era: '建安', year: 13, season: 'autumn' },
   playerFaction: 'liubei',
   factions: [
-    ...SANGUO_208.factions.map((faction) => ({ ...faction })),
+    // 袁氏已亡：官渡之后河北与中原尽入曹操，新版图不立袁氏一家。
+    ...SANGUO_208.factions
+      .filter((faction) => faction.id !== 'yuanshi')
+      .map((faction) => ({ ...faction })),
     // 荆南四郡自成一家，不并入曹操；刘备南下取四郡时北军不会来救（见地理数据说明）。
     { id: 'jingnan', name: '荆南', color: '#6b7a8f', grain: 8000, money: 5000 },
   ],
