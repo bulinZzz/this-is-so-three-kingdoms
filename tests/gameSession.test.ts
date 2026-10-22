@@ -294,7 +294,8 @@ describe('GameSession 结局挂钩', () => {
   function acceptanceSession(): { store: LocalSaveStore; session: GameSession } {
     const store = new LocalSaveStore(new MemoryStorage())
     const session = new GameSession(store)
-    session.newGame(SANGUO_ACCEPTANCE)
+    // 固定种子：单挑与伤亡本有随机，结局相关的用例须可复现。
+    session.newGame(SANGUO_ACCEPTANCE, 1)
 
     return { store, session }
   }

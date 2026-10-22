@@ -91,16 +91,24 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   luocheng: [104.28, 30.98],
   mianzhu: [104.12, 31.34],
   shangyong: [110.2, 32.2],
+  lushui: [102.05, 26.3],
+  tulongdong: [99.95, 25.75],
+  sancheng: [99.45, 25.35],
+  taohuadu: [98.9, 24.95],
 
   // 凉州
   hanzhong: [107.03, 33.07],
   jieting: [105.98, 35.0],
   qishan: [105.18, 34.19],
   tianshui: [105.34, 34.75],
+  nanan: [104.62, 35.02],
+  anding: [107.2, 35.5],
   jincheng: [103.8, 36.06],
+  xipingguan: [101.9, 36.55],
   nanzheng: [107.03, 33.07],
   yangpingguan: [106.1, 33.0],
   dingjunshan: [106.7, 33.05],
+  hanshui: [107.9, 32.75],
 
   // 交州
   panyu: [113.26, 23.13],

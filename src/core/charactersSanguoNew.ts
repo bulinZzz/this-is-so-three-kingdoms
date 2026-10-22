@@ -8,9 +8,10 @@ import type { Character } from './model'
  * 关中另有一处：钟繇守长安，马腾率马超、马岱、庞德据槐里；陇右的韩遂已与马腾合为一家、奉马腾为主，驻金城。
  * 汉中另有一处：张鲁据南郑，阎圃同在城中，其弟张卫守阳平关。
  * 益州另有刘璋一家：刘璋据成都，黄权、刘巴同在；北出涪城有杨怀、高沛，绵竹有费观、李严、董和，雒城有刘循、张任、吴懿、吴兰、雷铜，巴郡江州有严颜。
+ * 南中另有「南蛮」一家：孟获称王而自据泸水，三江城有祝融夫人、带来洞主与木鹿大王，秃龙洞有朵思大王、孟优，桃花渡有兀突骨。
  * 在仕者必须有隶属势力与驻地；城池与关隘的驻地须为本方所有，野地无归属，任何势力都可驻守。
- * 势力至多一名君主，也可以没有；孙权据建业、马腾据槐里、张鲁据南郑、刘璋据成都，各自为君主，曹操与荆南则无君主。
- * 兵力按势力强弱分层，由弱至强依次是刘备、荆南、刘璋、张鲁与马腾、孙权、曹操，后一层明显强于前一层；
+ * 势力至多一名君主，也可以没有；孙权据建业、马腾据槐里、张鲁据南郑、刘璋据成都、孟获据泸水，各自为君主，曹操与荆南则无君主。
+ * 兵力按势力强弱分层，由弱至强依次是刘备、荆南、刘璋与南蛮、张鲁与马腾、孙权、曹操，后一层明显强于前一层；
  * 张鲁与马腾各自立家、势力相当，同在独立势力一层；各家武将的兵力均不超过统率所定的带兵上限。
  */
 export const CHARACTERS_SANGUO_NEW: Character[] = [
@@ -94,4 +95,19 @@ export const CHARACTERS_SANGUO_NEW: Character[] = [
   { id: 'liuzhang', name: '刘璋', status: 'serving', factionId: 'liuzhang', provinceId: 'yi', might: 42, command: 66, intellect: 56, politics: 64, age: 48, personality: 'cautious', affinities: { liuzhang: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'chengdu', troops: 4000, tier: null },
   { id: 'huangquan', name: '黄权', status: 'serving', factionId: 'liuzhang', provinceId: 'yi', might: 70, command: 76, intellect: 82, politics: 78, age: 38, personality: 'steady', affinities: { liuzhang: 88 }, loyalty: 90, isMonarch: false, stationedSiteId: 'chengdu', troops: 2000, tier: null },
   { id: 'liuba', name: '刘巴', status: 'serving', factionId: 'liuzhang', provinceId: 'yi', might: 30, command: 55, intellect: 85, politics: 88, age: 40, personality: 'proud', affinities: { liuzhang: 80 }, loyalty: 80, isMonarch: false, stationedSiteId: 'chengdu', troops: 500, tier: null },
+
+  // 南蛮（南中，据三江城；孟获称王，部族诸部分守各处，兵数与刘璋同档）
+  // 泸水（孟获自据，蜀军南渡之处）
+  { id: 'menghuo', name: '孟获', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 85, command: 85, intellect: 60, politics: 55, age: 45, personality: 'brave', affinities: { nanman: 100 }, loyalty: 100, isMonarch: true, stationedSiteId: 'lushui', troops: 5500, tier: null },
+  { id: 'dongtuna', name: '董荼那', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 70, command: 62, intellect: 48, politics: 45, age: 40, personality: 'steady', affinities: { nanman: 85 }, loyalty: 82, isMonarch: false, stationedSiteId: 'lushui', troops: 1500, tier: null },
+  { id: 'ahuinan', name: '阿会喃', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 68, command: 60, intellect: 45, politics: 42, age: 38, personality: 'brave', affinities: { nanman: 85 }, loyalty: 82, isMonarch: false, stationedSiteId: 'lushui', troops: 1500, tier: null },
+  // 秃龙洞
+  { id: 'duosi', name: '朵思大王', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 76, command: 66, intellect: 62, politics: 50, age: 50, personality: 'scheming', affinities: { nanman: 78 }, loyalty: 76, isMonarch: false, stationedSiteId: 'tulongdong', troops: 2500, tier: null },
+  { id: 'mengyou', name: '孟优', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 72, command: 58, intellect: 45, politics: 40, age: 40, personality: 'brave', affinities: { nanman: 92 }, loyalty: 92, isMonarch: false, stationedSiteId: 'tulongdong', troops: 2000, tier: null },
+  // 三江城
+  { id: 'zhurong', name: '祝融夫人', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 82, command: 78, intellect: 62, politics: 50, age: 33, personality: 'proud', affinities: { nanman: 95 }, loyalty: 95, isMonarch: false, stationedSiteId: 'sancheng', troops: 3000, tier: null },
+  { id: 'dailai', name: '带来洞主', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 70, command: 60, intellect: 52, politics: 48, age: 42, personality: 'steady', affinities: { nanman: 80 }, loyalty: 78, isMonarch: false, stationedSiteId: 'sancheng', troops: 2000, tier: null },
+  { id: 'mulu', name: '木鹿大王', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 74, command: 66, intellect: 50, politics: 40, age: 48, personality: 'brave', affinities: { nanman: 78 }, loyalty: 76, isMonarch: false, stationedSiteId: 'sancheng', troops: 2000, tier: null },
+  // 桃花渡（乌戈国主兀突骨）
+  { id: 'wutugu', name: '兀突骨', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 88, command: 72, intellect: 30, politics: 25, age: 40, personality: 'brave', affinities: { nanman: 80 }, loyalty: 72, isMonarch: false, stationedSiteId: 'taohuadu', troops: 3000, tier: null },
 ]

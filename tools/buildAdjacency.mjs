@@ -42,6 +42,10 @@ const FORCED_EDGES = [
   ['shouchun', 'guangling'],
   // 赤壁与柴桑隔江相望，荆扬之间多由此渡；江北的江夏落在两点直径圆内，仅凭几何会误判为不相邻。
   ['chibi', 'chaisang'],
+  // 成都与泸水是自蜀中南渡金沙江的一路；雒城、绵竹落在两点直径圆内，仅凭几何会误判为不相邻。
+  ['chengdu', 'lushui'],
+  // 陈仓与阳平关是陈仓道（故道）的一线，自关中出散关、经略阳入汉中；定军山落在两点直径圆内，仅凭几何会误判为不相邻。
+  ['chencang', 'yangpingguan'],
 ]
 
 /**
@@ -68,6 +72,8 @@ const EXCLUDED_EDGES = [
   ['yiling', 'nanzheng'],
   // 槐里在关中、南郑在汉中，中隔秦岭；褒斜道沿线的其他点尚未入图，眼下暂不相通。
   ['huaili', 'nanzheng'],
+  // 陈仓道自阳平关入汉中，南郑与陈仓之间不直通。
+  ['chencang', 'nanzheng'],
   // 白帝城在巴东、南郑在汉中，中隔大巴山；米仓道沿线的其他点尚未入图，眼下暂不相通。
   ['baidicheng', 'nanzheng'],
   // 成都与江州同在四川盆地，几何上可直连；但涪城—江州已开通路，再连这一条只是重复走廊，暂不相通。
@@ -104,6 +110,17 @@ const EXCLUDED_EDGES = [
   ['jiangxia', 'hefei'],
   // 金城在陇右、阳平关在汉中，中隔陇山与秦岭，并无直接通道；金城眼下只通关中的槐里。
   ['jincheng', 'yangpingguan'],
+  // 泸水在金沙江上，是蜀军南渡之处；与江州中隔越嶲、犍为的山道，出入南中只走成都一路。
+  ['lushui', 'jiangzhou'],
+  // 汉水在汉中盆地，北隔秦岭不通槐里、南隔大巴山不通白帝城，只作南郑东出上庸的水路。
+  ['hanshui', 'huaili'],
+  ['hanshui', 'baidicheng'],
+  // 天水隔陇山不通槐里、隔秦岭不通阳平关；安定与南安之间隔着陇山，陇右入关中只走槐里—陈仓—街亭一路，
+  // 街亭由此扼住天水、南安与金城的门户。金城亦不直通槐里。
+  ['tianshui', 'huaili'],
+  ['tianshui', 'yangpingguan'],
+  ['anding', 'nanan'],
+  ['jincheng', 'huaili'],
 ]
 
 // 制图经纬度范围，唯一来源为 src/game/mapBounds.json，与 src/game/mapLayout.ts 共用；

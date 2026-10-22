@@ -45,6 +45,8 @@ export const SANGUO_208_NEW: Scenario = {
       .map((faction) => ({ ...faction })),
     // 荆南四郡自成一家，不并入曹操；刘备南下取四郡时北军不会来救（见地理数据说明）。
     { id: 'jingnan', name: '荆南', color: '#6b7a8f', grain: 8000, money: 5000 },
+    // 南中自成一家的「南蛮」：孟获称王，据三江城，兵力与刘璋同档（见地理与人物数据说明）。
+    { id: 'nanman', name: '南蛮', color: '#9c6b32', grain: 10000, money: 6000 },
   ],
   // 开局无战事：孙刘同盟沿用旧版，其余势力对一律中立，战火由玩家的宣战点燃。
   relations: (SANGUO_208.relations ?? []).map((relation) => ({

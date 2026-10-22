@@ -80,9 +80,9 @@ export class GameSession {
     return this.autoSaveFailed
   }
 
-  /** 用指定剧本重开一局：重置对局并写入自动存档，覆盖当前进度；手动槽位不受影响。 */
-  newGame(scenario: Scenario): void {
-    this.state = createInitialState({ scenario })
+  /** 用指定剧本重开一局：重置对局并写入自动存档，覆盖当前进度；手动槽位不受影响。种子仅供测试复现。 */
+  newGame(scenario: Scenario, seed?: number): void {
+    this.state = createInitialState({ scenario, seed })
     this.drawRandom = this.createDrawRandom()
     this.saveAuto()
     this.notify()
