@@ -55,11 +55,14 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   lujiang: [117.29, 31.26],
   jianye: [118.8, 32.06],
   jingkou: [119.45, 31.95],
-  ruxukou: [117.86, 31.6],
+  ruxu: [117.86, 31.6],
+  // 牛渚即采石矶，在建业上游的长江南岸。
+  niuzhu: [118.47, 31.66],
   wu: [120.62, 31.3],
   kuaiji: [120.58, 30.0],
   chaisang: [115.98, 29.71],
-  shiting: [116.6, 30.6],
+  // 皖城即皖县，庐江郡治。
+  wanxian: [116.58, 30.63],
   yuzhang: [115.86, 28.68],
   poyang: [116.7, 29.0],
   danyang: [118.76, 30.94],
@@ -75,6 +78,8 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   // 图上略向南挪，免得两枚战略点图标重叠。
   gongan: [112.3, 29.88],
   jiangxia: [114.31, 30.55],
+  // 武昌本是鄂县，在长江南岸、夏口下游。
+  wuchang: [114.89, 30.39],
   chibi: [113.85, 29.95],
   changbanpo: [111.79, 30.83],
   yiling: [111.29, 30.7],
@@ -101,8 +106,10 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   hanzhong: [107.03, 33.07],
   jieting: [105.98, 35.0],
   qishan: [105.18, 34.19],
+  wudu: [105.62, 33.75],
+  yinping: [104.95, 32.95],
   tianshui: [105.34, 34.75],
-  jixian: [105.34, 34.75],
+  shanggui: [105.72, 34.58],
   jincheng: [103.8, 36.06],
   xipingguan: [101.9, 36.55],
   nanzheng: [107.03, 33.07],
@@ -121,7 +128,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
  * 少数地点在真实地理上过于接近（樊城与襄阳隔汉水相望、
  * 洛阳与虎牢关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、夷陵与秭归同在西陵峡口、
  * 雒城、绵竹与成都同在成都平原上相距不远、陈仓与五丈原在渭水两岸相距不远、
- * 定军山在沔阳与南郑之间与南郑相距不远、冀县与街亭及祁山在陇右相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
+ * 定军山在沔阳与南郑之间与南郑相距不远、上邽与街亭及祁山在陇右相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
  */
 export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: number }>> = {
   fancheng: { dx: -13, dy: -6 },
@@ -132,7 +139,7 @@ export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: numb
   luocheng: { dx: 10, dy: 0 },
   chencang: { dx: -12, dy: 8 },
   dingjunshan: { dx: -6, dy: 12 },
-  jixian: { dx: -16, dy: -6 },
+  shanggui: { dx: 8, dy: 8 },
   jieting: { dx: 14, dy: -6 },
   qishan: { dx: -10, dy: 12 },
 }
