@@ -16,6 +16,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   tongguan: [110.25, 34.55],
   wuzhangyuan: [107.62, 34.28],
   chencang: [107.2, 34.36],
+  zhiwugu: [108.15, 33.75],
 
   // 兖州
   guandu: [113.98, 34.72],
@@ -58,6 +59,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   wu: [120.62, 31.3],
   kuaiji: [120.58, 30.0],
   chaisang: [115.98, 29.71],
+  shiting: [116.6, 30.6],
   yuzhang: [115.86, 28.68],
   poyang: [116.7, 29.0],
   danyang: [118.76, 30.94],
@@ -90,7 +92,6 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   fucheng: [104.75, 31.47],
   luocheng: [104.28, 30.98],
   mianzhu: [104.12, 31.34],
-  shangyong: [110.2, 32.2],
   lushui: [102.05, 26.3],
   tulongdong: [99.95, 25.75],
   sancheng: [99.45, 25.35],
@@ -101,14 +102,12 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   jieting: [105.98, 35.0],
   qishan: [105.18, 34.19],
   tianshui: [105.34, 34.75],
-  nanan: [104.62, 35.02],
-  anding: [107.2, 35.5],
+  jixian: [105.34, 34.75],
   jincheng: [103.8, 36.06],
   xipingguan: [101.9, 36.55],
   nanzheng: [107.03, 33.07],
   yangpingguan: [106.1, 33.0],
   dingjunshan: [106.7, 33.05],
-  hanshui: [107.9, 32.75],
 
   // 交州
   panyu: [113.26, 23.13],
@@ -122,7 +121,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
  * 少数地点在真实地理上过于接近（樊城与襄阳隔汉水相望、
  * 洛阳与虎牢关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、夷陵与秭归同在西陵峡口、
  * 雒城、绵竹与成都同在成都平原上相距不远、陈仓与五丈原在渭水两岸相距不远、
- * 定军山在沔阳与南郑之间与南郑相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
+ * 定军山在沔阳与南郑之间与南郑相距不远、冀县与街亭及祁山在陇右相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
  */
 export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: number }>> = {
   fancheng: { dx: -13, dy: -6 },
@@ -133,6 +132,9 @@ export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: numb
   luocheng: { dx: 10, dy: 0 },
   chencang: { dx: -12, dy: 8 },
   dingjunshan: { dx: -6, dy: 12 },
+  jixian: { dx: -16, dy: -6 },
+  jieting: { dx: 14, dy: -6 },
+  qishan: { dx: -10, dy: 12 },
 }
 
 /**
