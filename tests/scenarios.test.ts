@@ -66,6 +66,14 @@ describe('建安十三年（新）', () => {
       expect(site?.owner, `${id} 应归荆南`).toBe('jingnan')
     }
 
+    // 零陵与桂阳是荆南四郡中的两座小城，人口仍各八万。
+    for (const id of ['lingling', 'guiyang']) {
+      const site = GEOGRAPHY_NEW.sites.find((item) => item.id === id)
+
+      expect(site?.type, `${id} 应为小城`).toBe('town')
+      expect(site?.population).toBe(80000)
+    }
+
     // 曹操据江陵、襄阳、樊城、宛与夷陵五点，多于荆南四郡，荆州归曹操。
     const jing = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'jing')
     expect(jing?.owner).toBe('caocao')
@@ -99,8 +107,9 @@ describe('建安十三年（新）', () => {
     expect(fancheng?.neighbors).toEqual(['xiangyang', 'wancheng'])
     expect(xiangyang?.neighbors).toEqual(['fancheng', 'yiling', 'jiangling'])
 
-    // 宛为南阳郡治，南接樊城，北通洛阳与许都，中原与荆州由是相通。
-    expect(wancheng?.type).toBe('metropolis')
+    // 宛城为南阳郡治，南接樊城，北通洛阳与许都，中原与荆州由是相通；作大城而人口十二万。
+    expect(wancheng?.type).toBe('city')
+    expect(wancheng?.population).toBe(120000)
     expect(wancheng?.owner).toBe('caocao')
     expect(wancheng?.neighbors).toEqual(['fancheng', 'xudu', 'luoyang'])
 
@@ -116,45 +125,74 @@ describe('建安十三年（新）', () => {
     expect(yang?.owner).toBe('sunquan')
   })
 
-  it('江夏是长江中游的无主据点，东接武昌、西临赤壁', () => {
+  it('江夏是长江中游的无主据点，东接柴桑、西临赤壁', () => {
     const jiangxia = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiangxia')
 
-    expect(jiangxia?.type).toBe('city')
+    expect(jiangxia?.type).toBe('town')
+    expect(jiangxia?.population).toBe(80000)
     expect(jiangxia?.owner).toBeNull()
-    expect(jiangxia?.neighbors).toEqual(['wuchang', 'chibi'])
+    expect(jiangxia?.neighbors).toEqual(['chibi', 'chaisang'])
 
-    // 江夏与柴桑之间由武昌转接，江陵则只通公安、夷陵、赤壁与襄阳（赤壁一线的两侧另见上）。
+    // 江夏与柴桑同在长江一线；江陵则只通公安、夷陵、赤壁与襄阳（赤壁一线的两侧另见上）。
     const chaisang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chaisang')
     const jiangling = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiangling')
-    expect(chaisang?.neighbors).toEqual(['wanxian', 'wuchang', 'chibi', 'niuzhu'])
+    expect(chaisang?.neighbors).toEqual(['wanxian', 'jiangxia', 'chibi', 'jianye'])
     expect(jiangling?.neighbors).toEqual(['gongan', 'yiling', 'chibi', 'xiangyang'])
+
+    // 江夏在江北、皖城在庐江，中隔大别山，两地不直连。
+    expect(jiangxia?.neighbors).not.toContain('wanxian')
   })
 
-  it('武昌本是鄂县、归孙权，江夏—武昌—柴桑连成一线', () => {
-    const wuchang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'wuchang')
-    const jiangxia = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiangxia')
-    const chaisang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chaisang')
+  it('吴是吴郡治吴县、归孙权，北连京口、南接会稽', () => {
+    const wu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'wu')
+    const jianye = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jianye')
 
-    expect(wuchang?.name).toBe('武昌')
-    expect(wuchang?.type).toBe('city')
-    expect(wuchang?.population).toBe(80000)
-    expect(wuchang?.provinceId).toBe('jing')
-    expect(wuchang?.owner).toBe('sunquan')
-    expect(wuchang?.neighbors).toEqual(['jiangxia', 'chaisang', 'wanxian'])
+    expect(wu?.name).toBe('吴')
+    expect(wu?.type).toBe('city')
+    expect(wu?.population).toBe(80000)
+    expect(wu?.provinceId).toBe('yang')
+    expect(wu?.owner).toBe('sunquan')
+    expect(wu?.neighbors).toEqual(['jingkou', 'kuaiji'])
 
-    // 武昌落在江夏与柴桑之间，两地不再直连；皖城一线的直连另见扬州一节。
-    expect(jiangxia?.neighbors).not.toContain('chaisang')
-    expect(chaisang?.neighbors).not.toContain('jiangxia')
+    // 吴在江东腹地，与建业并不直连。
+    expect(jianye?.neighbors).not.toContain('wu')
   })
 
-  it('金城在陇右归马腾、由韩遂驻守，东出上邽、西接河湟的西平关；马腾与韩遂合为一家', () => {
+  it('会稽是江东最南的一郡、归孙权，北连吴、南出东冶通番禺', () => {
+    const kuaiji = GEOGRAPHY_NEW.sites.find((site) => site.id === 'kuaiji')
+
+    expect(kuaiji?.name).toBe('会稽')
+    expect(kuaiji?.type).toBe('city')
+    expect(kuaiji?.population).toBe(80000)
+    expect(kuaiji?.provinceId).toBe('yang')
+    expect(kuaiji?.owner).toBe('sunquan')
+    // 会稽郡治山阴在吴之南，北只通吴；南下交州须经东冶转海路，与番禺并不直连。
+    expect(kuaiji?.neighbors).toEqual(['wu', 'dongye'])
+  })
+
+  it('东冶是会稽郡南端的海港、归孙权，北连会稽、海路南下番禺', () => {
+    const dongye = GEOGRAPHY_NEW.sites.find((site) => site.id === 'dongye')
+    const kuaiji = GEOGRAPHY_NEW.sites.find((site) => site.id === 'kuaiji')
+
+    expect(dongye?.name).toBe('东冶')
+    expect(dongye?.type).toBe('town')
+    expect(dongye?.population).toBe(30000)
+    expect(dongye?.provinceId).toBe('yang')
+    expect(dongye?.owner).toBe('sunquan')
+    expect(dongye?.neighbors).toEqual(['kuaiji', 'panyu'])
+
+    // 会稽与番禺之间隔着千里海路，须在东冶转接。
+    expect(kuaiji?.neighbors).not.toContain('panyu')
+  })
+
+  it('金城在陇右归马腾、由韩遂驻守，东出天水、西接河湟的西平关；马腾与韩遂合为一家', () => {
     const jincheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jincheng')
 
     expect(jincheng?.type).toBe('city')
     expect(jincheng?.owner).toBe('mateng')
     expect(jincheng?.population).toBe(80000)
     expect(jincheng?.provinceId).toBe('liang')
-    expect(jincheng?.neighbors).toEqual(['xipingguan', 'shanggui'])
+    expect(jincheng?.neighbors).toEqual(['xipingguan', 'tianshui'])
 
     // 新版图不再另立韩遂一家：韩遂归马腾麾下、驻金城，马腾仍是这一家唯一的君主。
     expect(FACTION_IDS_NEW).not.toContain('hansui')
@@ -169,61 +207,60 @@ describe('建安十三年（新）', () => {
     expect(matengMonarchs.map((character) => character.name)).toEqual(['马腾'])
   })
 
-  it('陇右自金城经上邽、祁山连成一线，东出关中须经街亭', () => {
-    const shanggui = GEOGRAPHY_NEW.sites.find((site) => site.id === 'shanggui')
+  it('陇右自金城经天水、祁山连成一线，东出关中须经街亭', () => {
+    const tianshui = GEOGRAPHY_NEW.sites.find((site) => site.id === 'tianshui')
     const qishan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'qishan')
     const jieting = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jieting')
 
-    expect(shanggui?.type).toBe('city')
-    expect(shanggui?.population).toBe(80000)
-    expect(shanggui?.provinceId).toBe('liang')
-    expect(shanggui?.owner).toBeNull()
+    expect(tianshui?.name).toBe('天水')
+    expect(tianshui?.type).toBe('city')
+    expect(tianshui?.population).toBe(80000)
+    expect(tianshui?.provinceId).toBe('liang')
+    expect(tianshui?.owner).toBeNull()
 
-    // 上邽是天水郡治，东连金城、南下祁山、北出街亭，是陇右一处十字路口。
-    expect(shanggui?.neighbors).toEqual(['jieting', 'qishan', 'jincheng'])
-    expect(qishan?.neighbors).toEqual(['wudu', 'shanggui'])
-    expect(jieting?.neighbors).toEqual(['shanggui', 'huaili'])
-    expect(shanggui?.neighbors).not.toContain('huaili')
-    expect(shanggui?.neighbors).not.toContain('yangpingguan')
+    // 天水郡治冀县，东连金城、南下祁山、北出街亭，是陇右一处十字路口。
+    expect(tianshui?.neighbors).toEqual(['qishan', 'jieting', 'jincheng'])
+    expect(qishan?.neighbors).toEqual(['wudu', 'tianshui'])
+    expect(jieting?.neighbors).toEqual(['tianshui', 'chencang'])
+    expect(tianshui?.neighbors).not.toContain('huaili')
+    expect(tianshui?.neighbors).not.toContain('yangpingguan')
 
-    // 南安、天水、安定与冀县四座旧的无主郡城已撤出新图，陇右只余金城、上邽与祁山。
-    for (const removed of ['nanan', 'tianshui', 'anding', 'jixian']) {
+    // 南安、安定与冀县三座旧的无主郡城已撤出新图，陇右只余金城、天水与祁山。
+    for (const removed of ['nanan', 'anding', 'jixian']) {
       expect(GEOGRAPHY_NEW.sites.find((site) => site.id === removed)).toBeUndefined()
     }
   })
 
-  it('街亭是陇山道口的无主关隘，扼关中入陇右的唯一通路', () => {
+  it('街亭是陇山道口的无主野地，扼关中入陇右的唯一通路', () => {
     const jieting = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jieting')
 
-    expect(jieting?.type).toBe('pass')
-    expect(jieting?.population).toBe(20000)
+    expect(jieting?.type).toBe('field')
+    expect(jieting?.population).toBe(0)
     expect(jieting?.provinceId).toBe('liang')
     expect(jieting?.owner).toBeNull()
-    // 街亭东接槐里、西接上邽，关中入陇右只此一路，陈仓不再与街亭相通。
-    expect(jieting?.neighbors).toEqual(['shanggui', 'huaili'])
-    expect(jieting?.neighbors).not.toContain('chencang')
+    // 街亭东接陈仓、西接天水，关中入陇右只此一路，槐里不再与街亭相通；作野地后不设守军。
+    expect(jieting?.neighbors).toEqual(['tianshui', 'chencang'])
+    expect(jieting?.neighbors).not.toContain('huaili')
   })
 
-  it('陈仓是关中西出的小城、归曹操，东接五丈原、南下汉中经陈仓道抵阳平关', () => {
+  it('陈仓是关中西出的小城、归曹操，西接街亭、东接槐里、南下汉中经陈仓道抵阳平关', () => {
     const chencang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chencang')
 
     expect(chencang?.type).toBe('town')
     expect(chencang?.population).toBe(30000)
     expect(chencang?.provinceId).toBe('sili')
     expect(chencang?.owner).toBe('caocao')
-    expect(chencang?.neighbors).toEqual(['wuzhangyuan', 'yangpingguan'])
+    expect(chencang?.neighbors).toEqual(['huaili', 'jieting', 'yangpingguan'])
   })
 
-  it('五丈原是渭水南岸的无主野地，西接陈仓、东接槐里，南循褒斜道抵南郑', () => {
-    const wuzhangyuan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'wuzhangyuan')
+  it('五丈原已撤出新图，陈仓与槐里在渭水一线直通', () => {
+    expect(GEOGRAPHY_NEW.sites.find((site) => site.id === 'wuzhangyuan')).toBeUndefined()
 
-    expect(wuzhangyuan?.name).toBe('五丈原')
-    expect(wuzhangyuan?.type).toBe('field')
-    expect(wuzhangyuan?.population).toBe(0)
-    expect(wuzhangyuan?.provinceId).toBe('sili')
-    expect(wuzhangyuan?.owner).toBeNull()
-    expect(wuzhangyuan?.neighbors).toEqual(['chencang', 'huaili', 'nanzheng'])
-    expect(wuzhangyuan?.neighbors).not.toContain('zhiwugu')
+    const chencang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chencang')
+    const huaili = GEOGRAPHY_NEW.sites.find((site) => site.id === 'huaili')
+
+    expect(chencang?.neighbors).toContain('huaili')
+    expect(huaili?.neighbors).toContain('chencang')
   })
 
   it('西平关是湟水谷地的无主关隘，只与金城相通', () => {
@@ -236,7 +273,7 @@ describe('建安十三年（新）', () => {
     expect(xipingguan?.neighbors).toEqual(['jincheng'])
   })
 
-  it('祁山是无主野地，北通上邽、南下武都，是陇右入汉中的西路', () => {
+  it('祁山是无主野地，北通天水、南下武都，是陇右入汉中的西路', () => {
     const qishan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'qishan')
     const yangpingguan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'yangpingguan')
 
@@ -244,36 +281,29 @@ describe('建安十三年（新）', () => {
     expect(qishan?.population).toBe(0)
     expect(qishan?.provinceId).toBe('liang')
     expect(qishan?.owner).toBeNull()
-    expect(qishan?.neighbors).toEqual(['wudu', 'shanggui'])
+    expect(qishan?.neighbors).toEqual(['wudu', 'tianshui'])
 
     // 阳平关仍是张鲁的西面门户，西通武都、循祁山道入陇右，北经陈仓道入关中。
     expect(yangpingguan?.owner).toBe('zhanglu')
     expect(yangpingguan?.neighbors).toEqual(['jiamengguan', 'nanzheng', 'wudu', 'chencang'])
   })
 
-  it('武都与阴平在陇南皆无归属，祁山道经武都入汉中，阴平南通涪城、东接葭萌关', () => {
+  it('武都在陇南无归属，祁山道经武都入汉中，北接祁山、东接阳平关', () => {
     const wudu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'wudu')
-    const yinping = GEOGRAPHY_NEW.sites.find((site) => site.id === 'yinping')
 
     expect(wudu?.name).toBe('武都')
     expect(wudu?.type).toBe('city')
     expect(wudu?.population).toBe(80000)
     expect(wudu?.provinceId).toBe('liang')
     expect(wudu?.owner).toBeNull()
-    // 武都郡治下辨，北接祁山、东接阳平关，南下阴平。
-    expect(wudu?.neighbors).toEqual(['qishan', 'yangpingguan', 'yinping'])
+    // 武都郡治下辨，北接祁山、东接阳平关。
+    expect(wudu?.neighbors).toEqual(['qishan', 'yangpingguan'])
 
-    expect(yinping?.name).toBe('阴平')
-    expect(yinping?.type).toBe('town')
-    expect(yinping?.population).toBe(30000)
-    expect(yinping?.provinceId).toBe('liang')
-    expect(yinping?.owner).toBeNull()
-    // 阴平北接武都，南下阴平道入涪城，东出景谷道抵葭萌关；不直通阳平关。
-    expect(yinping?.neighbors).toEqual(['wudu', 'jiamengguan', 'fucheng'])
-    expect(yinping?.neighbors).not.toContain('yangpingguan')
+    // 阴平已撤出新图，陇南只余武都一处无主郡城。
+    expect(GEOGRAPHY_NEW.sites.find((site) => site.id === 'yinping')).toBeUndefined()
   })
 
-  it('合肥属曹操、建业与京口属孙权，濡须与牛渚串起合肥入江东的一路，柴桑亦沿江至此', () => {
+  it('合肥属曹操、建业与京口属孙权，濡须扼合肥入江东的一路，柴桑沿江直下建业', () => {
     const hefei = GEOGRAPHY_NEW.sites.find((site) => site.id === 'hefei')
     const jingkou = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jingkou')
     const jianye = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jianye')
@@ -287,26 +317,26 @@ describe('建安十三年（新）', () => {
     expect(ruxu?.population).toBe(20000)
     expect(ruxu?.owner).toBe('sunquan')
 
-    // 合肥另有皖城一处直连（见下），南下江东则经濡须、牛渚入建业。
+    // 合肥另有皖城一处直连（见下），南下江东则经濡须入建业。
     expect(hefei?.neighbors).toEqual(['ruxu', 'shouchun', 'wanxian'])
-    expect(ruxu?.neighbors).toEqual(['niuzhu', 'hefei', 'wanxian'])
-    // 柴桑与牛渚同临长江，濡须落在两点直径圆内，沿江一路由强制边写入。
-    expect(jianye?.neighbors).toEqual(['niuzhu', 'jingkou'])
-    // 京口除与建业相连外，隔江又有广陵一处渡口（见下）。
-    expect(jingkou?.neighbors).toEqual(['guangling', 'jianye'])
+    expect(ruxu?.neighbors).toEqual(['hefei', 'jianye', 'wanxian'])
+    // 柴桑与建业同在长江南岸，濡须落在两点直径圆内，沿江一路由强制边写入。
+    expect(jianye?.neighbors).toEqual(['jingkou', 'ruxu', 'chaisang'])
+    // 京口除与建业相连外，隔江又有广陵一处渡口、东面连着吴。
+    expect(jingkou?.neighbors).toEqual(['guangling', 'jianye', 'wu'])
   })
 
-  it('皖城是庐江郡治、归曹操，东接柴桑、西通武昌、北连合肥与濡须', () => {
+  it('皖城是庐江郡治、归曹操，东接柴桑、北连合肥与濡须', () => {
     const wanxian = GEOGRAPHY_NEW.sites.find((site) => site.id === 'wanxian')
 
     expect(wanxian?.name).toBe('皖城')
-    expect(wanxian?.type).toBe('city')
+    expect(wanxian?.type).toBe('town')
     expect(wanxian?.population).toBe(80000)
     expect(wanxian?.provinceId).toBe('yang')
     expect(wanxian?.owner).toBe('caocao')
-    expect(wanxian?.neighbors).toEqual(['chaisang', 'hefei', 'wuchang', 'ruxu'])
+    expect(wanxian?.neighbors).toEqual(['chaisang', 'hefei', 'ruxu'])
 
-    // 石亭与东兴已撤出新图，合肥与柴桑不再经石亭相通；牛渚落在濡须与建业之间（见下）。
+    // 石亭与东兴已撤出新图，合肥与柴桑不再经石亭相通。
     for (const removed of ['shiting', 'dongxing']) {
       expect(GEOGRAPHY_NEW.sites.find((site) => site.id === removed)).toBeUndefined()
     }
@@ -315,44 +345,52 @@ describe('建安十三年（新）', () => {
     )
   })
 
-  it('牛渚是建业上游的长江渡口、归孙权，柴桑顺流至此、濡须由此入建业', () => {
-    const niuzhu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'niuzhu')
+  it('牛渚已撤出新图，柴桑沿江直下建业，濡须亦由建业出入', () => {
+    expect(GEOGRAPHY_NEW.sites.find((site) => site.id === 'niuzhu')).toBeUndefined()
+
     const jianye = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jianye')
     const chaisang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chaisang')
 
-    expect(niuzhu?.name).toBe('牛渚')
-    expect(niuzhu?.type).toBe('pass')
-    expect(niuzhu?.population).toBe(20000)
-    expect(niuzhu?.provinceId).toBe('yang')
-    expect(niuzhu?.owner).toBe('sunquan')
-    expect(niuzhu?.neighbors).toEqual(['jianye', 'ruxu', 'chaisang'])
-
-    // 牛渚取代柴桑—建业的直连，也隔断濡须与建业的直连。
-    expect(jianye?.neighbors).not.toContain('chaisang')
-    expect(jianye?.neighbors).not.toContain('ruxu')
-    expect(chaisang?.neighbors).toContain('niuzhu')
+    // 建业北接濡须、西接柴桑，中间不再隔一处牛渚。
+    expect(jianye?.neighbors).toEqual(['jingkou', 'ruxu', 'chaisang'])
+    expect(chaisang?.neighbors).toContain('jianye')
   })
 
-  it('淮南的寿春与广陵皆归曹操，寿春南通合肥、北通许都、东通广陵，广陵隔江连京口并暂通襄平', () => {
+  it('淮南的寿春与广陵皆归曹操，寿春南通合肥、北接谯与彭城、东通广陵，广陵隔江连京口', () => {
     const shouchun = GEOGRAPHY_NEW.sites.find((site) => site.id === 'shouchun')
     const guangling = GEOGRAPHY_NEW.sites.find((site) => site.id === 'guangling')
 
     expect(shouchun?.type).toBe('city')
     expect(shouchun?.owner).toBe('caocao')
-    // 寿春北通许都，曹操自许都南出即抵淮南；合肥在寿春之南，广陵在其东。
-    expect(shouchun?.neighbors).toEqual(['hefei', 'guangling', 'xudu'])
+    // 寿春北接谯、由谯北通许都，又西北接徐州治所彭城；合肥在寿春之南，广陵在其东。
+    expect(shouchun?.neighbors).toEqual(['hefei', 'pengcheng', 'qiao', 'guangling'])
 
-    // 广陵在江北、隔江与京口相望，是江东出入江北的渡口；辽西诸点未入图，暂与襄平直连。
-    expect(guangling?.type).toBe('city')
+    // 广陵在江北、隔江与京口相望，是江东出入江北的渡口；作小城而人口八万。
+    expect(guangling?.type).toBe('town')
     expect(guangling?.owner).toBe('caocao')
-    expect(guangling?.neighbors).toEqual(['jingkou', 'shouchun', 'xiangping'])
+    expect(guangling?.neighbors).toEqual(['jingkou', 'shouchun'])
 
     // 广陵落在徐州界内，归曹操后徐州暂由曹操所据。
     const xu = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'xu')
     expect(xu?.owner).toBe('caocao')
   })
 
-  it('关中的槐里归马腾、长安与潼关归曹操，潼关东通洛阳入中原', () => {
+  it('彭城是徐州治所、归曹操，北接谯、南连寿春，中原东出徐州由此', () => {
+    const pengcheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'pengcheng')
+
+    expect(pengcheng?.name).toBe('彭城')
+    expect(pengcheng?.type).toBe('city')
+    expect(pengcheng?.population).toBe(80000)
+    expect(pengcheng?.provinceId).toBe('xu')
+    expect(pengcheng?.owner).toBe('caocao')
+    // 彭城北接谯、南接寿春；谯扼其西北，许都与陈留皆不直通彭城，东面的广陵由寿春隔开。
+    expect(pengcheng?.neighbors).toEqual(['qiao', 'shouchun'])
+    expect(pengcheng?.neighbors).not.toContain('xudu')
+    expect(pengcheng?.neighbors).not.toContain('chenliu')
+    expect(pengcheng?.neighbors).not.toContain('guangling')
+  })
+
+  it('关中的槐里是马腾的大本营、长安与潼关归曹操，潼关东通洛阳入中原', () => {
     const huaili = GEOGRAPHY_NEW.sites.find((site) => site.id === 'huaili')
     const changan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'changan')
     const tongguan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'tongguan')
@@ -360,8 +398,9 @@ describe('建安十三年（新）', () => {
     expect(huaili?.owner).toBe('mateng')
     expect(changan?.owner).toBe('caocao')
     expect(tongguan?.owner).toBe('caocao')
-    // 槐里东接长安、西接五丈原，北出街亭入陇右；长安东出潼关，南经子午谷通南郑。
-    expect(huaili?.neighbors).toEqual(['wuzhangyuan', 'changan', 'jieting'])
+    // 槐里东接长安、西接陈仓，是马腾插在关中两处曹军之间的据点；街亭改接陈仓后，槐里不再与街亭相通。
+    expect(huaili?.neighbors).toEqual(['changan', 'chencang'])
+    expect(huaili?.neighbors).not.toContain('jieting')
     expect(changan?.neighbors).toEqual(['huaili', 'zhiwugu', 'tongguan'])
     expect(tongguan?.neighbors).toEqual(['changan', 'luoyang'])
 
@@ -382,7 +421,7 @@ describe('建安十三年（新）', () => {
     expect(zhiwugu?.neighbors).not.toContain('baidicheng')
   })
 
-  it('襄平是辽东公孙康所据的大城，辽西诸点未入图、暂与邺和广陵直连', () => {
+  it('襄平是辽东公孙康所据的大城，西经柳城、右北平抵蓟', () => {
     const xiangping = GEOGRAPHY_NEW.sites.find((site) => site.id === 'xiangping')
     const ye = GEOGRAPHY_NEW.sites.find((site) => site.id === 'ye')
     const guangling = GEOGRAPHY_NEW.sites.find((site) => site.id === 'guangling')
@@ -392,12 +431,98 @@ describe('建安十三年（新）', () => {
     expect(xiangping?.population).toBe(80000)
     expect(xiangping?.provinceId).toBe('you')
     expect(xiangping?.owner).toBe('gongsunkang')
-    expect(xiangping?.neighbors).toEqual(['ye', 'guangling'])
-    expect(ye?.neighbors).toContain('xiangping')
-    expect(guangling?.neighbors).toContain('xiangping')
+    // 襄平只西接柳城入幽州，海上再无去路。
+    expect(xiangping?.neighbors).toEqual(['liucheng'])
+    expect(ye?.neighbors).not.toContain('xiangping')
+    expect(guangling?.neighbors).not.toContain('xiangping')
 
+    // 公孙康据襄平、柳城与右北平三点，曹操只据州治蓟，幽州归公孙康。
     const you = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'you')
     expect(you?.owner).toBe('gongsunkang')
+  })
+
+  it('柳城与右北平是襄平到蓟之间的两处中转', () => {
+    const liucheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'liucheng')
+    const youbeiping = GEOGRAPHY_NEW.sites.find((site) => site.id === 'youbeiping')
+
+    expect(liucheng?.name).toBe('柳城')
+    expect(liucheng?.type).toBe('town')
+    expect(liucheng?.population).toBe(30000)
+    expect(liucheng?.provinceId).toBe('you')
+    expect(liucheng?.owner).toBe('gongsunkang')
+    expect(liucheng?.neighbors).toEqual(['youbeiping', 'xiangping'])
+
+    expect(youbeiping?.name).toBe('右北平')
+    expect(youbeiping?.type).toBe('town')
+    expect(youbeiping?.population).toBe(30000)
+    expect(youbeiping?.provinceId).toBe('you')
+    expect(youbeiping?.owner).toBe('gongsunkang')
+    expect(youbeiping?.neighbors).toEqual(['liucheng', 'jicheng'])
+
+    // 东莱与襄平到广陵的海路已撤出新图，青州不再设点。
+    expect(GEOGRAPHY_NEW.sites.find((site) => site.id === 'donglai')).toBeUndefined()
+    const qing = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'qing')
+    expect(qing?.owner).toBeNull()
+  })
+
+  it('蓟是幽州治所、归曹操，西通邺、东接右北平', () => {
+    const jicheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jicheng')
+
+    expect(jicheng?.name).toBe('蓟')
+    expect(jicheng?.type).toBe('city')
+    expect(jicheng?.population).toBe(80000)
+    expect(jicheng?.provinceId).toBe('you')
+    expect(jicheng?.owner).toBe('caocao')
+    // 蓟西通邺、东接右北平；襄平与广陵都隔着中转，并不直通。
+    expect(jicheng?.neighbors).toEqual(['youbeiping', 'ye'])
+  })
+
+  it('士燮一家据交州五郡，番禺西通广信、北接桂阳，又由海路通东冶', () => {
+    const panyu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'panyu')
+    const guangxin = GEOGRAPHY_NEW.sites.find((site) => site.id === 'guangxin')
+    const hepu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'hepu')
+    const longbian = GEOGRAPHY_NEW.sites.find((site) => site.id === 'longbian')
+    const jiuzhen = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiuzhen')
+    const guiyang = GEOGRAPHY_NEW.sites.find((site) => site.id === 'guiyang')
+
+    expect(panyu?.name).toBe('番禺')
+    expect(panyu?.type).toBe('city')
+    expect(panyu?.population).toBe(80000)
+    expect(panyu?.provinceId).toBe('jiao')
+    expect(panyu?.owner).toBe('shixie')
+    expect(panyu?.neighbors).toEqual(['guangxin', 'guiyang', 'dongye'])
+
+    // 广信是苍梧郡治，东下番禺、西通合浦，是五郡之间的一站。
+    expect(guangxin?.name).toBe('广信')
+    expect(guangxin?.type).toBe('city')
+    expect(guangxin?.population).toBe(80000)
+    expect(guangxin?.provinceId).toBe('jiao')
+    expect(guangxin?.owner).toBe('shixie')
+    expect(guangxin?.neighbors).toEqual(['panyu', 'hepu'])
+
+    expect(hepu?.name).toBe('合浦')
+    expect(hepu?.type).toBe('city')
+    expect(hepu?.population).toBe(80000)
+    expect(hepu?.owner).toBe('shixie')
+    expect(hepu?.neighbors).toEqual(['guangxin', 'longbian', 'jiuzhen'])
+
+    expect(longbian?.name).toBe('龙编')
+    expect(longbian?.type).toBe('city')
+    expect(longbian?.owner).toBe('shixie')
+    expect(longbian?.neighbors).toEqual(['jiuzhen', 'hepu'])
+
+    expect(jiuzhen?.name).toBe('九真')
+    expect(jiuzhen?.type).toBe('town')
+    expect(jiuzhen?.population).toBe(50000)
+    expect(jiuzhen?.owner).toBe('shixie')
+    expect(jiuzhen?.neighbors).toEqual(['longbian', 'hepu'])
+
+    // 桂阳在交州之北，荆南由此南下，玩家可不循海路、由陆路直取交州。
+    expect(guiyang?.neighbors).toContain('panyu')
+
+    // 交州归士燮。
+    const jiao = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'jiao')
+    expect(jiao?.owner).toBe('shixie')
   })
 
   it('中原与河北的洛阳、虎牢关、陈留、许都与邺尽归曹操，袁氏一家撤去', () => {
@@ -418,13 +543,13 @@ describe('建安十三年（新）', () => {
     expect(xudu?.type).toBe('metropolis')
     expect(ye?.type).toBe('metropolis')
 
-    // 洛阳—虎牢关—许都/陈留串成中原一线，邺经陈留南下，又暂与辽东的襄平直连。
+    // 洛阳—虎牢关—许都/陈留串成中原一线，邺经陈留南下、又西出蓟通辽东。
     expect(luoyang?.neighbors).toEqual(['hulao', 'wancheng', 'tongguan'])
     expect(hulao?.neighbors).toEqual(['luoyang', 'xudu', 'chenliu'])
     expect(chenliu?.neighbors).toEqual(['xudu', 'hulao', 'ye'])
-    // 许都除中原一线外，又南通淮南的寿春。
-    expect(xudu?.neighbors).toEqual(['chenliu', 'hulao', 'wancheng', 'shouchun'])
-    expect(ye?.neighbors).toEqual(['chenliu', 'xiangping'])
+    // 许都除中原一线外，又南接谯、由谯通淮南。
+    expect(xudu?.neighbors).toEqual(['chenliu', 'hulao', 'wancheng', 'qiao'])
+    expect(ye?.neighbors).toEqual(['chenliu', 'jicheng'])
 
     // 冀、兖、豫三州随点归曹操。
     for (const provinceId of ['ji', 'yan', 'yu']) {
@@ -438,6 +563,18 @@ describe('建安十三年（新）', () => {
     expect(FACTION_IDS_NEW).not.toContain('yuanshi')
   })
 
+  it('谯是曹操本贯，在许都与寿春之间，是中原南下淮南的第一站', () => {
+    const qiao = GEOGRAPHY_NEW.sites.find((site) => site.id === 'qiao')
+
+    expect(qiao?.name).toBe('谯')
+    expect(qiao?.type).toBe('city')
+    expect(qiao?.population).toBe(80000)
+    expect(qiao?.provinceId).toBe('yu')
+    expect(qiao?.owner).toBe('caocao')
+    // 谯北接许都、南接寿春，又东接徐州治所彭城；不东出陈留、也不南接江夏。
+    expect(qiao?.neighbors).toEqual(['pengcheng', 'xudu', 'shouchun'])
+  })
+
   it('南郑与阳平关归张鲁，葭萌关是汉中南入益州的关口，北面经阳平关、陈仓道通关中', () => {
     const nanzheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'nanzheng')
     const yangpingguan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'yangpingguan')
@@ -447,12 +584,12 @@ describe('建安十三年（新）', () => {
     expect(nanzheng?.owner).toBe('zhanglu')
     expect(yangpingguan?.owner).toBe('zhanglu')
     expect(jiamengguan?.owner).toBe('liuzhang')
-    expect(nanzheng?.neighbors).toEqual(['dingjunshan', 'yangpingguan', 'zhiwugu', 'wuzhangyuan'])
+    expect(nanzheng?.neighbors).toEqual(['dingjunshan', 'yangpingguan', 'zhiwugu'])
     expect(nanzheng?.neighbors).not.toContain('chencang')
     expect(yangpingguan?.neighbors).toEqual(['jiamengguan', 'nanzheng', 'wudu', 'chencang'])
-    expect(jiamengguan?.neighbors).toEqual(['yangpingguan', 'yinping', 'dingjunshan', 'fucheng'])
+    expect(jiamengguan?.neighbors).toEqual(['yangpingguan', 'dingjunshan', 'fucheng'])
 
-    // 上庸与汉水已撤出新图：汉中不再东出上庸，北面余子午谷、褒斜道两线通关中。
+    // 上庸与汉水已撤出新图：汉中不再东出上庸，北面只余子午谷一线通关中。
     for (const removed of ['shangyong', 'hanshui']) {
       expect(GEOGRAPHY_NEW.sites.find((site) => site.id === removed)).toBeUndefined()
     }
@@ -473,6 +610,19 @@ describe('建安十三年（新）', () => {
     expect(atYangpingguan?.name).toBe('张卫')
   })
 
+  it('剑阁与江油已撤出新图，葭萌关南出直抵涪城', () => {
+    for (const removed of ['jiange', 'jiangyou']) {
+      expect(GEOGRAPHY_NEW.sites.find((site) => site.id === removed)).toBeUndefined()
+    }
+
+    const jiamengguan = GEOGRAPHY_NEW.sites.find((site) => site.id === 'jiamengguan')
+    const fucheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'fucheng')
+
+    // 葭萌关南出即至涪城，中间不再隔剑阁；阴平道随阴平一并撤去。
+    expect(jiamengguan?.neighbors).toContain('fucheng')
+    expect(fucheng?.neighbors).toContain('jiamengguan')
+  })
+
   it('涪城、绵竹、雒城与成都归刘璋，涪城—绵竹—雒城—成都串成一线，各置守将', () => {
     const fucheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'fucheng')
     const mianzhu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'mianzhu')
@@ -480,14 +630,18 @@ describe('建安十三年（新）', () => {
     const chengdu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'chengdu')
 
     expect(chengdu?.type).toBe('metropolis')
-    expect(mianzhu?.type).toBe('city')
+    expect(mianzhu?.type).toBe('town')
+    expect(luocheng?.type).toBe('town')
+    // 小城之档而人口各八万：人口与类型已解耦（见《想法记录》）。
+    expect(mianzhu?.population).toBe(80000)
+    expect(luocheng?.population).toBe(80000)
     expect(fucheng?.owner).toBe('liuzhang')
     expect(mianzhu?.owner).toBe('liuzhang')
     expect(luocheng?.owner).toBe('liuzhang')
     expect(chengdu?.owner).toBe('liuzhang')
 
-    // 绵竹当涪城与雒城之间的大道；成都—绵竹因雒城落于两点直径圆内，为强制边。
-    expect(fucheng?.neighbors).toEqual(['mianzhu', 'luocheng', 'jiamengguan', 'yinping', 'jiangzhou'])
+    // 绵竹当涪城与雒城之间的大道；涪城北接葭萌关；成都—绵竹因雒城落于两点直径圆内，为强制边。
+    expect(fucheng?.neighbors).toEqual(['mianzhu', 'luocheng', 'jiamengguan', 'jiangzhou'])
     expect(mianzhu?.neighbors).toEqual(['luocheng', 'fucheng', 'chengdu'])
     expect(luocheng?.neighbors).toEqual(['chengdu', 'mianzhu', 'fucheng', 'jiangzhou'])
     // 成都南出泸水，是自蜀中入南中的门户（见南中一线一例）。
@@ -520,6 +674,9 @@ describe('建安十三年（新）', () => {
 
     expect(jiangzhou?.owner).toBe('liuzhang')
     expect(baidicheng?.owner).toBe('liuzhang')
+    // 白帝城作小城而人口八万，是三峡之口的一处要地。
+    expect(baidicheng?.type).toBe('town')
+    expect(baidicheng?.population).toBe(80000)
     // 江州北通涪城与雒城，是巴郡与蜀中之间的门户。
     expect(jiangzhou?.neighbors).toEqual(['luocheng', 'fucheng', 'baidicheng'])
     expect(baidicheng?.neighbors).toEqual(['zigui', 'jiangzhou'])
@@ -558,8 +715,8 @@ describe('建安十三年（新）', () => {
     const taohuadu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'taohuadu')
     const sancheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'sancheng')
 
-    // 三江城是南蛮唯一的城池，归孟获所立的南蛮。
-    expect(sancheng?.type).toBe('town')
+    // 三江城是南蛮唯一的城池，归孟获所立的南蛮；作大城而人口仅三万。
+    expect(sancheng?.type).toBe('city')
     expect(sancheng?.population).toBe(30000)
     expect(sancheng?.provinceId).toBe('yi')
     expect(sancheng?.owner).toBe('nanman')

@@ -14,9 +14,10 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   luoyang: [112.45, 34.62],
   hulao: [113.25, 34.79],
   tongguan: [110.25, 34.55],
-  wuzhangyuan: [107.62, 34.28],
   chencang: [107.2, 34.36],
   zhiwugu: [108.15, 33.75],
+  // 五丈原只留在旧图，新图已撤去这一点。
+  wuzhangyuan: [107.62, 34.28],
 
   // 兖州
   guandu: [113.98, 34.72],
@@ -45,21 +46,25 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
 
   // 幽州
   jicheng: [116.4, 39.9],
-  // 幽州（辽西、辽东）
+  // 幽州（柳城、辽东）
   liucheng: [120.45, 41.55],
   xiangping: [123.17, 41.28],
+  // 柳城与右北平是襄平西出蓟的两处中转。
+  youbeiping: [119.0, 40.95],
 
   // 扬州
   shouchun: [117.16, 32.58],
+  // 谯即谯县，曹操本贯，在许都与寿春之间的涡水一线。
+  qiao: [115.78, 33.85],
   hefei: [117.22, 31.86],
   lujiang: [117.29, 31.26],
   jianye: [118.8, 32.06],
   jingkou: [119.45, 31.95],
   ruxu: [117.86, 31.6],
-  // 牛渚即采石矶，在建业上游的长江南岸。
-  niuzhu: [118.47, 31.66],
   wu: [120.62, 31.3],
   kuaiji: [120.58, 30.0],
+  // 东冶是会稽郡南部的海港（今福州），在扬州最南端，海路由此南下番禺。
+  dongye: [119.3, 26.08],
   chaisang: [115.98, 29.71],
   // 皖城即皖县，庐江郡治。
   wanxian: [116.58, 30.63],
@@ -78,8 +83,6 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   // 图上略向南挪，免得两枚战略点图标重叠。
   gongan: [112.3, 29.88],
   jiangxia: [114.31, 30.55],
-  // 武昌本是鄂县，在长江南岸、夏口下游。
-  wuchang: [114.89, 30.39],
   chibi: [113.85, 29.95],
   changbanpo: [111.79, 30.83],
   yiling: [111.29, 30.7],
@@ -107,9 +110,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   jieting: [105.98, 35.0],
   qishan: [105.18, 34.19],
   wudu: [105.62, 33.75],
-  yinping: [104.95, 32.95],
   tianshui: [105.34, 34.75],
-  shanggui: [105.72, 34.58],
   jincheng: [103.8, 36.06],
   xipingguan: [101.9, 36.55],
   nanzheng: [107.03, 33.07],
@@ -118,6 +119,8 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
 
   // 交州
   panyu: [113.26, 23.13],
+  // 广信是苍梧郡治（今梧州），当西江一线，番禺与合浦之间的中转。
+  guangxin: [111.28, 23.48],
   hepu: [109.2, 21.66],
   longbian: [106.0, 21.1],
   jiuzhen: [106.4, 20.0],
@@ -127,8 +130,10 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
  * 表现层的错位量，单位为像素。
  * 少数地点在真实地理上过于接近（樊城与襄阳隔汉水相望、
  * 洛阳与虎牢关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、夷陵与秭归同在西陵峡口、
- * 雒城、绵竹与成都同在成都平原上相距不远、陈仓与五丈原在渭水两岸相距不远、
- * 定军山在沔阳与南郑之间与南郑相距不远、上邽与街亭及祁山在陇右相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
+ * 雒城、绵竹与成都同在成都平原上相距不远、
+ * 定军山在沔阳与南郑之间与南郑相距不远、祁山与天水在陇右相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
+ * 彭城另因紧贴徐、豫州界而东移：州界在城西约七公里，而图标半径约二十二公里、名称又落在点下约三十公里，
+ * 不作错位则圆点大半与名称都压进豫州一侧。
  */
 export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: number }>> = {
   fancheng: { dx: -13, dy: -6 },
@@ -139,9 +144,9 @@ export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: numb
   luocheng: { dx: 10, dy: 0 },
   chencang: { dx: -12, dy: 8 },
   dingjunshan: { dx: -6, dy: 12 },
-  shanggui: { dx: 8, dy: 8 },
   jieting: { dx: 14, dy: -6 },
   qishan: { dx: -10, dy: 12 },
+  pengcheng: { dx: 17, dy: 0 },
 }
 
 /**

@@ -9,10 +9,13 @@ import type { Character } from './model'
  * 汉中另有一处：张鲁据南郑，阎圃同在城中，其弟张卫守阳平关。
  * 益州另有刘璋一家：刘璋据成都，黄权、刘巴同在；北出涪城有杨怀、高沛，绵竹有费观、李严、董和，雒城有刘循、张任、吴懿、吴兰、雷铜，巴郡江州有严颜。
  * 南中另有「南蛮」一家：孟获称王而自据泸水，三江城有祝融夫人、带来洞主与木鹿大王，秃龙洞有朵思大王、孟优，桃花渡有兀突骨。
+ * 辽东另有公孙康一家：公孙康据襄平，弟公孙恭、阳仪同在城中，卑衍守右北平，柳城为其内陆中转。
+ * 交州另有士燮一家：士燮据龙编，弟士壹守合浦、士武守番禺、士䵋守九真，四郡沿海南北相属。
  * 在仕者必须有隶属势力与驻地；城池与关隘的驻地须为本方所有，野地无归属，任何势力都可驻守。
- * 势力至多一名君主，也可以没有；孙权据建业、马腾据槐里、张鲁据南郑、刘璋据成都、孟获据泸水，各自为君主，曹操与荆南则无君主。
- * 兵力按势力强弱分层，由弱至强依次是刘备、荆南、刘璋与南蛮、张鲁与马腾、孙权、曹操，后一层明显强于前一层；
- * 张鲁与马腾各自立家、势力相当，同在独立势力一层；各家武将的兵力均不超过统率所定的带兵上限。
+ * 势力至多一名君主，也可以没有；孙权据建业、马腾据槐里、张鲁据南郑、刘璋据成都、孟获据泸水、公孙康据襄平、士燮据龙编，
+ * 各自为君主，曹操与荆南则无君主。
+ * 兵力按势力强弱分层，由弱至强依次是刘备、荆南、刘璋与南蛮、张鲁与马腾、公孙康与士燮、孙权、曹操，后一层明显强于前一层；
+ * 张鲁、马腾、公孙康与士燮各自立家、势力相当，同在独立势力一层；各家武将的兵力均不超过统率所定的带兵上限。
  */
 export const CHARACTERS_SANGUO_NEW: Character[] = [
   // 刘备（荆州，据公安；开局最弱，须先经营）
@@ -110,4 +113,17 @@ export const CHARACTERS_SANGUO_NEW: Character[] = [
   { id: 'mulu', name: '木鹿大王', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 74, command: 66, intellect: 50, politics: 40, age: 48, personality: 'brave', affinities: { nanman: 78 }, loyalty: 76, isMonarch: false, stationedSiteId: 'sancheng', troops: 2000, tier: null },
   // 桃花渡（乌戈国主兀突骨）
   { id: 'wutugu', name: '兀突骨', status: 'serving', factionId: 'nanman', provinceId: 'yi', might: 88, command: 72, intellect: 30, politics: 25, age: 40, personality: 'brave', affinities: { nanman: 80 }, loyalty: 72, isMonarch: false, stationedSiteId: 'taohuadu', troops: 3000, tier: null },
+
+  // 公孙康（辽东，据襄平；与张鲁、马腾同处独立势力一层）
+  { id: 'gongsunkang', name: '公孙康', status: 'serving', factionId: 'gongsunkang', provinceId: 'you', might: 62, command: 72, intellect: 66, politics: 70, age: 32, personality: 'cautious', affinities: { gongsunkang: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'xiangping', troops: 10000, tier: null },
+  { id: 'gongsungong', name: '公孙恭', status: 'serving', factionId: 'gongsunkang', provinceId: 'you', might: 52, command: 62, intellect: 60, politics: 64, age: 36, personality: 'steady', affinities: { gongsunkang: 90 }, loyalty: 84, isMonarch: false, stationedSiteId: 'xiangping', troops: 7000, tier: null },
+  // 右北平是襄平西出的前哨，驻卑衍；阳仪留襄平。
+  { id: 'beiyan', name: '卑衍', status: 'serving', factionId: 'gongsunkang', provinceId: 'you', might: 76, command: 74, intellect: 52, politics: 45, age: 30, personality: 'steady', affinities: { gongsunkang: 85 }, loyalty: 82, isMonarch: false, stationedSiteId: 'youbeiping', troops: 6000, tier: null },
+  { id: 'yangyi', name: '阳仪', status: 'serving', factionId: 'gongsunkang', provinceId: 'you', might: 70, command: 68, intellect: 58, politics: 52, age: 62, personality: 'cautious', affinities: { gongsunkang: 78 }, loyalty: 76, isMonarch: false, stationedSiteId: 'xiangping', troops: 5000, tier: null },
+
+  // 士燮（交州，据龙编；兄弟分守四郡，与张鲁、马腾同处独立势力一层）
+  { id: 'shixie', name: '士燮', status: 'serving', factionId: 'shixie', provinceId: 'jiao', might: 50, command: 68, intellect: 76, politics: 80, age: 71, personality: 'cautious', affinities: { shixie: 98 }, loyalty: 100, isMonarch: true, stationedSiteId: 'longbian', troops: 9000, tier: null },
+  { id: 'shiyi', name: '士壹', status: 'serving', factionId: 'shixie', provinceId: 'jiao', might: 48, command: 60, intellect: 62, politics: 70, age: 56, personality: 'steady', affinities: { shixie: 90 }, loyalty: 86, isMonarch: false, stationedSiteId: 'hepu', troops: 7000, tier: null },
+  { id: 'shiwu', name: '士武', status: 'serving', factionId: 'shixie', provinceId: 'jiao', might: 52, command: 62, intellect: 58, politics: 64, age: 50, personality: 'steady', affinities: { shixie: 88 }, loyalty: 84, isMonarch: false, stationedSiteId: 'panyu', troops: 6000, tier: null },
+  { id: 'shiwei', name: '士䵋', status: 'serving', factionId: 'shixie', provinceId: 'jiao', might: 46, command: 58, intellect: 60, politics: 66, age: 48, personality: 'cautious', affinities: { shixie: 88 }, loyalty: 84, isMonarch: false, stationedSiteId: 'jiuzhen', troops: 6000, tier: null },
 ]
