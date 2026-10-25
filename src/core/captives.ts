@@ -1,7 +1,7 @@
 import { runAction, type ActionResult } from './actions'
 import { affinityToward, joinLoyaltyFor, recruitmentFactor } from './affinity'
 import { CHARACTER_LIMIT, countServing } from './characters'
-import { wildTierFor } from './loyalty'
+import { settleWildInProvince, wildProvinceAfter, wildTierFor } from './loyalty'
 import { TROOPS_LIMIT_PER_COMMAND } from './military'
 import type { CaptiveAttitude, CaptiveRecord, Character, CharacterId, FactionId, GameState } from './model'
 import type { Random } from './random'
@@ -115,11 +115,19 @@ function removeCaptive(state: GameState, factionId: FactionId, characterId: Char
 
 /** 转为在野：脱去势力与部队，忠诚清零，按能力重定卡池层级，并清出接触名单。解任与俘虏释放共用。 */
 export function becomeWild(state: GameState, character: Character): void {
+  const factionId = character.factionId
   character.status = 'wild'
   character.factionId = null
   character.stationedSiteId = null
   character.troops = 0
   character.loyalty = 0
+  if (factionId !== null) {
+    settleWildInProvince(
+      state,
+      character,
+      wildProvinceAfter(state, factionId, character.provinceId),
+    )
+  }
   character.tier = wildTierFor(character)
   clearContacts(state, character.id)
 }
@@ -128,7 +136,7 @@ export function becomeWild(state: GameState, character: Character): void {
 type ServeOutcome = 'serving' | 'wild' | 'none'
 
 /**
- * 入仕某势力并驻守其一处理得的战略点：兵力从零起，忠诚取给定值。
+ * 入仕某势力、列入其名册：兵力从零起，忠诚取给定值，不占驻守位。
  * 该势力已无寸土时无处安置，返回 `none`；麾下武将已达上限时不再接收，转为在野，返回 `wild`。
  */
 function serveUnder(
@@ -142,14 +150,17 @@ function serveUnder(
     return 'none'
   }
 
-  if (countServing(state.characters, factionId) >= CHARACTER_LIMIT) {
+  if (
+    factionId === state.playerFaction &&
+    countServing(state.characters, factionId) >= CHARACTER_LIMIT
+  ) {
     becomeWild(state, character)
     return 'wild'
   }
 
   character.status = 'serving'
   character.factionId = factionId
-  character.stationedSiteId = site.id
+  character.stationedSiteId = null
   character.troops = 0
   character.troopLimit = character.command * TROOPS_LIMIT_PER_COMMAND
   character.loyalty = loyalty

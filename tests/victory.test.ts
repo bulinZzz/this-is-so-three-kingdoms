@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attack } from '../src/core/battle'
+import { autoDeployment, finishBattle, openAttack } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
 import type { Character, FactionId, GameState, Scenario, SiteId } from '../src/core/model'
 import { advanceTurn, endTurn } from '../src/core/turn'
@@ -93,14 +93,14 @@ describe('结局判定', () => {
 /**
  * 一州两城的残局：甲城属玩家、乙城属曹操，两家开局即敌对——只有宣战过的领地才打得进去。
  * 兵力对比定下这局的走向：我方碾压则一仗统一，敌方碾压则一季覆灭，两条路都不留变数，
- * 好让随机起伏、单挑与守军去向不至于翻盘。
+ * 好让随机起伏不至于翻盘。
  */
 function lastStandScenario(ourTroops: number, theirTroops: number): Scenario {
   const serving = (
     id: string,
     name: string,
     factionId: FactionId,
-    stationedSiteId: SiteId,
+    stationedSiteId: SiteId | null,
     troops: number,
   ): Character => ({
     id,
@@ -108,6 +108,7 @@ function lastStandScenario(ourTroops: number, theirTroops: number): Scenario {
     status: 'serving',
     factionId,
     provinceId: 'p1',
+    scope: [stationedSiteId ?? (factionId === 'caocao' ? 'b' : 'a')],
     might: 70,
     command: 70,
     intellect: 50,
@@ -117,6 +118,7 @@ function lastStandScenario(ourTroops: number, theirTroops: number): Scenario {
     affinities: {},
     loyalty: 90,
     isMonarch: false,
+    armType: 'infantry',
     stationedSiteId,
     troops,
     tier: null,
@@ -140,17 +142,27 @@ function lastStandScenario(ourTroops: number, theirTroops: number): Scenario {
       ],
     },
     characters: [
-      serving('ours', '我将', 'liubei', 'a', ourTroops),
-      serving('theirs', '敌将', 'caocao', 'b', theirTroops),
+      // 两将都在名册候命：驻将不能出征，攻守皆从名册点兵。
+      serving('ours', '我将', 'liubei', null, ourTroops),
+      serving('theirs', '敌将', 'caocao', null, theirTroops),
     ],
   }
 }
 
 describe('通关小局（固定种子）', () => {
+  /** 派兵打下一处战略点：开战即以自动阵形排定，结算推到底。 */
+  function attackSite(state: GameState, memberIds: string[], targetSiteId: string): void {
+    const opened = openAttack(state, targetSiteId, autoDeployment(memberIds))
+    if (!opened.ok) {
+      throw new Error(opened.reason)
+    }
+    finishBattle(state, opened.battle)
+  }
+
   /** 我方压倒敌方：出一次兵夺尽敌方据点，收尾即告统一。 */
   function runToVictory(): GameState {
     const state = createInitialState({ scenario: lastStandScenario(20000, 500), seed: 208 })
-    attack(state, { commander: 'ours' }, 'b')
+    attackSite(state, ['ours'], 'b')
     endTurn(state)
 
     return state

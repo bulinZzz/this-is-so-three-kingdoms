@@ -1,7 +1,7 @@
-import { ACTION_COSTS, runAction, type ActionResult } from './actions'
-import { isServing } from './characters'
+import { runAction, type ActionResult } from './actions'
+import { isServing, scopeSitesFor } from './characters'
 import { granaryOf } from './granary'
-import type { Character, CharacterId, FactionId, GameState, Site, SiteId } from './model'
+import type { Character, CharacterId, FactionId, GameState, Site } from './model'
 import { createRandom, type Random } from './random'
 
 /** 征兵产量的基准：每点统率征得的兵力。 */
@@ -12,7 +12,7 @@ export const TROOPS_LIMIT_PER_COMMAND = 150
 export const TROOPS_LIMIT_GROWTH_PER_COMMAND = 2
 /** 带兵上限的硬上限；中等统率一局之内远不到顶。 */
 export const TROOP_LIMIT_HARD_CAP = 99999
-/** 一次征兵至多从驻地人口中抽走的比例，即当地丁口。 */
+/** 一次征兵至多从该点人口中抽走的比例，即当地丁口。 */
 export const RECRUIT_POPULATION_SHARE = 0.02
 /** 征粮产量的基准：每点内政征得的粮食。 */
 export const GRAIN_HARVEST_PER_POLITICS = 10
@@ -24,8 +24,6 @@ export const GRAIN_PER_TROOP = 1
 export const GRAIN_PER_ATTACK_TROOP = 0.05
 /** 自然增长、征兵与征粮产量的浮动幅度：实际产量落在基准的 1±此值 之间。 */
 const AMOUNT_VARIANCE = 0.25
-/** 一次调动最多派出的武将数。 */
-export const MAX_TRANSFER_PARTY = 3
 
 /** 在基准上下按固定幅度浮动的一个整数量。 */
 function rollAmount(base: number, random: Random): number {
@@ -58,13 +56,6 @@ export function sitePopulationCap(site: Site): number {
   return Math.floor(site.population * RECRUIT_POPULATION_SHARE)
 }
 
-/** 该武将驻地一次可抽的丁口；没有驻地时为 0。 */
-export function recruitPopulationCap(state: GameState, character: Character): number {
-  const site = state.geography.sites.find((item) => item.id === character.stationedSiteId)
-
-  return site === undefined ? 0 : sitePopulationCap(site)
-}
-
 /** 某势力当前的总兵力，为其在仕武将所统率部队之和；退场者不计入。 */
 export function factionTroops(state: GameState, factionId: FactionId): number {
   return state.characters
@@ -82,17 +73,17 @@ export function isFactionDestroyed(state: GameState, factionId: FactionId): bool
   return !holdsSite || !hasOfficer
 }
 
-/** 该武将本回合是否已执行调动或进攻。 */
+/** 该武将本回合是否已执行征兵、征粮或出征。 */
 export function hasActedThisTurn(state: GameState, characterId: CharacterId): boolean {
   return state.actedCharacterIds.includes(characterId)
 }
 
-/** 记下该武将本回合已执行调动或进攻。 */
+/** 记下该武将本回合已执行征兵、征粮或出征。 */
 export function markActed(state: GameState, characterId: CharacterId): void {
   state.actedCharacterIds.push(characterId)
 }
 
-/** 该武将是否为指定势力可在其驻地行动的部属；不满足时返回原因。缺省按玩家势力评判。 */
+/** 该武将是否为指定势力的在仕部属；不满足时返回原因。缺省按玩家势力评判。 */
 export function officerBlockedReason(
   state: GameState,
   character: Character | null,
@@ -104,10 +95,20 @@ export function officerBlockedReason(
   if (!isServing(character) || character.factionId !== factionId) {
     return '该武将不在此势力'
   }
-  if (character.stationedSiteId === null) {
-    return '该武将没有驻地'
-  }
   return null
+}
+
+/**
+ * 可在该点执行征兵、征粮或在名册中候命的武将：本势力在仕、本季未行动。
+ * 驻将照样在列，只是不能出征；兵为零者也可征兵，出兵另按有无兵力筛选。
+ */
+export function readyOfficers(state: GameState, factionId: FactionId): Character[] {
+  return state.characters.filter(
+    (character) =>
+      isServing(character) &&
+      character.factionId === factionId &&
+      !hasActedThisTurn(state, character.id),
+  )
 }
 
 /** 一次征兵消耗的粮食，由统兵者的统率换算出基准。 */
@@ -121,12 +122,14 @@ export function attackGrainCost(troops: number): number {
 }
 
 /**
- * 在武将驻地就地补充兵力：消耗粮食与行动力，粮不足、已达带兵上限、驻地丁口不足或该武将本季已行动时
- * 拒绝且不扣行动力。兵力按统兵者的统率浮动，并以驻地丁口为上限，补到带兵上限为止；
- * 所征之兵自驻地人口中扣除，粮耗按统率基准固定；征兵占用该武将本季的行动。
+ * 在一处自有战略点征兵：消耗粮食与行动力，从名册中选一名未行动的武将执行。
+ * 粮不足、已达带兵上限、该点丁口不足或该武将本季已行动时拒绝且不扣行动力。
+ * 兵力按统兵者的统率浮动，并以该点丁口为上限，补到带兵上限为止；
+ * 所征之兵自该点人口中扣除，粮耗按统率基准固定；征兵占用该武将本季的行动。
  */
 export function recruit(
   state: GameState,
+  siteId: string,
   characterId: CharacterId,
   factionId: FactionId = state.playerFaction,
 ): ActionResult {
@@ -137,9 +140,20 @@ export function recruit(
     kind: 'recruit',
     factionId,
     precondition: (current) => {
+      const site = current.geography.sites.find((item) => item.id === siteId)
+      if (site === undefined) {
+        return '战略点不存在'
+      }
+      if (site.owner !== factionId) {
+        return '只能在本方战略点征兵'
+      }
+
       const blocked = officerBlockedReason(current, character, factionId)
       if (blocked !== null) {
         return blocked
+      }
+      if (character !== null && !scopeSitesFor(current, character).includes(siteId)) {
+        return `${character.name} 的活动范围不含此处`
       }
       if (character !== null && hasActedThisTurn(current, character.id)) {
         return `${character.name} 本回合已行动`
@@ -147,8 +161,8 @@ export function recruit(
       if (character !== null && character.troops >= troopLimit(character)) {
         return `${character.name} 已达带兵上限`
       }
-      if (character !== null && recruitPopulationCap(current, character) < 1) {
-        return '驻地丁口不足，无可征之兵'
+      if (sitePopulationCap(site) < 1) {
+        return '该点丁口不足，无可征之兵'
       }
       const faction = current.factions.find((item) => item.id === factionId)
       if (faction === undefined || faction.grain < cost) {
@@ -158,10 +172,7 @@ export function recruit(
     },
     execute: (current) => {
       const faction = current.factions.find((item) => item.id === factionId)
-      const site =
-        character === null
-          ? undefined
-          : current.geography.sites.find((item) => item.id === character.stationedSiteId)
+      const site = current.geography.sites.find((item) => item.id === siteId)
       if (character === null || faction === undefined || site === undefined) {
         return { outcome: '征兵未生效' }
       }
@@ -170,7 +181,7 @@ export function recruit(
       const gained = Math.min(
         rollAmount(character.command * RECRUIT_TROOPS_PER_COMMAND, random),
         troopLimit(character) - character.troops,
-        recruitPopulationCap(current, character),
+        sitePopulationCap(site),
       )
       current.randomState = random.getState()
 
@@ -180,8 +191,8 @@ export function recruit(
       markActed(current, character.id)
 
       return {
-        targetId: character.stationedSiteId,
-        outcome: `${character.name} 征得 ${gained} 兵`,
+        targetId: site.id,
+        outcome: `${character.name} 在${site.name}征得 ${gained} 兵（人口 −${gained}）`,
       }
     },
   })
@@ -198,11 +209,80 @@ export function harvestGrainBaseline(character: Character): number {
 }
 
 /**
- * 征粮：派一名部属自其驻地征收粮食，消耗行动力，占用该武将本季的行动。
+ * 任命或撤换驻将：每点至多一名驻将，耗一点行动力，不改变武将的已行动状态。
+ * 传 null 表示撤下该点现有的驻将；换人时原驻将自动卸任。
+ */
+export function assignStation(
+  state: GameState,
+  siteId: string,
+  characterId: CharacterId | null,
+  factionId: FactionId = state.playerFaction,
+): ActionResult {
+  const character =
+    characterId === null ? null : (state.characters.find((item) => item.id === characterId) ?? null)
+
+  return runAction(state, {
+    kind: 'station',
+    factionId,
+    precondition: (current) => {
+      const site = current.geography.sites.find((item) => item.id === siteId)
+      if (site === undefined) {
+        return '战略点不存在'
+      }
+      if (site.owner !== factionId) {
+        return '只能在本方战略点任命驻将'
+      }
+      if (characterId !== null) {
+        const blocked = officerBlockedReason(current, character, factionId)
+        if (blocked !== null) {
+          return blocked
+        }
+        if (character !== null && !character.scope.includes(siteId)) {
+          return `${character.name} 的活动范围不含此处`
+        }
+      }
+      const incumbent = current.characters.find(
+        (item) => isServing(item) && item.stationedSiteId === siteId,
+      )
+      if ((incumbent?.id ?? null) === characterId) {
+        return characterId === null ? '该点没有驻将' : `${character?.name ?? ''} 已驻守该点`
+      }
+      return null
+    },
+    execute: (current) => {
+      const site = current.geography.sites.find((item) => item.id === siteId)
+      const incumbent = current.characters.find(
+        (item) => isServing(item) && item.stationedSiteId === siteId,
+      )
+      if (site === undefined) {
+        return { outcome: '任命未生效' }
+      }
+
+      if (incumbent !== undefined) {
+        incumbent.stationedSiteId = null
+      }
+      if (character !== null) {
+        character.stationedSiteId = siteId
+      }
+
+      return {
+        targetId: site.id,
+        outcome:
+          character === null
+            ? `${site.name} 不再设驻将`
+            : `任命 ${character.name} 驻守 ${site.name}`,
+      }
+    },
+  })
+}
+
+/**
+ * 征粮：在一处自有战略点征收粮食，消耗行动力，从名册选一名未行动的武将执行。
  * 取量不超过该点存粮，且随内政与兵力浮动；不像征兵那样需要粮食，也从存粮中扣除。
  */
 export function harvestGrain(
   state: GameState,
+  siteId: string,
   characterId: CharacterId,
   factionId: FactionId = state.playerFaction,
 ): ActionResult {
@@ -212,9 +292,20 @@ export function harvestGrain(
     kind: 'harvestGrain',
     factionId,
     precondition: (current) => {
+      const site = current.geography.sites.find((item) => item.id === siteId)
+      if (site === undefined) {
+        return '战略点不存在'
+      }
+      if (site.owner !== factionId) {
+        return '只能在本方战略点征粮'
+      }
+
       const blocked = officerBlockedReason(current, character, factionId)
       if (blocked !== null) {
         return blocked
+      }
+      if (character !== null && !scopeSitesFor(current, character).includes(siteId)) {
+        return `${character.name} 的活动范围不含此处`
       }
       if (character !== null && hasActedThisTurn(current, character.id)) {
         return `${character.name} 本回合已行动`
@@ -223,157 +314,23 @@ export function harvestGrain(
     },
     execute: (current) => {
       const faction = current.factions.find((item) => item.id === factionId)
-      const station =
-        character === null
-          ? undefined
-          : current.geography.sites.find((item) => item.id === character.stationedSiteId)
-      if (character === null || faction === undefined || station === undefined) {
+      const site = current.geography.sites.find((item) => item.id === siteId)
+      if (character === null || faction === undefined || site === undefined) {
         return { outcome: '征粮未生效' }
       }
 
       const random = createRandom(current.randomState)
-      const gained = Math.min(rollAmount(harvestGrainBaseline(character), random), granaryOf(station))
+      const gained = Math.min(rollAmount(harvestGrainBaseline(character), random), granaryOf(site))
       current.randomState = random.getState()
 
-      station.granary = granaryOf(station) - gained
+      site.granary = granaryOf(site) - gained
       faction.grain += gained
       markActed(current, character.id)
 
       return {
-        targetId: character.stationedSiteId,
-        outcome: `${character.name} 征得 ${gained} 粮`,
+        targetId: site.id,
+        outcome: `${character.name} 在${site.name}征得 ${gained} 粮`,
       }
     },
   })
-}
-
-/** 该武将的驻地是否与目标战略点相邻。 */
-export function stationAdjacentTo(
-  state: GameState,
-  character: Character,
-  targetSiteId: SiteId,
-): boolean {
-  const station = state.geography.sites.find((site) => site.id === character.stationedSiteId)
-
-  return station !== undefined && station.neighbors.includes(targetSiteId)
-}
-
-/**
- * 某战略点是否可作指定势力的调动目的地：自有战略点，或没有他方驻军的野地。
- * 野地无归属，空着就能进驻；驻有他方人马则须先以进攻逐走（中立与同盟的驻军也动不得），
- * 自己的驻军不妨碍增援。
- */
-function canStationAt(state: GameState, targetSiteId: SiteId, factionId: FactionId): boolean {
-  const target = state.geography.sites.find((site) => site.id === targetSiteId)
-  if (target === undefined) {
-    return false
-  }
-  if (target.owner !== null) {
-    return target.owner === factionId
-  }
-
-  return (
-    target.type === 'field' &&
-    !state.characters.some(
-      (character) =>
-        isServing(character) &&
-        character.stationedSiteId === target.id &&
-        character.factionId !== factionId,
-    )
-  )
-}
-
-/**
- * 调动：把一批武将及其部队移到相邻的一处可进驻之地（自有战略点，或没有他方驻军的野地）。
- * 参战者须驻守在与目标相邻的自有战略点、本季未行动；每名武将每季至多调动或进攻一次。
- */
-export function transfer(
-  state: GameState,
-  characterIds: readonly CharacterId[],
-  targetSiteId: SiteId,
-  factionId: FactionId = state.playerFaction,
-): ActionResult {
-  const characters = characterIds
-    .map((id) => state.characters.find((item) => item.id === id))
-    .filter((item): item is Character => item !== undefined)
-  const target = state.geography.sites.find((site) => site.id === targetSiteId) ?? null
-
-  return runAction(state, {
-    kind: 'transfer',
-    factionId,
-    cost: ACTION_COSTS.transfer * characters.length,
-    precondition: (current) => {
-      if (target === null) {
-        return '目标战略点不存在'
-      }
-      if (!canStationAt(current, targetSiteId, factionId)) {
-        return '目标不是自有战略点，也不是可进驻的野地'
-      }
-      if (characters.length === 0) {
-        return '没有可调动的武将'
-      }
-      if (characters.length > MAX_TRANSFER_PARTY) {
-        return `一次至多调动 ${MAX_TRANSFER_PARTY} 名武将`
-      }
-
-      for (const character of characters) {
-        const blocked = officerBlockedReason(current, character, factionId)
-        if (blocked !== null) {
-          return blocked
-        }
-        if (hasActedThisTurn(current, character.id)) {
-          return `${character.name} 本回合已行动`
-        }
-        if (!stationAdjacentTo(current, character, targetSiteId)) {
-          return `${character.name} 的驻地与目标不相邻`
-        }
-      }
-      return null
-    },
-    execute: (current) => {
-      if (target === null || characters.length === 0) {
-        return { outcome: '调动未生效' }
-      }
-
-      for (const character of characters) {
-        character.stationedSiteId = target.id
-        markActed(current, character.id)
-      }
-
-      return {
-        targetId: target.id,
-        outcome: `${characters.map((item) => item.name).join('、')} 移驻 ${target.name}`,
-      }
-    },
-  })
-}
-
-/** 该战略点是否可作为玩家调动的目标：可进驻，且至少有一个自有战略点与它相邻。 */
-export function isTransferTarget(state: GameState, targetSiteId: SiteId): boolean {
-  if (!canStationAt(state, targetSiteId, state.playerFaction)) {
-    return false
-  }
-
-  return state.geography.sites.some(
-    (site) =>
-      site.id !== targetSiteId &&
-      site.owner === state.playerFaction &&
-      site.neighbors.includes(targetSiteId),
-  )
-}
-
-/**
- * 可调入某战略点的候选部属：驻守在与它相邻的自有战略点的人。
- * 本季已行动者也在列，由界面标出不可选。
- */
-export function transferCandidates(state: GameState, targetSiteId: SiteId): Character[] {
-  if (!isTransferTarget(state, targetSiteId)) {
-    return []
-  }
-
-  return state.characters.filter(
-    (character) =>
-      officerBlockedReason(state, character) === null &&
-      stationAdjacentTo(state, character, targetSiteId),
-  )
 }

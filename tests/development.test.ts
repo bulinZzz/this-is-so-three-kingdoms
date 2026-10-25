@@ -31,7 +31,7 @@ function factionOf(state: GameState, id: string) {
   return faction
 }
 
-/** 刘备据江夏（城市），给足金钱便于测试建设。 */
+/** 刘备据公安（大城），给足金钱便于测试建设。 */
 function richState(): GameState {
   const state = createInitialState({ seed: 208 })
   factionOf(state, 'liubei').money = 100000
@@ -41,7 +41,7 @@ function richState(): GameState {
 describe('建设花费与上限', () => {
   it('花费随目标等级递增', () => {
     const state = richState()
-    const site = siteOf(state, 'jiangxia')
+    const site = siteOf(state, 'gongan')
 
     const first = buildCost(site, 'farm')
     build(state, site.id, 'farm')
@@ -53,7 +53,7 @@ describe('建设花费与上限', () => {
   it('上限按战略点类型定档', () => {
     const state = richState()
 
-    expect(developmentLimit(siteOf(state, 'jiangxia'))).toBe(5)
+    expect(developmentLimit(siteOf(state, 'gongan'))).toBe(5)
     expect(developmentLimit(siteOf(state, 'hulao'))).toBe(3)
     // 野地无归属，不可建设。
     expect(developmentLimit(siteOf(state, 'chibi'))).toBe(0)
@@ -64,7 +64,7 @@ describe('建设行动', () => {
   it('农田提高粮产，并扣钱扣行动力', () => {
     const state = richState()
     const faction = factionOf(state, 'liubei')
-    const site = siteOf(state, 'jiangxia')
+    const site = siteOf(state, 'gongan')
     const growthBefore = granaryGrowth(site)
     const moneyBefore = faction.money
     const apBefore = state.actionPoints.liubei
@@ -81,7 +81,7 @@ describe('建设行动', () => {
 
   it('市集提高金钱产出', () => {
     const state = richState()
-    const site = siteOf(state, 'jiangxia')
+    const site = siteOf(state, 'gongan')
     const before = moneyYield(state, 'liubei')
 
     build(state, site.id, 'market')
@@ -92,7 +92,7 @@ describe('建设行动', () => {
 
   it('民居立即增加人口并抬高人口上限', () => {
     const state = richState()
-    const site = siteOf(state, 'jiangxia')
+    const site = siteOf(state, 'gongan')
     const populationBefore = site.population
     const capBefore = populationCap(site)
 
@@ -117,16 +117,16 @@ describe('建设行动', () => {
     factionOf(state, 'liubei').money = 0
     const apBefore = state.actionPoints.liubei
 
-    const result = build(state, 'jiangxia', 'farm')
+    const result = build(state, 'gongan', 'farm')
 
     expect(result.ok).toBe(false)
     expect(state.actionPoints.liubei).toBe(apBefore)
-    expect(developmentLevel(siteOf(state, 'jiangxia'), 'farm')).toBe(0)
+    expect(developmentLevel(siteOf(state, 'gongan'), 'farm')).toBe(0)
   })
 
   it('达到上限后拒绝且不扣行动力', () => {
     const state = richState()
-    const site = siteOf(state, 'jiangxia')
+    const site = siteOf(state, 'gongan')
     for (let level = 0; level < developmentLimit(site); level += 1) {
       expect(build(state, site.id, 'farm').ok).toBe(true)
     }
@@ -142,7 +142,7 @@ describe('建设行动', () => {
 describe('易主损耗', () => {
   it('随机令 1–2 项已开发的设施各降一级', () => {
     const state = richState()
-    const site = siteOf(state, 'jiangxia')
+    const site = siteOf(state, 'gongan')
     for (const kind of DEVELOPMENT_KINDS) {
       build(state, site.id, kind)
     }
@@ -167,14 +167,14 @@ describe('易主损耗', () => {
   it('无可降的设施时什么也不改', () => {
     const state = richState()
 
-    expect(damageOnCapture(siteOf(state, 'jiangxia'), createRandom(7))).toEqual([])
+    expect(damageOnCapture(siteOf(state, 'gongan'), createRandom(7))).toEqual([])
   })
 })
 
 describe('人口上限', () => {
   it('自然增长止于人口上限', () => {
     const state = richState()
-    const site = siteOf(state, 'jiangxia')
+    const site = siteOf(state, 'gongan')
     site.population = populationCap(site)
 
     growPopulation(state)
@@ -184,7 +184,7 @@ describe('人口上限', () => {
 
   it('人口未达上限时按比例缓增', () => {
     const state = richState()
-    const site = siteOf(state, 'jiangxia')
+    const site = siteOf(state, 'gongan')
     site.population = 1000
     const cap = populationCap(site)
 

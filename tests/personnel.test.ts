@@ -72,6 +72,7 @@ describe('解任', () => {
   it('在仕武将转为在野，卸下驻地与部队', () => {
     const game = state()
     const target = officer(game)
+    target.provinceId = 'yi'
 
     const result = dismiss(game, target.id)
 
@@ -81,6 +82,8 @@ describe('解任', () => {
     expect(target.stationedSiteId).toBeNull()
     expect(target.troops).toBe(0)
     expect(target.tier).not.toBeNull()
+    // 去向归入原属势力占点最多的州。
+    expect(target.provinceId).toBe('jing')
   })
 
   it('君主不可解任', () => {

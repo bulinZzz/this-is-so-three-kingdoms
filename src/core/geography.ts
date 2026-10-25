@@ -105,7 +105,7 @@ export function validateGeography(
 }
 
 /**
- * 重算各州归属：占该州战略点最多者为归属势力。
+ * 重算各州归属：占该州城池与关隘最多者为归属势力，野地不计入。
  * 与他方并列时不改判，原归属势力得以保持；州内没有任何势力战略点时归属为空。
  * 归属取决于此前的归属，结果与过程相关，不能只由当前版图推出。
  */
@@ -114,7 +114,7 @@ export function resolveProvinceOwners(geography: Geography): void {
     const counts = new Map<FactionId, number>()
 
     for (const site of geography.sites) {
-      if (site.provinceId === province.id && site.owner !== null) {
+      if (site.provinceId === province.id && site.owner !== null && site.type !== 'field') {
         counts.set(site.owner, (counts.get(site.owner) ?? 0) + 1)
       }
     }

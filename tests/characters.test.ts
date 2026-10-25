@@ -21,8 +21,8 @@ const GEOGRAPHY: Geography = {
   sites: [
     { id: 'jiangxia', name: '江夏', type: 'city', population: 80000, provinceId: 'jing', owner: 'liubei', neighbors: [] },
     { id: 'xudu', name: '许都', type: 'city', population: 120000, provinceId: 'yu', owner: 'caocao', neighbors: [] },
-    // 野地无归属，任何势力都可驻守。
-    { id: 'dangyang', name: '当阳', type: 'field', population: 0, provinceId: 'jing', owner: null, neighbors: [] },
+    // 野地同样有归属，归本势力即可驻守。
+    { id: 'dangyang', name: '当阳', type: 'field', population: 0, provinceId: 'jing', owner: 'liubei', neighbors: [] },
   ],
 }
 
@@ -33,6 +33,7 @@ function character(overrides: Partial<Character> = {}): Character {
     status: 'wild',
     factionId: null,
     provinceId: 'jing',
+    scope: ['jiangxia', 'dangyang'],
     might: 50,
     command: 50,
     intellect: 50,
@@ -42,6 +43,7 @@ function character(overrides: Partial<Character> = {}): Character {
     affinities: {},
     loyalty: 0,
     isMonarch: false,
+    armType: 'infantry',
     stationedSiteId: null,
     troops: 0,
     tier: 'basic',
@@ -140,14 +142,14 @@ describe('validateCharacters', () => {
     ).toContain('武将 a 的所属势力不存在：unknown')
   })
 
-  it('在仕武将缺少驻地被指出', () => {
+  it('在仕武将可以不设驻地，名册中候命不算越界', () => {
     expect(
       validateCharacters(
         [character({ status: 'serving', factionId: 'liubei' })],
         FACTION_IDS,
         GEOGRAPHY,
       ),
-    ).toContain('在仕武将 a 没有驻地')
+    ).toEqual([])
   })
 
   it('驻地不存在会被指出', () => {
@@ -170,7 +172,7 @@ describe('validateCharacters', () => {
     ).toContain('武将 a 的驻地 xudu 不属于其势力')
   })
 
-  it('野地无归属，在仕者驻在野地不算越界', () => {
+  it('驻在自有的野地上不算越界', () => {
     expect(
       validateCharacters(
         [character({ status: 'serving', factionId: 'liubei', stationedSiteId: 'dangyang' })],

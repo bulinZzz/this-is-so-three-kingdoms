@@ -35,10 +35,10 @@ function runChain(): GameState {
     throw new Error('刘备麾下武将不足')
   }
 
-  // 内政：在江夏建农田、市集与民居。
-  build(state, 'jiangxia', 'farm')
-  build(state, 'jiangxia', 'market')
-  build(state, 'jiangxia', 'housing')
+  // 内政：在公安建农田、市集与民居。
+  build(state, 'gongan', 'farm')
+  build(state, 'gongan', 'market')
+  build(state, 'gongan', 'housing')
 
   // 金钱结算。
   settleMoney(state)
@@ -67,17 +67,17 @@ describe('迭代 9 全链（无画面）', () => {
     if (first === undefined || second === undefined) {
       throw new Error('刘备麾下武将不足')
     }
-    const farmSite = state.geography.sites.find((site) => site.id === 'jiangxia')!
+    const farmSite = state.geography.sites.find((site) => site.id === 'gongan')!
     const growthBefore = granaryGrowth(farmSite)
     const loyaltyBefore = first.loyalty
     const troopsBefore = first.troops
 
-    build(state, 'jiangxia', 'farm')
+    build(state, 'gongan', 'farm')
     expect(developmentLevel(farmSite, 'farm')).toBe(1)
     expect(granaryGrowth(farmSite)).toBeGreaterThan(growthBefore)
 
-    build(state, 'jiangxia', 'market')
-    build(state, 'jiangxia', 'housing')
+    build(state, 'gongan', 'market')
+    build(state, 'gongan', 'housing')
     const moneyAfterBuilds = factionOf(state, 'liubei').money
     settleMoney(state)
     expect(moneyYield(state, 'liubei')).toBeGreaterThan(0)

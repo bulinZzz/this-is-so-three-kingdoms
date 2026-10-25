@@ -1,34 +1,42 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import {
-  aiDuelChallenger,
-  assignAfterCapture,
-  attack,
+  ARM_STATS,
+  ATTACKER_SELECTION,
   attackCandidates,
+  autoDeployment,
+  BATTLE_ACTIONS,
   battleOutlook,
-  battlePower,
+  currentActor,
+  defendScope,
   defenseOutlook,
-  duel,
-  duelAnswererAt,
-  duelHeadline,
-  defenderFactionAt,
-  garrisonAt,
-  garrisonCommanderAt,
+  defenderCandidates,
+  deployDefenders,
+  finishBattle,
   isAttackable,
-  MORALE_FULL,
-  partySide,
-  stationedDefendersAt,
+  openAttack,
+  resolveAction,
+  setUnitSlot,
+  SITE_DEFENSE_BONUS,
+  stationAfterCapture,
+  stationedAt,
+  targetsFor,
+  type BattleState,
 } from '../src/core/battle'
-import { takeCaptive } from '../src/core/captives'
 import { createInitialState } from '../src/core/createInitialState'
 import { declareWar } from '../src/core/diplomacy'
-import { attackGrainCost, hasActedThisTurn, isTransferTarget, markActed, transfer } from '../src/core/military'
-import type { BattleReport, Character, GameState, Scenario } from '../src/core/model'
-import type { Random } from '../src/core/random'
-import { beginTurn, endTurn } from '../src/core/turn'
-import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
+import { attackGrainCost, hasActedThisTurn, isFactionDestroyed, markActed } from '../src/core/military'
+import type {
+  ArmType,
+  Character,
+  FactionId,
+  GameState,
+  Scenario,
+  Site,
+  SiteType,
+} from '../src/core/model'
 
-function characterOf(state: GameState, id: string) {
+function characterOf(state: GameState, id: string): Character {
   const character = state.characters.find((item) => item.id === id)
   if (character === undefined) {
     throw new Error(`武将不存在：${id}`)
@@ -44,17 +52,103 @@ function siteOf(state: GameState, id: string) {
   return site
 }
 
-/** 两个战略点、两家势力的最小对局，便于精确控制攻守兵力与能力。 */
+function officer(
+  id: string,
+  name: string,
+  factionId: FactionId,
+  troops: number,
+  options: { armType?: ArmType; stationedSiteId?: string | null; loyalty?: number } = {},
+): Character {
+  return {
+    id,
+    name,
+    status: 'serving',
+    factionId,
+    provinceId: 'jing',
+    scope: [factionId === 'liubei' ? 'a' : 'b'],
+    might: 80,
+    command: 80,
+    intellect: 50,
+    politics: 50,
+    age: 40,
+    personality: 'steady',
+    affinities: { [factionId]: 90 },
+    loyalty: options.loyalty ?? 90,
+    isMonarch: false,
+    armType: options.armType ?? 'infantry',
+    stationedSiteId: options.stationedSiteId ?? null,
+    troops,
+    tier: null,
+  }
+}
+
+interface RosterSpec {
+  id: string
+  troops: number
+  armType?: ArmType
+}
+
+/** 甲乙两家、一处可攻目标的最小对局：甲为玩家，乙为敌对。 */
 function scene(options: {
-  attackerTroops: number
-  defenderTroops: number
-  secondAttackerTroops?: number
-  attackerIntellect?: number
-  defenderIntellect?: number
-  twoWay?: boolean
+  attackerTroops?: number
+  defenderTroops?: number
+  siteType?: SiteType
+  defenderStationed?: boolean
+  extraAttackers?: RosterSpec[]
+  extraDefenders?: RosterSpec[]
+  extraSites?: Site[]
+  withField?: boolean
   seed?: number
-  defenderIsMonarch?: boolean
-}): GameState {
+} = {}): GameState {
+  const attackerTroops = options.attackerTroops ?? 10000
+  const defenderTroops = options.defenderTroops ?? 5000
+
+  const sites: Site[] = [
+    {
+      id: 'a',
+      name: '甲',
+      type: 'city',
+      population: 50000,
+      provinceId: 'jing',
+      owner: 'liubei',
+      neighbors: ['b', 'f'],
+    },
+    {
+      id: 'b',
+      name: '乙',
+      type: options.siteType ?? 'city',
+      population: 50000,
+      provinceId: 'jing',
+      owner: 'caocao',
+      neighbors: ['a'],
+    },
+  ]
+  if (options.withField !== false) {
+    sites.push({
+      id: 'f',
+      name: '野地',
+      type: 'field',
+      population: 0,
+      provinceId: 'jing',
+      owner: 'caocao',
+      neighbors: ['a'],
+    })
+  }
+  sites.push(...(options.extraSites ?? []))
+
+  const characters: Character[] = [
+    officer('attacker', '攻将', 'liubei', attackerTroops),
+    officer('defender', '守将', 'caocao', defenderTroops, {
+      stationedSiteId: options.defenderStationed === false ? null : 'b',
+    }),
+    ...(options.extraAttackers ?? []).map((spec) =>
+      officer(spec.id, `攻将${spec.id}`, 'liubei', spec.troops, { armType: spec.armType }),
+    ),
+    ...(options.extraDefenders ?? []).map((spec) =>
+      officer(spec.id, `守将${spec.id}`, 'caocao', spec.troops, { armType: spec.armType }),
+    ),
+  ]
+
   const scenario: Scenario = {
     id: 'battle-test',
     name: '战斗测试',
@@ -65,1214 +159,735 @@ function scene(options: {
       { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 100000 },
     ],
     relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
-    geography: {
-      provinces: [{ id: 'jing', name: '荆州', owner: null }],
-      sites: [
-        { id: 'a', name: '甲', type: 'city', population: 50000, provinceId: 'jing', owner: 'liubei', neighbors: ['b'] },
-        { id: 'b', name: '乙', type: 'city', population: 50000, provinceId: 'jing', owner: 'caocao', neighbors: ['a'] },
-      ],
-    },
-    characters: [
-      {
-        id: 'attacker',
-        name: '攻将',
-        status: 'serving',
-        factionId: 'liubei',
-        provinceId: 'jing',
-        might: 80,
-        command: 80,
-        intellect: options.attackerIntellect ?? 50,
-        politics: 50,
-        age: 40,
-        personality: 'steady',
-        affinities: { liubei: 90 },
-        loyalty: 90,
-        isMonarch: false,
-        stationedSiteId: 'a',
-        troops: options.attackerTroops,
-        tier: null,
-      },
-      {
-        id: 'attacker2',
-        name: '副将',
-        status: 'serving',
-        factionId: 'liubei',
-        provinceId: 'jing',
-        might: 80,
-        command: 80,
-        intellect: 50,
-        politics: 50,
-        age: 40,
-        personality: 'steady',
-        affinities: { liubei: 90 },
-        loyalty: 90,
-        isMonarch: false,
-        stationedSiteId: 'a',
-        troops: options.secondAttackerTroops ?? 0,
-        tier: null,
-      },
-      {
-        id: 'defender',
-        name: '守将',
-        status: 'serving',
-        factionId: 'caocao',
-        provinceId: 'jing',
-        might: 80,
-        command: 80,
-        intellect: options.defenderIntellect ?? 50,
-        politics: 50,
-        age: 40,
-        personality: 'steady',
-        affinities: { caocao: 90 },
-        loyalty: 90,
-        isMonarch: options.defenderIsMonarch ?? false,
-        stationedSiteId: 'b',
-        troops: options.defenderTroops,
-        tier: null,
-      },
-    ],
+    geography: { provinces: [{ id: 'jing', name: '荆州', owner: null }], sites },
+    characters,
   }
 
   return createInitialState({ scenario, seed: options.seed ?? 208 })
 }
 
-/** 建安十三年开局并向曹操宣战：进攻他方领地须先宣战，交战机制的验证都以此为起点。 */
-function warState(seed = 208): GameState {
-  const state = createInitialState({ seed })
-  declareWar(state, 'caocao')
-
-  return state
+/** 开一场战斗并取回战斗状态；不合法时直接让测试失败。 */
+function opened(
+  state: GameState,
+  target = 'b',
+  ids: string[] = ['attacker'],
+  options: { autoDefender?: boolean } = {},
+): BattleState {
+  const result = openAttack(state, target, autoDeployment(ids), state.playerFaction, options)
+  if (!result.ok) {
+    throw new Error(result.reason)
+  }
+  return result.battle
 }
 
-describe('战力计算', () => {
-  const side = { troops: 1000, intellect: 50, morale: MORALE_FULL }
+/** 让战斗按给定指令推进若干次行动；行动者由当前队列决定。 */
+function advance(battle: BattleState, kinds: readonly ('attack' | 'defend')[] = []): void {
+  for (const kind of kinds) {
+    const actor = currentActor(battle)
+    if (actor === null) {
+      return
+    }
+    resolveAction(battle, { characterId: actor.characterId, kind })
+  }
+}
 
-  it('守方按其据点类型获得防守补正：野地无险可依，关隘与都会最坚', () => {
-    expect(battlePower(side, { defendingAt: 'field' })).toBeCloseTo(battlePower(side))
-    expect(battlePower(side, { defendingAt: 'town' })).toBeCloseTo(battlePower(side) * 1.1)
-    expect(battlePower(side, { defendingAt: 'city' })).toBeCloseTo(battlePower(side) * 1.2)
-    expect(battlePower(side, { defendingAt: 'pass' })).toBeCloseTo(battlePower(side) * 1.3)
-    expect(battlePower(side, { defendingAt: 'metropolis' })).toBeCloseTo(battlePower(side) * 1.3)
+describe('兵种与据点补正', () => {
+  it('骑兵最快、弓箭手其次、步兵最慢；骑兵攻高防薄，弓手攻低防低且能及远', () => {
+    expect(ARM_STATS.cavalry.mobility).toBeGreaterThan(ARM_STATS.archer.mobility)
+    expect(ARM_STATS.archer.mobility).toBeGreaterThan(ARM_STATS.infantry.mobility)
+    expect(ARM_STATS.cavalry.attack).toBeGreaterThan(ARM_STATS.infantry.attack)
+    expect(ARM_STATS.cavalry.defense).toBeLessThan(ARM_STATS.infantry.defense)
+    expect(ARM_STATS.archer.attack).toBeLessThan(ARM_STATS.infantry.attack)
+    expect(ARM_STATS.archer.ranged).toBe(true)
+    expect(ARM_STATS.infantry.ranged).toBe(false)
+    expect(ARM_STATS.cavalry.ranged).toBe(false)
   })
 
-  it('智谋或士气越高，战力越强', () => {
-    expect(battlePower({ ...side, intellect: 100 })).toBeGreaterThan(battlePower(side))
-    expect(battlePower({ ...side, morale: 50 })).toBeLessThan(battlePower(side))
-  })
-
-  it('士气为 0 时战力减到一半', () => {
-    expect(battlePower({ ...side, morale: 0 })).toBeCloseTo(battlePower(side) / 2)
+  it('据点补正按类型分档：野地无险可依，都会最坚', () => {
+    expect(SITE_DEFENSE_BONUS).toEqual({ field: 0, town: 0.1, city: 0.2, pass: 0.25, metropolis: 0.3 })
   })
 })
 
-describe('守军迎战编成', () => {
-  it('无主战略点有凭险自守的守军，名号与兵力俱备', () => {
-    const state = createInitialState({ seed: 208 })
-    const guard = siteOf(state, 'changsha').guard
+describe('布阵', () => {
+  it('至少派一队、前排至少一队，同一名武将不能排两次', () => {
+    const empty = scene()
+    expect(openAttack(empty, 'b', [])).toEqual({ ok: false, reason: '至少选一名武将出征' })
 
-    expect(guard?.name).toContain('·')
-    expect(garrisonAt(state, 'changsha').side.troops).toBeGreaterThan(0)
-  })
-
-  it('至多三人迎战，取兵力最多的三名，主将取其中统率最高者', () => {
-    const state = createInitialState({ seed: 208 })
-    const garrison = garrisonAt(state, 'jiangxia')
-
-    // 江夏统兵最多的三人：关羽 8000、张飞 6000、刘备 5000。
-    expect(garrison.members.map((item) => item.name)).toEqual(['关羽', '张飞', '刘备'])
-    expect(garrison.side.troops).toBe(19000)
-  })
-
-  it('已行动的守军只计半数兵力', () => {
-    const state = createInitialState({ seed: 208 })
-
-    expect(garrisonAt(state, 'xiangyang').side.troops).toBe(3000)
-
-    markActed(state, 'caimao')
-
-    expect(garrisonAt(state, 'xiangyang').side.troops).toBe(1500)
-  })
-})
-
-describe('无主战略点守军', () => {
-  it('弱旅攻不下、强旅可下，得胜后守军清空', () => {
-    // 兵力不足以撼动守军：出阵也占不下来。
-    const weak = createInitialState({ seed: 208 })
-    characterOf(weak, 'guanyu').troops = 100
-    const weakResult = attack(weak, { commander: 'guanyu' }, 'changsha')
-
-    expect(weakResult.ok).toBe(true)
-    if (weakResult.ok) {
-      expect(weakResult.record.battle?.attackerWins).toBe(false)
-    }
-    expect(siteOf(weak, 'changsha').owner).toBeNull()
-    expect(siteOf(weak, 'changsha').guard).toBeDefined()
-
-    // 单支主力足可取胜：占领后守军清空、归属改为攻方。
-    const strong = createInitialState({ seed: 208 })
-    const strongResult = attack(strong, { commander: 'guanyu' }, 'changsha')
-
-    expect(strongResult.ok).toBe(true)
-    if (strongResult.ok) {
-      expect(strongResult.record.battle?.attackerWins).toBe(true)
-    }
-    expect(siteOf(strong, 'changsha').owner).toBe('liubei')
-    expect(siteOf(strong, 'changsha').guard).toBeUndefined()
-  })
-
-  it('强度随类型与人口变化：关隘的民兵少于都会', () => {
-    const state = createInitialState({ seed: 208 })
-
-    // 潼关（关隘，人口二万）与宛（都会，人口十二万）都无守将驻守，就地成军。
-    const passGuard = garrisonAt(state, 'tongguan').side.troops
-    const metropolisGuard = garrisonAt(state, 'wancheng').side.troops
-
-    expect(passGuard).toBeGreaterThan(0)
-    expect(metropolisGuard).toBeGreaterThan(passGuard)
-  })
-
-  it('固定种子下同一场对无主点的战斗可复现', () => {
-    const fight = () => {
-      const state = createInitialState({ seed: 208 })
-      const result = attack(state, { commander: 'guanyu' }, 'changsha')
-
-      return {
-        ok: result.ok,
-        troops: characterOf(state, 'guanyu').troops,
-        randomState: state.randomState,
-        owner: siteOf(state, 'changsha').owner,
-        guard: siteOf(state, 'changsha').guard,
-      }
-    }
-
-    expect(fight()).toEqual(fight())
-  })
-})
-
-describe('进攻', () => {
-  it('无主战略点须交战方能占领，攻方得胜后入驻', () => {
-    const state = createInitialState({ seed: 208 })
-
-    const result = attack(state, { commander: 'guanyu' }, 'changsha')
-
-    expect(result.ok).toBe(true)
-    expect(siteOf(state, 'changsha').owner).toBe('liubei')
-    expect(characterOf(state, 'guanyu').stationedSiteId).toBe('changsha')
-    // 交战有损耗，不再是「不战而下」的零伤亡。
-    expect(characterOf(state, 'guanyu').troops).toBeLessThan(8000)
-    expect(hasActedThisTurn(state, 'guanyu')).toBe(true)
-    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.attack)
-  })
-
-  it('未宣战不能进攻中立势力，宣战后方可', () => {
-    const state = createInitialState({ seed: 208 })
-
-    // 建安十三年开局刘备与曹操中立：襄阳打不得。
-    expect(isAttackable(state, 'xiangyang')).toBe(false)
-    expect(attack(state, { commander: 'guanyu' }, 'xiangyang')).toEqual({
+    const noFront = scene()
+    expect(openAttack(noFront, 'b', [{ characterId: 'attacker', slot: 3 }])).toEqual({
       ok: false,
-      reason: '与对方非敌对，须先宣战',
+      reason: '前排至少一队',
     })
 
-    declareWar(state, 'caocao')
-
-    expect(isAttackable(state, 'xiangyang')).toBe(true)
-    expect(attack(state, { commander: 'guanyu' }, 'xiangyang').ok).toBe(true)
-    expect(siteOf(state, 'xiangyang').owner).toBe('liubei')
+    const twice = scene()
+    expect(
+      openAttack(twice, 'b', [
+        { characterId: 'attacker', slot: 0 },
+        { characterId: 'attacker', slot: 3 },
+      ]),
+    ).toEqual({ ok: false, reason: '同一名武将不能重复出征' })
   })
 
-  it('攻占有主战略点，守军或撤往相邻的自有战略点，或战死退场', () => {
-    const state = warState()
-
-    const result = attack(state, { commander: 'guanyu' }, 'xiangyang')
-
-    expect(result.ok).toBe(true)
-    expect(siteOf(state, 'xiangyang').owner).toBe('liubei')
-    expect(characterOf(state, 'guanyu').stationedSiteId).toBe('xiangyang')
-
-    const caimao = characterOf(state, 'caimao')
-    if (caimao.status === 'serving') {
-      expect(['fancheng', 'jiangling']).toContain(caimao.stationedSiteId)
-    } else {
-      expect(caimao.status).toBe('retired')
-      expect(caimao.stationedSiteId).toBeNull()
-      expect(caimao.troops).toBe(0)
-    }
-  })
-
-  it('战略点失守后，守将的去向写入行动记录', () => {
-    const state = warState()
-
-    const result = attack(state, { commander: 'guanyu' }, 'xiangyang')
-
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.record.outcome).toContain('攻占 襄阳')
-      expect(result.record.outcome).toContain('守将')
-    }
-  })
-
-  it('攻占无主点后守军清空，去向写入记录', () => {
-    const state = createInitialState({ seed: 208 })
-    const guardName = siteOf(state, 'changsha').guard?.name ?? ''
-
-    const result = attack(state, { commander: 'guanyu' }, 'changsha')
-
-    expect(result.ok).toBe(true)
-    expect(siteOf(state, 'changsha').guard).toBeUndefined()
-    if (result.ok) {
-      expect(result.record.outcome).toContain('守军')
-      expect(result.record.outcome).toContain(guardName)
-    }
-  })
-
-  it('固定种子下同一场战斗结果稳定', () => {
-    const fight = () => {
-      const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
-      const result = attack(state, { commander: 'attacker' }, 'b')
-
-      return {
-        ok: result.ok,
-        attackerTroops: characterOf(state, 'attacker').troops,
-        defenderTroops: characterOf(state, 'defender').troops,
-        randomState: state.randomState,
-        outcome: siteOf(state, 'b').owner,
-      }
-    }
-
-    expect(fight()).toEqual(fight())
-  })
-
-  it('败则退回原驻地并受损，战略点归属不变', () => {
-    const state = scene({ attackerTroops: 1000, defenderTroops: 10000 })
-
-    attack(state, { commander: 'attacker' }, 'b')
-
-    expect(characterOf(state, 'attacker').stationedSiteId).toBe('a')
-    expect(characterOf(state, 'attacker').troops).toBeLessThan(1000)
-    expect(siteOf(state, 'b').owner).toBe('caocao')
-  })
-
-  it('本势力再无城池可投时，守军或流落为在野、或被俘、或战死', () => {
-    const statuses = new Set<string>()
-
-    for (let seed = 1; seed <= 20; seed += 1) {
-      const state = scene({ attackerTroops: 20000, defenderTroops: 1000, seed })
-      attack(state, { commander: 'attacker' }, 'b')
-      statuses.add(characterOf(state, 'defender').status)
-    }
-
-    expect(statuses.has('wild')).toBe(true)
-    expect(statuses.has('captured') || statuses.has('retired')).toBe(true)
-  })
-
-  it('势力覆灭时君主不再必逃亡，与其他守军一样判骰', () => {
-    const statuses = new Set<string>()
-
-    for (let seed = 1; seed <= 20; seed += 1) {
-      const state = scene({
-        attackerTroops: 20000,
-        defenderTroops: 1000,
-        seed,
-        defenderIsMonarch: true,
-      })
-      attack(state, { commander: 'attacker' }, 'b')
-      statuses.add(characterOf(state, 'defender').status)
-    }
-
-    expect(statuses.has('wild')).toBe(true)
-    expect(statuses.has('captured') || statuses.has('retired')).toBe(true)
-  })
-
-  it('君主必定逃亡，不会战死或被俘', () => {
-    const state = createInitialState({ scenario: SANGUO_ACCEPTANCE, seed: 208 })
-    characterOf(state, 'guanyu').troops = 60000
-
-    attack(state, { commander: 'guanyu' }, 'xiangyang')
-
-    const caocao = characterOf(state, 'caocao')
-    expect(caocao.status).toBe('serving')
-    expect(['fancheng', 'jiangling']).toContain(caocao.stationedSiteId)
-  })
-
-  it('有退路时也不是必然逃亡，仍可能战死或被俘', () => {
-    const statuses = new Set<string>()
-
-    for (let seed = 1; seed <= 20; seed += 1) {
-      const state = warState(seed)
-      attack(state, { commander: 'guanyu' }, 'xiangyang')
-      statuses.add(characterOf(state, 'caimao').status)
-    }
-
-    expect(statuses.has('serving')).toBe(true)
-    expect(statuses.size).toBeGreaterThan(1)
-  })
-
-  it('编成中的兵力合计，单将打不动、加副将可得手', () => {
-    // 兵力取到单将即便掷到上限也打不动、两将即便掷到下限也稳赢，免得结论依赖随机。
-    const solo = scene({ attackerTroops: 5800, defenderTroops: 6000 })
-    attack(solo, { commander: 'attacker' }, 'b')
-    expect(siteOf(solo, 'b').owner).toBe('caocao')
-
-    const joint = scene({ attackerTroops: 5800, defenderTroops: 6000, secondAttackerTroops: 6000 })
-    const result = attack(joint, { commander: 'attacker', deputy: 'attacker2' }, 'b')
-
-    expect(result.ok).toBe(true)
-    expect(siteOf(joint, 'b').owner).toBe('liubei')
-    expect(characterOf(joint, 'attacker').stationedSiteId).toBe('b')
-    expect(characterOf(joint, 'attacker2').stationedSiteId).toBe('b')
-    expect(hasActedThisTurn(joint, 'attacker')).toBe(true)
-    expect(hasActedThisTurn(joint, 'attacker2')).toBe(true)
-  })
-
-  it('兵力为三人之和，智谋取三人中最高，士气为战斗默认满值', () => {
-    const state = createInitialState({ seed: 208 })
-
-    // 关羽智谋 75、张飞 40，取最高 75；带军师诸葛亮时取其本色 100。
-    expect(partySide(state, { commander: 'guanyu', deputy: 'zhangfei' })).toEqual({
-      troops: 14000,
-      intellect: 75,
-      morale: MORALE_FULL,
+  it('每方六个阵位：攻方至多五队，同一阵位不能排两队', () => {
+    const six = scene({
+      extraAttackers: ['a2', 'a3', 'a4', 'a5', 'a6'].map((id) => ({ id, troops: 5000 })),
     })
     expect(
-      partySide(state, { commander: 'guanyu', deputy: 'zhangfei', strategist: 'zhugeliang' }),
-    ).toEqual({ troops: 16000, intellect: 100, morale: MORALE_FULL })
+      openAttack(six, 'b', autoDeployment(['attacker', 'a2', 'a3', 'a4', 'a5', 'a6'])),
+    ).toEqual({ ok: false, reason: `至多 ${ATTACKER_SELECTION} 名武将出征` })
+
+    const five = scene({
+      extraAttackers: ['a2', 'a3', 'a4', 'a5'].map((id) => ({ id, troops: 5000 })),
+    })
+    const fiveIds = ['attacker', 'a2', 'a3', 'a4', 'a5']
+    expect(
+      openAttack(
+        five,
+        'b',
+        fiveIds.map((id) => ({ characterId: id, slot: 0 })),
+      ),
+    ).toEqual({ ok: false, reason: '同一阵位不能排两队' })
+    expect(
+      openAttack(
+        scene(),
+        'b',
+        [{ characterId: 'attacker', slot: 6 }],
+      ),
+    ).toEqual({ ok: false, reason: '阵位超出范围' })
   })
 
-  it('编成不合规时拒绝', () => {
-    const state = warState()
+  it('自动布阵按前三后三填入六个阵位', () => {
+    expect(autoDeployment(['a', 'b', 'c', 'd', 'e'])).toEqual([
+      { characterId: 'a', slot: 0 },
+      { characterId: 'b', slot: 1 },
+      { characterId: 'c', slot: 2 },
+      { characterId: 'd', slot: 3 },
+      { characterId: 'e', slot: 4 },
+    ])
+  })
 
-    expect(attack(state, { commander: '' }, 'changsha')).toEqual({ ok: false, reason: '必须指定主将' })
-    expect(attack(state, { commander: 'caimao' }, 'changsha')).toEqual({
+  it('开战前可拖动换位，但不能让前排空着；开战后不再变动', () => {
+    const state = scene({
+      defenderTroops: 60000,
+      extraAttackers: ['a2', 'a3', 'a4', 'a5'].map((id) => ({ id, troops: 5000 })),
+    })
+    const battle = opened(state, 'b', ['attacker', 'a2', 'a3', 'a4', 'a5'], { autoDefender: false })
+    deployDefenders(battle, state, autoDeployment(['defender']))
+
+    // 前排 attacker、a2、a3；后排 a4、a5。前排与后排互换合法。
+    expect(setUnitSlot(battle, 'a4', 0)).toBeNull()
+    expect(battle.attacker.units.find((unit) => unit.characterId === 'a4')?.slot).toBe(0)
+
+    // 只有一队时不能把它挪到后排，前排不能空着。
+    const lone = opened(scene({ defenderTroops: 60000 }), 'b', ['attacker'], { autoDefender: false })
+    expect(setUnitSlot(lone, 'attacker', 3)).toBe('前排至少一队')
+    expect(setUnitSlot(lone, 'attacker', 0)).toBeNull()
+
+    advance(battle, ['defend'])
+    expect(setUnitSlot(battle, 'a4', 5)).toBe('开战后不能再变阵')
+  })
+
+  it('守方至多六队：五名自选加驻将', () => {
+    const state = scene({
+      extraDefenders: ['d2', 'd3', 'd4', 'd5', 'd6', 'd7'].map((id) => ({ id, troops: 3000 })),
+    })
+    const battle = opened(state, 'b', ['attacker'], { autoDefender: false })
+    const seven = ['defender', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7'].map((id, index) => ({
+      characterId: id,
+      slot: index % 6,
+    }))
+
+    expect(deployDefenders(battle, state, seven)).toBe('至多 6 队上阵')
+  })
+
+  it('守方只能从该点的候选里选人', () => {
+    const state = scene()
+    const battle = opened(state, 'b', ['attacker'], { autoDefender: false })
+
+    expect(deployDefenders(battle, state, autoDeployment(['attacker']))).toBe('攻将 不能在此迎战')
+    expect(deployDefenders(battle, state, autoDeployment(['defender']))).toBeNull()
+    expect(battle.defender.units.map((unit) => unit.name)).toEqual(['守将'])
+  })
+
+  it('守方不派将迎战即不战而下，攻方照付行动力与粮草', () => {
+    const state = scene({ defenderTroops: 5000 })
+    const battle = opened(state, 'b', ['attacker'], { autoDefender: false })
+
+    expect(deployDefenders(battle, state, [])).toBeNull()
+    expect(battle.finished).toBe(true)
+    expect(battle.undefended).toBe(true)
+    expect(battle.attackerWins).toBe(true)
+    expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.attack)
+  })
+})
+
+describe('开战', () => {
+  it('扣四点行动力，另按投入兵力扣粮', () => {
+    const state = scene({ attackerTroops: 10000 })
+    opened(state, 'b', ['attacker'])
+
+    expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.attack)
+    expect(state.factions.find((item) => item.id === 'liubei')?.grain).toBe(
+      100000 - attackGrainCost(10000),
+    )
+  })
+
+  it('守方由规则层自动布阵：驻将与名册中有兵、未行动的武将齐出', () => {
+    const state = scene({
+      attackerTroops: 1000,
+      defenderTroops: 5000,
+      extraDefenders: [{ id: 'd2', troops: 3000 }],
+    })
+    const battle = opened(state, 'b', ['attacker'])
+
+    expect(battle.defender.units.map((unit) => unit.name)).toEqual(['守将', '守将d2'])
+    expect(battle.defender.units[0]?.stationed).toBe(true)
+  })
+
+  it('已行动的武将不能防守，兵为零的驻将也不上阵', () => {
+    const state = scene({ defenderTroops: 5000, extraDefenders: [{ id: 'd2', troops: 3000 }] })
+    markActed(state, 'd2')
+
+    expect(defenderCandidates(state, 'b', 'caocao').map((item) => item.id)).toEqual(['defender'])
+
+    characterOf(state, 'defender').troops = 0
+    expect(defenderCandidates(state, 'b', 'caocao')).toEqual([])
+  })
+
+  it('守方无人可守则不战而下，城池易主', () => {
+    const state = scene({ defenderTroops: 0 })
+    const battle = opened(state, 'b', ['attacker'])
+
+    expect(battle.undefended).toBe(true)
+    const result = finishBattle(state, battle)
+
+    expect(result.ok).toBe(true)
+    expect(siteOf(state, 'b').owner).toBe('liubei')
+    if (result.ok) {
+      expect(result.record.battle?.undefended).toBe(true)
+    }
+  })
+
+  it('未宣战不能进攻', () => {
+    const state = scene()
+    state.relations = []
+
+    expect(attackOutcome(state, 'b')).toEqual({ ok: false, reason: '与对方非敌对，须先宣战' })
+    expect(isAttackable(state, 'b')).toBe(false)
+
+    declareWar(state, 'caocao')
+    expect(isAttackable(state, 'b')).toBe(true)
+  })
+
+  it('目标须与自有战略点相邻，且不能是自有或无主之地', () => {
+    const state = scene({
+      extraSites: [
+        { id: 'c', name: '丙', type: 'town', population: 10000, provinceId: 'jing', owner: 'caocao', neighbors: ['b'] },
+        { id: 'u', name: '无主', type: 'town', population: 10000, provinceId: 'jing', owner: null, neighbors: ['a'] },
+      ],
+    })
+
+    expect(attackOutcome(state, 'a')).toEqual({ ok: false, reason: '目标已是自有战略点' })
+    expect(attackOutcome(state, 'u')).toEqual({ ok: false, reason: '目标无归属，无法宣战' })
+    expect(attackOutcome(state, 'c')).toEqual({ ok: false, reason: '目标不与自有战略点相邻' })
+  })
+
+  it('驻将、无兵、已行动者都不能出征', () => {
+    const stationed = scene()
+    characterOf(stationed, 'attacker').stationedSiteId = 'a'
+    expect(attackOutcome(stationed, 'b')).toEqual({ ok: false, reason: '攻将 正在驻守，不能出征' })
+
+    const emptyHanded = scene({ attackerTroops: 0 })
+    expect(attackOutcome(emptyHanded, 'b')).toEqual({ ok: false, reason: '攻将 没有兵力' })
+
+    const spent = scene()
+    markActed(spent, 'attacker')
+    expect(attackOutcome(spent, 'b')).toEqual({ ok: false, reason: '攻将 本回合已行动' })
+  })
+
+  it('不属本势力的武将与空编成都拒绝', () => {
+    const state = scene()
+    expect(attackOutcome(state, 'b', ['defender'])).toEqual({
       ok: false,
       reason: '该武将不在此势力',
     })
-    expect(attack(state, { commander: 'guanyu', deputy: 'guanyu' }, 'changsha')).toEqual({
-      ok: false,
-      reason: '主将、副将与军师不能是同一人',
-    })
-
-    expect(attack(state, { commander: 'guanyu' }, 'changsha').ok).toBe(true)
-    expect(attack(state, { commander: 'guanyu', deputy: 'zhangfei' }, 'xiangyang')).toEqual({
-      ok: false,
-      reason: '关羽 本回合已行动',
-    })
+    expect(attackOutcome(state, 'b', [])).toEqual({ ok: false, reason: '至少选一名武将出征' })
   })
 
-  it('与自有领地接壤的他方或无主战略点都可作为进攻目标', () => {
-    const state = createInitialState({ seed: 208 })
+  it('行动力不足或粮草不足都不出征', () => {
+    const poor = scene({ attackerTroops: 10000 })
+    poor.actionPoints.liubei = ACTION_COSTS.attack - 1
+    expect(attackOutcome(poor, 'b')).toEqual({ ok: false, reason: '行动力不足' })
 
-    expect(isAttackable(state, 'changsha')).toBe(true)
-    expect(isAttackable(state, 'jiangxia')).toBe(false)
-    expect(isAttackable(state, 'xudu')).toBe(false)
-
-    markActed(state, 'guanyu')
-
-    expect(isAttackable(state, 'changsha')).toBe(true)
-  })
-
-  it('候选部属含本季已行动者，由界面标出不可选', () => {
-    const state = createInitialState({ seed: 208 })
-
-    expect(attackCandidates(state, 'changsha').map((item) => item.id)).toContain('guanyu')
-    expect(attackCandidates(state, 'jiangxia')).toEqual([])
-
-    markActed(state, 'guanyu')
-
-    expect(attackCandidates(state, 'changsha').map((item) => item.id)).toContain('guanyu')
-  })
-
-  it('同一武将每回合只能进攻一次', () => {
-    const state = warState()
-
-    expect(attack(state, { commander: 'guanyu' }, 'changsha').ok).toBe(true)
-    expect(attack(state, { commander: 'guanyu' }, 'xiangyang')).toEqual({
-      ok: false,
-      reason: '关羽 本回合已行动',
-    })
-  })
-
-  it('出征按投入兵力耗粮，粮草不足则不能出征', () => {
-    const state = scene({ attackerTroops: 10000, defenderTroops: 0 })
-    const faction = state.factions.find((item) => item.id === 'liubei')
+    const hungry = scene({ attackerTroops: 10000 })
+    const faction = hungry.factions.find((item) => item.id === 'liubei')
     if (faction === undefined) {
       throw new Error('势力不存在：liubei')
     }
-    const before = faction.grain
-
-    expect(attack(state, { commander: 'attacker' }, 'b').ok).toBe(true)
-    expect(faction.grain).toBe(before - attackGrainCost(10000))
+    faction.grain = 0
+    expect(attackOutcome(hungry, 'b')).toEqual({ ok: false, reason: '粮草不足，不能出征' })
+    expect(hungry.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN)
   })
 
-  it('粮草不足时拒绝出征，不扣行动力', () => {
-    const state = scene({ attackerTroops: 10000, defenderTroops: 0 })
-    const faction = state.factions.find((item) => item.id === 'liubei')
-    if (faction === undefined) {
-      throw new Error('势力不存在：liubei')
-    }
-    faction.grain = attackGrainCost(10000) - 1
+  it('候选部属含未驻守、有兵的部属，已行动者也在列', () => {
+    const state = scene({ extraAttackers: [{ id: 'a2', troops: 3000 }] })
+    markActed(state, 'attacker')
 
-    expect(attack(state, { commander: 'attacker' }, 'b')).toEqual({
-      ok: false,
-      reason: '粮草不足，不能出征',
-    })
-    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
-  })
-
-  it('进攻不改变地理结构', () => {
-    const state = createInitialState({ seed: 208 })
-    const before = state.geography.sites.map((site) => ({ id: site.id, neighbors: [...site.neighbors] }))
-
-    attack(state, { commander: 'guanyu' }, 'changsha')
-
-    const after = state.geography.sites.map((site) => ({ id: site.id, neighbors: [...site.neighbors] }))
-    expect(after).toEqual(before)
+    const ids = attackCandidates(state, 'b').map((item) => item.id)
+    expect(ids).toContain('attacker')
+    expect(ids).toContain('a2')
+    expect(ids).not.toContain('defender')
   })
 })
 
-describe('野地', () => {
-  /**
-   * 己方城池甲与一片相邻的无归属野地丙的最小对局。
-   * 野地并入行军图：可驻军、可作调动与进攻的目标，但不入任何势力的版图。
-   * `garrison` 指定野地驻军属于哪一方，取 null 表示无人驻守。
-   */
-  function fieldScene(garrison: 'caocao' | 'liubei' | null): GameState {
-    const holder: Character | null =
-      garrison === null
-        ? null
-        : {
-            id: 'holder',
-            name: '野地守将',
-            status: 'serving',
-            factionId: garrison,
-            provinceId: 'jing',
-            might: 70,
-            command: 70,
-            intellect: 50,
-            politics: 50,
-            age: 40,
-            personality: 'steady',
-            affinities: garrison === 'caocao' ? { caocao: 90 } : { liubei: 90 },
-            loyalty: 90,
-            isMonarch: false,
-            stationedSiteId: 'f',
-            troops: 1000,
-            tier: null,
-          }
+describe('交锋', () => {
+  it('二十五次行动用尽而守方仍在，守方守住、攻方撤退', () => {
+    const state = scene({ attackerTroops: 10000, defenderTroops: 10000 })
+    const battle = opened(state, 'b', ['attacker'])
 
-    const scenario: Scenario = {
-      id: 'field-test',
-      name: '野地测试',
-      startDate: { era: '建安', year: 13, season: 'autumn' },
-      playerFaction: 'liubei',
-      factions: [
-        { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 100000 },
-        { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 100000 },
-      ],
-      relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
-      geography: {
-        provinces: [{ id: 'jing', name: '荆州', owner: null }],
-        sites: [
-          { id: 'a', name: '甲', type: 'city', population: 50000, provinceId: 'jing', owner: 'liubei', neighbors: ['f'] },
-          { id: 'f', name: '野地', type: 'field', population: 0, provinceId: 'jing', owner: null, neighbors: ['a'] },
-          // 曹操得有一处据点，否则名下无地会被判为已离场，敌对关系随之失效。
-          { id: 'b', name: '乙', type: 'city', population: 50000, provinceId: 'jing', owner: 'caocao', neighbors: [] },
-        ],
-      },
-      characters: [
-        {
-          id: 'attacker',
-          name: '攻将',
-          status: 'serving',
-          factionId: 'liubei',
-          provinceId: 'jing',
-          might: 80,
-          command: 80,
-          intellect: 50,
-          politics: 50,
-          age: 40,
-          personality: 'steady',
-          affinities: { liubei: 90 },
-          loyalty: 90,
-          isMonarch: false,
-          stationedSiteId: 'a',
-          troops: 10000,
-          tier: null,
-        },
-        ...(holder === null ? [] : [holder]),
-      ],
+    while (!battle.finished) {
+      const actor = currentActor(battle)
+      if (actor === null) {
+        break
+      }
+      resolveAction(battle, { characterId: actor.characterId, kind: 'defend' })
     }
 
-    return createInitialState({ scenario, seed: 208 })
-  }
+    expect(battle.actionsUsed).toBe(BATTLE_ACTIONS)
+    expect(battle.attackerWins).toBe(false)
 
-  it('守方势力取自归属：城池看归属，野地看驻军', () => {
-    const empty = fieldScene(null)
-    const held = fieldScene('caocao')
-
-    expect(defenderFactionAt(empty, siteOf(empty, 'a'))).toBe('liubei')
-    expect(defenderFactionAt(empty, siteOf(empty, 'f'))).toBe(null)
-    expect(defenderFactionAt(held, siteOf(held, 'f'))).toBe('caocao')
-  })
-
-  it('空野地无仗可打，却可作调动目标', () => {
-    const state = fieldScene(null)
-
-    expect(isAttackable(state, 'f')).toBe(false)
-    expect(isTransferTarget(state, 'f')).toBe(true)
-  })
-
-  it('野地驻有他方人马时可进攻，但不能直接调动', () => {
-    const state = fieldScene('caocao')
-
-    expect(isAttackable(state, 'f')).toBe(true)
-    expect(isTransferTarget(state, 'f')).toBe(false)
-    expect(transfer(state, ['attacker'], 'f')).toEqual({
-      ok: false,
-      reason: '目标不是自有战略点，也不是可进驻的野地',
-    })
-  })
-
-  it('野地驻有己方人马时不可进攻，却可派兵增援', () => {
-    const state = fieldScene('liubei')
-
-    expect(isAttackable(state, 'f')).toBe(false)
-    expect(isTransferTarget(state, 'f')).toBe(true)
-    expect(transfer(state, ['attacker'], 'f').ok).toBe(true)
-    expect(characterOf(state, 'attacker').stationedSiteId).toBe('f')
-  })
-
-  it('攻下野地只逐走守军：归属不变，胜方仍旧进驻', () => {
-    const state = fieldScene('caocao')
-    const result = attack(state, { commander: 'attacker' }, 'f')
-
+    const result = finishBattle(state, battle)
     expect(result.ok).toBe(true)
+    expect(siteOf(state, 'b').owner).toBe('caocao')
     if (result.ok) {
-      expect(result.record.outcome).toContain('击破 野地 守军')
-      expect(result.record.battle?.attackerWins).toBe(true)
+      expect(result.record.battle?.captives).toEqual([])
+      expect(result.record.battle?.attacker.casualties).toBe(0)
     }
-    expect(siteOf(state, 'f').owner).toBe(null)
-    expect(characterOf(state, 'attacker').stationedSiteId).toBe('f')
+    expect(characterOf(state, 'attacker').loyalty).toBe(90 - 8)
+  })
+
+  it('近战只及前排，弓箭手可越排打后排', () => {
+    const melee = scene({
+      attackerTroops: 20000,
+      defenderTroops: 30000,
+      extraDefenders: [
+        { id: 'd2', troops: 100 },
+        { id: 'd3', troops: 30000 },
+        { id: 'd4', troops: 30000 },
+        { id: 'd5', troops: 30000 },
+      ],
+    })
+    const meleeBattle = opened(melee, 'b', ['attacker'], { autoDefender: false })
+    deployDefenders(meleeBattle, melee, autoDeployment(['defender', 'd3', 'd4', 'd5', 'd2']))
+
+    // 守方前三队在前排；守将d2 在后排，近战够不着。
+    const meleeActor = currentActor(meleeBattle)
+    if (meleeActor === null) {
+      throw new Error('缺少行动者')
+    }
+    expect(targetsFor(meleeBattle, meleeActor).map((unit) => unit.name)).not.toContain('守将d2')
+
+    resolveAction(meleeBattle, { characterId: 'attacker', kind: 'attack', targetId: 'd2' })
+
+    const meleeBack = meleeBattle.defender.units.find((unit) => unit.name === '守将d2')
+    expect(meleeBack?.battleTroops).toBe(100)
+    expect(meleeBack?.exited).toBe(false)
+
+    const ranged = scene({
+      attackerTroops: 20000,
+      defenderTroops: 30000,
+      extraDefenders: [
+        { id: 'd2', troops: 100 },
+        { id: 'd3', troops: 30000 },
+        { id: 'd4', troops: 30000 },
+        { id: 'd5', troops: 30000 },
+      ],
+    })
+    // 兵种在建队时读入，故须在开战前改定。
+    characterOf(ranged, 'attacker').armType = 'archer'
+    const archerBattle = opened(ranged, 'b', ['attacker'], { autoDefender: false })
+    deployDefenders(archerBattle, ranged, autoDeployment(['defender', 'd3', 'd4', 'd5', 'd2']))
+
+    const archerActor = currentActor(archerBattle)
+    if (archerActor === null) {
+      throw new Error('缺少行动者')
+    }
+    expect(targetsFor(archerBattle, archerActor).map((unit) => unit.name)).toContain('守将d2')
+
+    resolveAction(archerBattle, { characterId: 'attacker', kind: 'attack', targetId: 'd2' })
+
+    const rangedBack = archerBattle.defender.units.find((unit) => unit.name === '守将d2')
+    expect(rangedBack?.battleTroops).toBe(0)
+    expect(rangedBack?.exited).toBe(true)
+  })
+
+  it('防御不自损；受击时减伤，步兵可护住自己所在的一排', () => {
+    const plain = scene({ attackerTroops: 20000, defenderTroops: 30000 })
+    const plainBattle = opened(plain, 'b', ['attacker'])
+    resolveAction(plainBattle, { characterId: 'attacker', kind: 'attack', targetId: 'defender' })
+    const plainLeft = plainBattle.defender.units[0]?.battleTroops ?? 0
+
+    const guarded = scene({ attackerTroops: 20000, defenderTroops: 30000 })
+    const guardedBattle = opened(guarded, 'b', ['attacker'])
+    const guardedUnit = guardedBattle.defender.units[0]
+    if (guardedUnit === undefined) {
+      throw new Error('缺少守方')
+    }
+    guardedUnit.defendingRound = guardedBattle.round
+    resolveAction(guardedBattle, { characterId: 'attacker', kind: 'attack', targetId: 'defender' })
+    const guardedLeft = guardedBattle.defender.units[0]?.battleTroops ?? 0
+
+    expect(guardedLeft).toBeGreaterThan(plainLeft)
+
+    // 步兵防御时覆盖同排；后排的队不在其列。
+    const state = scene({
+      extraDefenders: [
+        { id: 'd2', troops: 3000 },
+        { id: 'd3', troops: 3000 },
+        { id: 'd4', troops: 3000 },
+        { id: 'd5', troops: 3000 },
+      ],
+    })
+    const battle = opened(state, 'b', ['attacker'])
+    const front = battle.defender.units.find((unit) => unit.slot === 0)
+    if (front === undefined) {
+      throw new Error('缺少前排')
+    }
+    expect(defendScope(battle, front).map((unit) => unit.slot).sort()).toEqual([0, 1, 2])
+
+    const actor = currentActor(battle)
+    if (actor === null) {
+      throw new Error('缺少行动者')
+    }
+    const beforeAction = actor.battleTroops
+    resolveAction(battle, { characterId: actor.characterId, kind: 'defend' })
+    expect(actor.battleTroops).toBe(beforeAction)
+  })
+
+  it('据点补正对守方全员生效：守城比守野地少损', () => {
+    const field = scene({ attackerTroops: 20000, defenderTroops: 30000, siteType: 'field' })
+    const fieldBattle = opened(field, 'b', ['attacker'])
+    resolveAction(fieldBattle, { characterId: 'attacker', kind: 'attack', targetId: 'defender' })
+
+    const city = scene({ attackerTroops: 20000, defenderTroops: 30000, siteType: 'city' })
+    const cityBattle = opened(city, 'b', ['attacker'])
+    resolveAction(cityBattle, { characterId: 'attacker', kind: 'attack', targetId: 'defender' })
+
+    expect(cityBattle.defender.units[0]?.battleTroops ?? 0).toBeGreaterThan(
+      fieldBattle.defender.units[0]?.battleTroops ?? 0,
+    )
+  })
+
+  it('后排近战被本阵前排挡住，弓手仍可从后排出手', () => {
+    const state = scene({
+      attackerTroops: 5000,
+      defenderTroops: 5000,
+      extraAttackers: [{ id: 'a2', troops: 5000, armType: 'cavalry' }],
+    })
+    const result = openAttack(
+      state,
+      'b',
+      [
+        { characterId: 'attacker', slot: 0 },
+        { characterId: 'a2', slot: 3 },
+      ],
+      state.playerFaction,
+      { autoDefender: false },
+    )
+    if (!result.ok) {
+      throw new Error(result.reason)
+    }
+    const battle = result.battle
+    deployDefenders(battle, state, autoDeployment(['defender']))
+
+    // 骑兵机动最高，先行动；但它在后排，前排还有步兵挡着。
+    const horse = currentActor(battle)
+    if (horse === null) {
+      throw new Error('缺少行动者')
+    }
+    expect(horse.characterId).toBe('a2')
+    expect(targetsFor(battle, horse)).toEqual([])
+
+    const before = horse.battleTroops
+    const event = resolveAction(battle, { characterId: 'a2', kind: 'attack' })
+    expect(event?.damage).toBe(0)
+    expect(horse.battleTroops).toBe(before)
+
+    // 换成弓手，便可在后排直接射向前排。
+    const archer = scene({
+      attackerTroops: 5000,
+      defenderTroops: 5000,
+      extraAttackers: [{ id: 'a2', troops: 5000, armType: 'archer' }],
+    })
+    const archerResult = openAttack(
+      archer,
+      'b',
+      [
+        { characterId: 'attacker', slot: 0 },
+        { characterId: 'a2', slot: 3 },
+      ],
+      archer.playerFaction,
+      { autoDefender: false },
+    )
+    if (!archerResult.ok) {
+      throw new Error(archerResult.reason)
+    }
+    deployDefenders(archerResult.battle, archer, autoDeployment(['defender']))
+    const bow = currentActor(archerResult.battle)
+    if (bow === null) {
+      throw new Error('缺少行动者')
+    }
+    expect(targetsFor(archerResult.battle, bow).map((unit) => unit.name)).toEqual(['守将'])
+
+    // 自家前排空了，后排的近战才顶上。
+    const front = battle.attacker.units.find((unit) => unit.characterId === 'attacker')
+    if (front === undefined) {
+      throw new Error('缺少前排')
+    }
+    front.battleTroops = 0
+    front.exited = true
+    const horseAgain = battle.attacker.units.find((unit) => unit.characterId === 'a2')
+    if (horseAgain === undefined) {
+      throw new Error('缺少后排')
+    }
+    expect(targetsFor(battle, horseAgain).map((unit) => unit.name)).toEqual(['守将'])
+  })
+
+  it('一次行动产出可供演出的战果：出手者、目标、伤害与剩余战兵', () => {
+    const state = scene({ attackerTroops: 20000, defenderTroops: 30000 })
+    const battle = opened(state, 'b', ['attacker'])
+
+    const event = resolveAction(battle, {
+      characterId: 'attacker',
+      kind: 'attack',
+      targetId: 'defender',
+    })
+
+    expect(event?.actorName).toBe('攻将')
+    expect(event?.targetName).toBe('守将')
+    expect(event?.damage).toBeGreaterThan(0)
+    expect(event?.selfLoss).toBeGreaterThan(0)
+    expect(event?.actionsUsed).toBe(1)
+    expect(event?.finished).toBe(false)
+    expect(battle.actionsUsed).toBe(1)
   })
 })
 
-describe('占领后的分派驻守', () => {
-  /** 两将取胜进驻乙城：一个可留驻新点、一个可回原驻地。 */
-  function captured(): GameState {
-    const state = scene({ attackerTroops: 20000, defenderTroops: 1000, secondAttackerTroops: 20000 })
-    const result = attack(state, { commander: 'attacker', deputy: 'attacker2' }, 'b')
+describe('战后结算', () => {
+  it('得胜即占领，战损按比例七折折算，攻方一律已行动', () => {
+    const state = scene({ attackerTroops: 20000, defenderTroops: 1000 })
+    const battle = opened(state, 'b', ['attacker'])
+    const result = finishBattle(state, battle)
 
     expect(result.ok).toBe(true)
+    expect(siteOf(state, 'b').owner).toBe('liubei')
+    expect(hasActedThisTurn(state, 'attacker')).toBe(true)
+
+    if (result.ok) {
+      const report = result.record.battle
+      if (report === undefined) {
+        throw new Error('缺少战报')
+      }
+      expect(report.attackerWins).toBe(true)
+      expect(report.attacker.troops).toBe(20000)
+      expect(report.attacker.casualties).toBeGreaterThan(0)
+      expect(characterOf(state, 'attacker').troops).toBe(20000 - report.attacker.casualties)
+      expect(report.defender.casualties).toBeGreaterThan(0)
+    }
+  })
+
+  it('全军覆没者实减七成、保留三成', () => {
+    const state = scene({ attackerTroops: 10000, defenderTroops: 200000 })
+    const battle = opened(state, 'b', ['attacker'])
+    const result = finishBattle(state, battle)
+
+    expect(result.ok).toBe(true)
+    if (result.ok && result.record.battle !== undefined) {
+      expect(result.record.battle.attackerWins).toBe(false)
+      expect(result.record.battle.attacker.casualties).toBe(7000)
+    }
+    expect(characterOf(state, 'attacker').troops).toBe(3000)
+    expect(siteOf(state, 'b').owner).toBe('caocao')
+  })
+
+  it('守方参战者按七成半撤回、一成战死、一成半被俘定去向', () => {
+    const statuses = new Set<string>()
+
+    for (let seed = 1; seed <= 20; seed += 1) {
+      const state = scene({ attackerTroops: 40000, defenderTroops: 1000, seed })
+      const battle = opened(state, 'b', ['attacker'])
+      finishBattle(state, battle)
+      statuses.add(characterOf(state, 'defender').status)
+    }
+
+    expect(statuses.has('serving')).toBe(true)
+    expect(statuses.has('retired')).toBe(true)
+    expect(statuses.has('captured')).toBe(true)
+  })
+
+  it('驻将失守而撤出者忠诚减十；未上阵的驻将同样撤出、忠诚减十', () => {
+    let withdrawn = false
+    for (let seed = 1; seed <= 30 && !withdrawn; seed += 1) {
+      const state = scene({ attackerTroops: 40000, defenderTroops: 1000, seed })
+      const battle = opened(state, 'b', ['attacker'])
+      finishBattle(state, battle)
+      if (characterOf(state, 'defender').status === 'serving') {
+        expect(characterOf(state, 'defender').loyalty).toBe(90 - 10)
+        withdrawn = true
+      }
+    }
+    expect(withdrawn).toBe(true)
+
+    // 兵为零的驻将不上阵，城破后随城撤出。
+    const emptyHanded = scene({ attackerTroops: 40000, defenderTroops: 0 })
+    const emptyBattle = opened(emptyHanded, 'b', ['attacker'])
+    const emptyResult = finishBattle(emptyHanded, emptyBattle)
+
+    expect(emptyResult.ok).toBe(true)
+    expect(characterOf(emptyHanded, 'defender').stationedSiteId).toBeNull()
+    expect(characterOf(emptyHanded, 'defender').loyalty).toBe(90 - 10)
+  })
+
+  it('守方自选武将战后已行动，驻将不受此限', () => {
+    const state = scene({
+      attackerTroops: 40000,
+      defenderTroops: 1000,
+      extraDefenders: [{ id: 'd2', troops: 1000 }],
+    })
+    const battle = opened(state, 'b', ['attacker'])
+    finishBattle(state, battle)
+
+    expect(hasActedThisTurn(state, 'd2')).toBe(true)
+    expect(hasActedThisTurn(state, 'defender')).toBe(false)
+  })
+
+  it('守方失去最后一处据点即覆灭，名册流落为在野', () => {
+    const state = scene({ attackerTroops: 40000, defenderTroops: 1000, withField: false })
+    const battle = opened(state, 'b', ['attacker'])
+    finishBattle(state, battle)
+
+    expect(isFactionDestroyed(state, 'caocao')).toBe(true)
+    const survivor = characterOf(state, 'defender')
+    expect(['wild', 'retired', 'captured']).toContain(survivor.status)
+    if (survivor.status !== 'captured') {
+      expect(survivor.factionId).toBeNull()
+    }
+  })
+
+  it('战报写入行动历史，归属与结果齐备', () => {
+    const state = scene({ attackerTroops: 20000, defenderTroops: 1000 })
+    const battle = opened(state, 'b', ['attacker'])
+    finishBattle(state, battle)
+
+    const record = state.history.at(-1)
+    expect(record?.kind).toBe('attack')
+    expect(record?.factionId).toBe('liubei')
+    expect(record?.targetId).toBe('b')
+    expect(record?.outcome).toContain('攻占 乙')
+    expect(record?.battle?.siteName).toBe('乙')
+  })
+
+  it('固定种子下同一场战斗可复现', () => {
+    const fight = () => {
+      const state = scene({ attackerTroops: 12000, defenderTroops: 9000, seed: 91 })
+      const battle = opened(state, 'b', ['attacker'])
+      const result = finishBattle(state, battle)
+
+      return {
+        owner: siteOf(state, 'b').owner,
+        troops: characterOf(state, 'attacker').troops,
+        defender: characterOf(state, 'defender').status,
+        randomState: state.randomState,
+        outcome: result.ok ? result.record.outcome : result.reason,
+      }
+    }
+
+    expect(fight()).toEqual(fight())
+  })
+
+  it('开发者模式可强制胜负，其余结算照常', () => {
+    const state = scene({ attackerTroops: 1000, defenderTroops: 50000 })
+    const battle = opened(state, 'b', ['attacker'])
+    const result = finishBattle(state, battle, 'win')
+
+    expect(result.ok).toBe(true)
+    expect(siteOf(state, 'b').owner).toBe('liubei')
+    expect(characterOf(state, 'attacker').troops).toBeLessThan(1000)
+  })
+})
+
+describe('占领后的留驻', () => {
+  function captured(): GameState {
+    const state = scene({
+      attackerTroops: 40000,
+      defenderTroops: 1000,
+      extraAttackers: [{ id: 'a2', troops: 40000 }],
+    })
+    const battle = opened(state, 'b', ['attacker', 'a2'])
+    finishBattle(state, battle)
+
     return state
   }
 
-  it('凡未指定者一律留驻新点，返回空摘要', () => {
+  it('可从参战者中指定一人留驻新点，不耗行动力', () => {
     const state = captured()
+    const apBefore = state.actionPoints.liubei
 
-    expect(characterOf(state, 'attacker').stationedSiteId).toBe('b')
-    expect(characterOf(state, 'attacker2').stationedSiteId).toBe('b')
-
-    expect(assignAfterCapture(state, 'b', [])).toBe('')
-    expect(characterOf(state, 'attacker').stationedSiteId).toBe('b')
-    expect(characterOf(state, 'attacker2').stationedSiteId).toBe('b')
+    expect(stationAfterCapture(state, 'b', 'a2')).toBe('攻将a2 留驻 乙')
+    expect(characterOf(state, 'a2').stationedSiteId).toBe('b')
+    expect(state.actionPoints.liubei).toBe(apBefore)
   })
 
-  it('指定者回原驻地、其余留驻，且不耗行动力、已行动状态不变', () => {
+  it('留驻不设时返回空摘要；改派时原驻将卸任', () => {
     const state = captured()
-    const apBefore = state.actionPoints[state.playerFaction]
 
-    const summary = assignAfterCapture(state, 'b', [{ characterId: 'attacker2', siteId: 'a' }])
+    expect(stationAfterCapture(state, 'b', null)).toBe('')
+    expect(characterOf(state, 'a2').stationedSiteId).toBeNull()
 
-    expect(summary).toBe('副将 回驻 甲')
-    expect(characterOf(state, 'attacker2').stationedSiteId).toBe('a')
+    stationAfterCapture(state, 'b', 'a2')
+    stationAfterCapture(state, 'b', 'attacker')
+
+    expect(characterOf(state, 'a2').stationedSiteId).toBeNull()
     expect(characterOf(state, 'attacker').stationedSiteId).toBe('b')
-    expect(state.actionPoints[state.playerFaction]).toBe(apBefore)
-    expect(hasActedThisTurn(state, 'attacker2')).toBe(true)
-  })
-
-  it('目标点不存在或非己方所有时忽略该条', () => {
-    const state = captured()
-
-    const summary = assignAfterCapture(state, 'b', [{ characterId: 'attacker2', siteId: 'nope' }])
-
-    expect(summary).toBe('')
-    expect(characterOf(state, 'attacker2').stationedSiteId).toBe('b')
   })
 })
 
-describe('单挑', () => {
-  it('对方拒战则作罢，胜负无从谈起', () => {
-    const state = createInitialState({ seed: 208 })
-    const result = duel(state, 'guanyu', 'caimao', false)
+describe('前景判断', () => {
+  it('攻方兵力占绝对优势为大优，兵力悬殊为大为不利', () => {
+    const strong = scene({ attackerTroops: 20000, defenderTroops: 5000 })
+    expect(battleOutlook(strong, 'b', ['attacker'])).toBe('我军大优')
 
-    expect(result.refused).toBe(true)
-    expect(result.winnerId).toBeNull()
-    expect(result.outcome).toContain('拒战')
+    const weak = scene({ attackerTroops: 1000, defenderTroops: 5000 })
+    expect(battleOutlook(weak, 'b', ['attacker'])).toBe('我军大劣')
+    expect(defenseOutlook(weak, 'b', ['attacker'])).toBe('我军大优')
   })
 
-  it('应战则分胜负', () => {
-    const state = createInitialState({ seed: 208 })
-    const result = duel(state, 'guanyu', 'caimao', true)
-
-    expect(result.refused).toBe(false)
-    expect(['guanyu', 'caimao']).toContain(result.winnerId)
-  })
-})
-
-describe('交战前景', () => {
-  it('按攻守战力之比给出定性判断', () => {
-    const outlook = (attackerTroops: number, defenderTroops: number): string =>
-      battleOutlook(scene({ attackerTroops, defenderTroops }), { commander: 'attacker' }, 'b')
-
-    expect(outlook(8000, 1000)).toBe('我军大优')
-    expect(outlook(1500, 1000)).toBe('我军占优')
-    expect(outlook(1000, 1000)).toBe('势均力敌')
-    expect(outlook(900, 1000)).toBe('我军不利')
-    expect(outlook(500, 5000)).toBe('我军大劣')
-  })
-
-  it('无守军时为不战而下', () => {
+  it('守方无人可守时为不战而下', () => {
     const state = scene({ attackerTroops: 5000, defenderTroops: 0 })
-
-    expect(battleOutlook(state, { commander: 'attacker' }, 'b')).toBe('不战而下')
+    expect(battleOutlook(state, 'b', ['attacker'])).toBe('不战而下')
+    expect(defenseOutlook(state, 'b', ['attacker'])).toBe('守军无将')
   })
 })
 
-describe('单挑致阵亡与君主限制', () => {
-  /** 在若干固定种子里筛出一场致阵亡的单挑：阵亡是概率，须先有阵亡才谈得上退场。 */
-  function findFatalDuel(): { state: GameState; fallenId: string } | null {
-    for (let seed = 1; seed <= 200; seed += 1) {
-      const state = scene({ attackerTroops: 100, defenderTroops: 100, seed })
-      const result = duel(state, 'attacker', 'defender', true)
+describe('驻将', () => {
+  it('某点的驻将可由标识查得，无人驻守时为 null', () => {
+    const state = scene()
 
-      if (result.fallenId !== null) {
-        return { state, fallenId: result.fallenId }
-      }
-    }
-
-    return null
-  }
-
-  it('应战的败者有一定概率阵亡，阵亡者就此退场', () => {
-    const found = findFatalDuel()
-
-    expect(found).not.toBeNull()
-    const fallen = characterOf(found!.state, found!.fallenId)
-    expect(fallen.status).toBe('retired')
-    expect(fallen.factionId).toBeNull()
-    expect(fallen.stationedSiteId).toBeNull()
-  })
-
-  it('君主不作为挑战方，也不作为应战方', () => {
-    const state = createInitialState({ seed: 208 })
-
-    expect(duel(state, 'caocao', 'guanyu', true)).toEqual({
-      refused: false,
-      winnerId: null,
-      fallenId: null,
-      outcome: '君主不参与单挑',
-    })
-    expect(duel(state, 'guanyu', 'caocao', true)).toEqual({
-      refused: false,
-      winnerId: null,
-      fallenId: null,
-      outcome: '君主不参与单挑',
-    })
-  })
-
-  it('进攻可提出单挑，结果先于交战结算并记入战报', () => {
-    const state = scene({ attackerTroops: 5000, defenderTroops: 1000, seed: 3 })
-    const result = attack(state, { commander: 'attacker', challenger: 'attacker' }, 'b')
-
-    expect(result.ok).toBe(true)
-    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
-      throw new Error('未取得单挑战报')
-    }
-    const duel = result.record.battle.duel
-    expect(duel.challenger).toBe('攻将')
-    expect(result.record.outcome.startsWith(duelHeadline(duel))).toBe(true)
-  })
-
-  it('单挑须由主将或副将出马', () => {
-    const state = scene({ attackerTroops: 5000, defenderTroops: 1000 })
-    const result = attack(
-      state,
-      { commander: 'attacker', strategist: 'attacker2', challenger: 'attacker2' },
-      'b',
-    )
-
-    expect(result.ok).toBe(false)
-    expect(!result.ok && result.reason).toBe('单挑须由主将或副将出马')
-  })
-
-  it('守军只剩君主时无人应战，按拒战处理', () => {
-    const state = scene({
-      attackerTroops: 5000,
-      defenderTroops: 1000,
-      seed: 5,
-      defenderIsMonarch: true,
-    })
-
-    const result = attack(state, { commander: 'attacker', challenger: 'attacker' }, 'b')
-
-    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
-      throw new Error('未取得单挑战报')
-    }
-    const duel = result.record.battle.duel
-    expect(duel.refused).toBe(true)
-    expect(duel.answerer).toBe('')
-    expect(duel.challengerMoraleDelta).toBe(0)
-    expect(duel.answererMoraleDelta).toBe(-10)
-  })
-
-  it('君主不可提出单挑', () => {
-    const state = createInitialState({ seed: 208 })
-    const result = attack(state, { commander: 'liubei', challenger: 'liubei' }, 'changsha')
-
-    expect(result.ok).toBe(false)
-    expect(!result.ok && result.reason).toBe('君主不参与单挑')
-  })
-
-  it('单挑的士气按方施加：副将获胜，我方 +10、守方 −10', () => {
-    const state = scene({
-      attackerTroops: 5000,
-      defenderTroops: 1000,
-      secondAttackerTroops: 1000,
-      seed: 7,
-    })
-    Object.assign(characterOf(state, 'attacker2'), { might: 100 })
-
-    const result = attack(
-      state,
-      { commander: 'attacker', deputy: 'attacker2', challenger: 'attacker2' },
-      'b',
-    )
-
-    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
-      throw new Error('未取得单挑战报')
-    }
-    const duel = result.record.battle.duel
-    // 副将出马且必胜（武力 100 对 80）：士气按方施加，与出马者是谁无关。
-    expect(duel.challenger).toBe('副将')
-    expect(duel.challengerSide).toBe('attacker')
-    expect(duel.challengerWon).toBe(true)
-    expect(duel.challengerMoraleDelta).toBe(10)
-    expect(duel.answererMoraleDelta).toBe(-10)
-  })
-
-  it('守军主将与应战者取自守军，应战者不含君主', () => {
-    const state = createInitialState({ seed: 208 })
-
-    expect(garrisonCommanderAt(state, 'xiangyang')?.name).toBe('蔡瑁')
-    expect(duelAnswererAt(state, 'xiangyang')?.name).toBe('蔡瑁')
-    // 无主点的守军头目非君主，同样可以应战。
-    expect(duelAnswererAt(state, 'changsha')?.name).toBe(siteOf(state, 'changsha').guard?.name)
+    expect(stationedAt(state, 'b')?.name).toBe('守将')
+    expect(stationedAt(state, 'a')).toBeNull()
+    expect(stationedAt(state, 'f')).toBeNull()
   })
 })
 
-describe('被俘与招降', () => {
-  /**
-   * 在若干固定种子里筛出一局守将被俘的结果：去向本就是概率，须先有被俘才谈得上招降。
-   * 守军只身一人、随机序列固定，这套筛选因此可复现。
-   */
-  function captureOf(
-    overrides: Partial<Character>,
-  ): { state: GameState; report: BattleReport } | null {
-    for (let seed = 1; seed <= 200; seed += 1) {
-      const state = scene({ attackerTroops: 50000, defenderTroops: 100, seed })
-      Object.assign(characterOf(state, 'defender'), overrides)
-      const result = attack(state, { commander: 'attacker' }, 'b')
-
-      if (result.ok && result.record.battle !== undefined && result.record.battle.captives.length > 0) {
-        return { state, report: result.record.battle }
-      }
-    }
-
-    return null
-  }
-
-  it('被俘者一律入营：转为 captured、脱离驻地，战报带上其态度', () => {
-    const found = captureOf({ personality: 'open', loyalty: 0, affinities: { liubei: 100 } })
-    expect(found).not.toBeNull()
-    if (found === null) {
-      return
-    }
-
-    const defender = characterOf(found.state, 'defender')
-    expect(found.report.captives).toEqual([
-      { name: '守将', formerFaction: '曹操', attitude: '愿降' },
-    ])
-    expect(defender.status).toBe('captured')
-    expect(defender.factionId).toBeNull()
-    expect(defender.stationedSiteId).toBeNull()
-    expect(defender.troops).toBe(0)
+/** 只取失败原因，方便逐条比对。 */
+function attackOutcome(
+  state: GameState,
+  target: string,
+  ids: string[] = ['attacker'],
+): { ok: true } | { ok: false; reason: string } {
+  const result = openAttack(state, target, autoDeployment(ids), state.playerFaction, {
+    autoDefender: false,
   })
 
-  it('忠于原势力者入营时是宁死不屈', () => {
-    const found = captureOf({ personality: 'proud', loyalty: 100, affinities: { liubei: 0 } })
-    expect(found).not.toBeNull()
-    if (found === null) {
-      return
-    }
-
-    expect(found.report.captives).toEqual([
-      { name: '守将', formerFaction: '曹操', attitude: '宁死不屈' },
-    ])
-    expect(characterOf(found.state, 'defender').status).toBe('captured')
-  })
-
-  it('无人被俘时战报的俘虏为空', () => {
-    const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
-
-    const result = attack(state, { commander: 'attacker' }, 'b')
-
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.record.battle?.captives).toEqual([])
-    }
-  })
-
-  it('被打灭的一方，其营中俘虏一概开释为在野', () => {
-    const state = scene({ attackerTroops: 20000, defenderTroops: 1000 })
-    const prisoner = characterOf(state, 'attacker2')
-    takeCaptive(state, prisoner, 'caocao')
-
-    const result = attack(state, { commander: 'attacker' }, 'b')
-
-    expect(result.ok).toBe(true)
-    // 旧主虽是攻方，也不自动回来；他流落为在野。
-    expect(prisoner.status).toBe('wild')
-    expect(prisoner.factionId).toBeNull()
-    expect(state.captives.caocao).toHaveLength(0)
-    if (result.ok) {
-      expect(result.record.outcome).toContain('流落为在野')
-    }
-  })
-})
-
-describe('防守方提出单挑', () => {
-  it('守方视角的敌情与攻方视角相反', () => {
-    const state = scene({ attackerTroops: 8000, defenderTroops: 1000 })
-
-    expect(battleOutlook(state, { commander: 'attacker' }, 'b')).toBe('我军大优')
-    expect(defenseOutlook(state, { commander: 'attacker' }, 'b')).toBe('敌军大优')
-  })
-
-  it('守军无人可守时，守方视角为「守军无将」', () => {
-    // 有主点而无兵驻守：守方战力为零，视作无将。
-    const state = scene({ attackerTroops: 8000, defenderTroops: 0 })
-
-    expect(defenseOutlook(state, { commander: 'attacker' }, 'b')).toBe('守军无将')
-  })
-
-  it('我方守城时可提出单挑：出马者来自迎战编成，攻方以主力应战', () => {
-    // 曹操来攻我方的甲城，我方以「攻将」为主将并令其出马。
-    const state = scene({ attackerTroops: 100, defenderTroops: 20000, seed: 7 })
-
-    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', {
-      challenger: 'attacker',
-      party: { commander: 'attacker' },
-    })
-
-    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
-      throw new Error('未取得单挑战报')
-    }
-    const duel = result.record.battle.duel
-    expect(duel.challengerSide).toBe('defender')
-    expect(duel.challenger).toBe('攻将')
-    expect(duel.answerer).toBe('守将')
-  })
-
-  it('守方指定的出马者不在迎战编成之中时拒绝', () => {
-    const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
-
-    // 「守将」驻守乙城，不在甲城守军之列。
-    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', {
-      challenger: 'defender',
-      party: { commander: 'attacker' },
-    })
-
-    expect(result.ok).toBe(false)
-    expect(!result.ok && result.reason).toBe('出马者不在守军之中')
-  })
-
-  it('君主不能作为守方出马者', () => {
-    const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
-    Object.assign(characterOf(state, 'attacker'), { isMonarch: true })
-
-    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', {
-      challenger: 'attacker',
-      party: { commander: 'attacker' },
-    })
-
-    expect(result.ok).toBe(false)
-    expect(!result.ok && result.reason).toBe('君主不参与单挑')
-  })
-
-  it('攻方不提时，他方守军武力占优便会主动提单挑', () => {
-    const state = scene({ attackerTroops: 5000, defenderTroops: 1000, seed: 7 })
-    Object.assign(characterOf(state, 'attacker'), { might: 50 })
-
-    // 我方进攻且不提单挑，守军（武力 80 对 50）主动来挑。
-    const result = attack(state, { commander: 'attacker' }, 'b')
-
-    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
-      throw new Error('未取得单挑战报')
-    }
-    const duel = result.record.battle.duel
-    expect(duel.challengerSide).toBe('defender')
-    expect(duel.challenger).toBe('守将')
-    expect(duel.answerer).toBe('攻将')
-  })
-
-  it('攻方已提单挑时，守方不再另提（单挑只发生一次）', () => {
-    const state = scene({ attackerTroops: 5000, defenderTroops: 1000, seed: 7 })
-    Object.assign(characterOf(state, 'defender'), { might: 100 })
-
-    const result = attack(state, { commander: 'attacker', challenger: 'attacker' }, 'b')
-
-    if (!result.ok || result.record.battle === undefined || result.record.battle.duel === null) {
-      throw new Error('未取得单挑战报')
-    }
-    expect(result.record.battle.duel.challengerSide).toBe('attacker')
-  })
-})
-
-describe('守方迎战编成', () => {
-  it('编成按主将、副将与军师计兵，至多三人', () => {
-    const state = createInitialState({ seed: 208 })
-
-    // 江夏：关羽 8000、张飞 6000、刘备 5000。
-    expect(garrisonAt(state, 'jiangxia', { commander: 'zhangfei' }).side.troops).toBe(6000)
-    expect(
-      garrisonAt(state, 'jiangxia', { commander: 'zhangfei', deputy: 'guanyu' }).side.troops,
-    ).toBe(14000)
-    expect(
-      garrisonAt(state, 'jiangxia', { commander: 'zhangfei', deputy: 'guanyu', strategist: 'liubei' })
-        .members,
-    ).toHaveLength(3)
-  })
-
-  it('编成中的已行动者仍只计半数兵力', () => {
-    const state = createInitialState({ seed: 208 })
-    markActed(state, 'guanyu')
-
-    expect(garrisonAt(state, 'jiangxia', { commander: 'guanyu' }).side.troops).toBe(4000)
-  })
-
-  it('编成不含本战略点的守军时，改由地方民兵就地成军', () => {
-    const state = createInitialState({ seed: 208 })
-
-    // 蔡瑁驻守襄阳，不在江夏：编成落空后由江夏的民兵顶上，不会把不相干的守将算作守军。
-    const garrison = garrisonAt(state, 'jiangxia', { commander: 'caimao' })
-    expect(garrison.members.map((member) => member.id)).toEqual(['guard:jiangxia'])
-    expect(
-      defenseOutlook(state, { commander: 'guanyu' }, 'jiangxia', { commander: 'caimao' }),
-    ).not.toBe('守军无将')
-  })
-
-  it('守将取编成中的主将', () => {
-    const state = createInitialState({ seed: 208 })
-
-    expect(garrisonCommanderAt(state, 'jiangxia', { commander: 'zhangfei' })?.name).toBe('张飞')
-  })
-
-  it('这一战的防守兵力、名单与守将随编成而变', () => {
-    const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
-    state.characters.push({
-      ...characterOf(state, 'defender'),
-      id: 'defender2',
-      name: '守将二',
-      troops: 5000,
-      command: 60,
-    })
-
-    const result = attack(state, { commander: 'attacker' }, 'b', 'liubei', {
-      challenger: null,
-      party: { commander: 'defender2' },
-    })
-
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.record.battle?.defender.officers).toEqual(['守将二'])
-      expect(result.record.battle?.defender.troops).toBe(5000)
-      expect(result.record.battle?.defender.commander).toBe('守将二')
-    }
-  })
-
-  it('出马者须是迎战编成中的主将或副将，军师不可', () => {
-    const state = scene({ attackerTroops: 100, defenderTroops: 20000 })
-    state.characters.push(
-      { ...characterOf(state, 'attacker'), id: 'guard2', name: '守将二' },
-      { ...characterOf(state, 'attacker'), id: 'guard3', name: '守将三' },
-    )
-
-    // 军师「守将三」出马：与攻方同规，只许主将或副将。
-    const result = attack(state, { commander: 'defender' }, 'a', 'caocao', {
-      challenger: 'guard3',
-      party: { commander: 'attacker', deputy: 'guard2', strategist: 'guard3' },
-    })
-
-    expect(result.ok).toBe(false)
-    expect(!result.ok && result.reason).toBe('单挑须由主将或副将出马')
-  })
-})
-
-describe('他方是否提单挑', () => {
-  /** 固定骰子的随机源：便于断言性格与武力差的作用。 */
-  const fixedRoll = (value: number): Random => ({ next: () => value, getState: () => 0 })
-
-  it('武力差之外，性格与骰子一起决定', () => {
-    const state = scene({ attackerTroops: 100, defenderTroops: 100 })
-    const foe = characterOf(state, 'attacker')
-    const dueler = characterOf(state, 'defender')
-    Object.assign(foe, { might: 90 })
-
-    // 刚烈：武力 80 对 90 也敢上（80 − 90 + 12 + 0 = 2）。
-    Object.assign(dueler, { might: 80, personality: 'brave' })
-    expect(aiDuelChallenger([dueler], foe, fixedRoll(0.5))).toBe('defender')
-
-    // 谨慎：武力 95 对 90 仍按兵不动（95 − 90 − 10 + 0 = −5）。
-    Object.assign(dueler, { might: 95, personality: 'cautious' })
-    expect(aiDuelChallenger([dueler], foe, fixedRoll(0.5))).toBeNull()
-
-    // 沉稳：势均力敌时全看骰子（90 − 90 + 0）。
-    Object.assign(dueler, { might: 90, personality: 'steady' })
-    expect(aiDuelChallenger([dueler], foe, fixedRoll(0.5))).toBe('defender')
-    expect(aiDuelChallenger([dueler], foe, fixedRoll(0))).toBeNull()
-  })
-
-  it('君主不参与，无人可应时也不挑', () => {
-    const state = scene({ attackerTroops: 100, defenderTroops: 100 })
-    const dueler = characterOf(state, 'defender')
-    Object.assign(dueler, { might: 99, personality: 'brave' })
-
-    expect(aiDuelChallenger([dueler], null, fixedRoll(0.5))).toBeNull()
-    expect(aiDuelChallenger([{ ...dueler, isMonarch: true }], characterOf(state, 'attacker'), fixedRoll(0.5))).toBeNull()
-  })
-})
-
-describe('回合推进中的来犯', () => {
-  /** 曹操兵多，刘备兵少：他方会来攻我方的甲城。 */
-  function invasionScene(seed = 7): GameState {
-    return scene({ attackerTroops: 100, defenderTroops: 20000, seed })
-  }
-
-  it('他方来攻我方时，回合推进先交回应战请求', () => {
-    const state = invasionScene()
-    const run = beginTurn(state)
-
-    const signal = run.advance()
-
-    expect(signal?.kind).toBe('defense')
-    if (signal?.kind !== 'defense') {
-      throw new Error('未取得应战请求')
-    }
-    expect(signal.request.attackerId).toBe('caocao')
-    expect(signal.request.targetSiteId).toBe('a')
-  })
-
-  it('守方定下编成与出马者后即结算这一战，并继续推进到回合结束', () => {
-    const state = invasionScene()
-    // 进攻方武力不济，不会主动提单挑，好让守方的选择说了算。
-    Object.assign(characterOf(state, 'defender'), { might: 40 })
-    const run = beginTurn(state)
-    run.advance()
-
-    const signal = run.advance({ challenger: 'attacker', party: { commander: 'attacker' } })
-
-    expect(signal?.kind).toBe('battle')
-    if (signal?.kind !== 'battle' || signal.report === null) {
-      throw new Error('未取得战报')
-    }
-    expect(signal.report.duel?.challengerSide).toBe('defender')
-
-    // 再无来犯，本回合跑完并进入下一季。
-    expect(run.advance()).toBeNull()
-    expect(state.currentTurn).toBe(2)
-  })
-
-  it('他方进攻且武力占优时会主动提单挑，守方不再选择', () => {
-    const state = invasionScene()
-    Object.assign(characterOf(state, 'defender'), { might: 100 })
-    Object.assign(characterOf(state, 'attacker'), { might: 60 })
-
-    const run = beginTurn(state)
-    const request = run.advance()
-    if (request?.kind !== 'defense') {
-      throw new Error('未取得应战请求')
-    }
-    // 进攻方已提单挑，请求里带着出马者。
-    expect(request.request.party.challenger).toBe('defender')
-
-    const battle = run.advance(null)
-    if (battle?.kind !== 'battle' || battle.report === null) {
-      throw new Error('未取得战报')
-    }
-    expect(battle.report.duel?.challengerSide).toBe('attacker')
-    expect(battle.report.duel?.challenger).toBe('守将')
-  })
-
-  it('无人接手时按不单挑一并结算（endTurn 的行为不变）', () => {
-    const state = invasionScene()
-
-    endTurn(state)
-
-    expect(state.currentTurn).toBe(2)
-    // 我方守军不敌，城池易手。
-    expect(siteOf(state, 'a').owner).toBe('caocao')
-  })
-})
-
-describe('退场者不参与结算', () => {
-  it('退场的守将不在守军、迎战编成与敌方情报之中', () => {
-    const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
-    const defender = characterOf(state, 'defender')
-    defender.status = 'retired'
-    defender.factionId = null
-    defender.stationedSiteId = null
-    defender.troops = 0
-
-    expect(stationedDefendersAt(state, 'b')).toEqual([])
-    // 守将退场后据点空了出来，由地方民兵顶上；退场者既不算守军，也不在守军名单里。
-    const garrison = garrisonAt(state, 'b')
-    expect(garrison.members.map((member) => member.id)).toEqual(['guard:b'])
-    expect(garrison.members.some((member) => member.id === 'defender')).toBe(false)
-    expect(garrisonCommanderAt(state, 'b')?.id).toBe('guard:b')
-    expect(duelAnswererAt(state, 'b')?.id).toBe('guard:b')
-  })
-
-  it('有主据点无驻将时由地方民兵据守，进攻不再零伤亡', () => {
-    const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
-    const defender = characterOf(state, 'defender')
-    defender.status = 'retired'
-    defender.factionId = null
-    defender.stationedSiteId = null
-    defender.troops = 0
-
-    // 空城不再是不战而下：民兵顶上，攻方要交一场、付伤亡。
-    expect(battleOutlook(state, { commander: 'attacker' }, 'b')).not.toBe('不战而下')
-
-    const result = attack(state, { commander: 'attacker' }, 'b', 'liubei')
-
-    expect(result.ok).toBe(true)
-    expect(result.ok && result.record.battle?.undefended).toBe(false)
-    expect(result.ok && (result.record.battle?.attacker.casualties ?? 0) > 0).toBe(true)
-  })
-
-  it('退场的部属不在进攻候选与编成战力之中', () => {
-    const state = scene({ attackerTroops: 10000, defenderTroops: 6000 })
-    const attacker = characterOf(state, 'attacker')
-    attacker.status = 'retired'
-    attacker.factionId = null
-    attacker.stationedSiteId = null
-    attacker.troops = 0
-
-    expect(attackCandidates(state, 'b').map((item) => item.id)).not.toContain('attacker')
-    expect(partySide(state, { commander: 'attacker' })).toEqual({
-      troops: 0,
-      intellect: 0,
-      morale: MORALE_FULL,
-    })
-  })
-})
+  return result.ok ? { ok: true } : { ok: false, reason: result.reason }
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { GameSession } from '../src/app/gameSession'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
+import { autoDeployment } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { RECRUIT_TROOPS_PER_COMMAND, recruitGrainCost } from '../src/core/military'
@@ -165,7 +166,7 @@ describe('GameSession', () => {
     const session = new GameSession(store, { drawSeed: 1 })
     const before = servingCount(session)
 
-    const result = session.seekTalent('jiangxia')
+    const result = session.seekTalent('gongan')
 
     expect(result.ok).toBe(true)
     expect(playerActionPoints(session)).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
@@ -178,7 +179,7 @@ describe('GameSession', () => {
     const seen: number[] = []
     session.subscribe((state) => seen.push(state.history.length))
 
-    session.seekTalent('jiangxia')
+    session.seekTalent('gongan')
 
     expect(seen).toEqual([1])
   })
@@ -187,7 +188,7 @@ describe('GameSession', () => {
     const { session } = createSession()
     session.getState().actionPoints[session.getState().playerFaction] = 0
 
-    const result = session.seekTalent('jiangxia')
+    const result = session.seekTalent('gongan')
 
     expect(result).toEqual({ ok: false, reason: '行动力不足' })
     expect(session.getState().history).toEqual([])
@@ -198,9 +199,9 @@ describe('GameSession', () => {
     const session = new GameSession(store, { drawSeed: 1 })
     session.saveToSlot(1)
 
-    const first = session.seekTalent('jiangxia')
+    const first = session.seekTalent('gongan')
     session.loadSlot(1)
-    const second = session.seekTalent('jiangxia')
+    const second = session.seekTalent('gongan')
 
     expect(first.ok && second.ok).toBe(true)
     if (!first.ok || !second.ok) {
@@ -220,13 +221,14 @@ describe('GameSession 作战接口', () => {
       throw new Error('武将不存在：guanyu')
     }
     const grainBefore = state.factions.find((faction) => faction.id === state.playerFaction)?.grain ?? 0
+    const troopsBefore = guanyu.troops
     const baseline = guanyu.command * RECRUIT_TROOPS_PER_COMMAND
 
-    const result = session.recruit('guanyu')
+    const result = session.recruit('gongan', 'guanyu')
 
     expect(result.ok).toBe(true)
-    expect(guanyu.troops).toBeGreaterThanOrEqual(8000 + Math.round(baseline * 0.75))
-    expect(guanyu.troops).toBeLessThanOrEqual(8000 + Math.round(baseline * 1.25))
+    expect(guanyu.troops).toBeGreaterThanOrEqual(troopsBefore + Math.round(baseline * 0.75))
+    expect(guanyu.troops).toBeLessThanOrEqual(troopsBefore + Math.round(baseline * 1.25))
     expect(state.factions.find((faction) => faction.id === state.playerFaction)?.grain).toBe(
       grainBefore - recruitGrainCost(guanyu),
     )
@@ -238,7 +240,7 @@ describe('GameSession 作战接口', () => {
     const state = session.getState()
     const grainBefore = state.factions.find((faction) => faction.id === state.playerFaction)?.grain ?? 0
 
-    const result = session.harvestGrain('zhugeliang')
+    const result = session.harvestGrain('gongan', 'zhugeliang')
 
     expect(result.ok).toBe(true)
     expect(state.factions.find((faction) => faction.id === state.playerFaction)?.grain).toBeGreaterThan(
@@ -248,31 +250,46 @@ describe('GameSession 作战接口', () => {
     expect(playerActionPoints(session)).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.harvestGrain)
   })
 
-  it('调动把武将及其部队移到相邻的自有战略点', () => {
+  it('任命驻将把武将派驻到自有战略点，原驻将卸任', () => {
     const { session } = createSession()
     const state = session.getState()
     state.playerFaction = 'caocao'
 
-    const result = session.transfer(['xiahoudun'], 'hulao')
+    const result = session.assignStation('fancheng', 'xiahoudun')
 
     expect(result.ok).toBe(true)
     expect(
       state.characters.find((character) => character.id === 'xiahoudun')?.stationedSiteId,
-    ).toBe('hulao')
+    ).toBe('fancheng')
+    expect(
+      state.characters.find((character) => character.id === 'manchong')?.stationedSiteId,
+    ).toBeNull()
   })
 
-  it('进攻占领无主战略点后归属改变并通知界面', () => {
+  it('进攻得胜后目标归属改变并通知界面', () => {
     const { session } = createSession()
+    session.newGame(SANGUO_ACCEPTANCE, 208)
     const state = session.getState()
+    const guanyu = state.characters.find((character) => character.id === 'guanyu')
+    if (guanyu === undefined) {
+      throw new Error('武将不存在：guanyu')
+    }
+
+    const opened = session.attack('jiangling', autoDeployment(['guanyu']))
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) {
+      return
+    }
+
     let notified = 0
     session.subscribe(() => {
       notified += 1
     })
 
-    const result = session.attack({ commander: 'guanyu' }, 'changsha')
+    const result = session.finishAttack(opened.battle, 'win')
 
     expect(result.ok).toBe(true)
-    expect(state.geography.sites.find((site) => site.id === 'changsha')?.owner).toBe('liubei')
+    expect(state.geography.sites.find((site) => site.id === 'jiangling')?.owner).toBe('liubei')
     expect(notified).toBe(1)
   })
 
@@ -283,7 +300,7 @@ describe('GameSession 作战接口', () => {
       notified += 1
     })
 
-    const result = session.transfer(['guanyu'], 'changsha')
+    const result = session.assignStation('changsha', 'guanyu')
 
     expect(result.ok).toBe(false)
     expect(notified).toBe(0)
@@ -301,8 +318,8 @@ describe('GameSession 结局挂钩', () => {
   }
 
   /**
-   * 一处孤城的绝境：玩家只剩襄阳，守将只留诸葛亮且无兵，曹操遂由樊城来攻。
-   * 襄阳是不设防之地，守军由地方民兵就地成军，我方这一战本无胜算。
+   * 一处孤城的绝境：玩家只剩襄阳，zhugeliang 领百余残兵驻守，曹操遂由樊城来攻。
+   * 我方这一战本无胜算，守方也只能硬着头皮迎战。
    */
   function besiegedSession(): { store: LocalSaveStore; session: GameSession } {
     const { store, session } = acceptanceSession()
@@ -331,7 +348,7 @@ describe('GameSession 结局挂钩', () => {
       throw new Error('武将不存在：zhugeliang')
     }
     zhugeliang.stationedSiteId = 'xiangyang'
-    zhugeliang.troops = 0
+    zhugeliang.troops = 100
 
     return { store, session }
   }
@@ -342,13 +359,19 @@ describe('GameSession 结局挂钩', () => {
     // 只留曹操一处据点、孙权无据点：我方这一胜即达成统一。
     for (const site of state.geography.sites) {
       if (site.owner === 'sunquan') {
-        site.owner = null
+        site.owner = 'liubei'
       } else if (site.owner === 'caocao' && site.id !== 'xiangyang') {
-        site.owner = null
+        site.owner = 'liubei'
       }
     }
 
-    const result = session.attack({ commander: 'guanyu' }, 'xiangyang', 'win')
+    const opened = session.attack('xiangyang', autoDeployment(['guanyu']))
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) {
+      return
+    }
+
+    const result = session.finishAttack(opened.battle, 'win')
 
     expect(result.ok).toBe(true)
     expect(state.geography.sites.find((site) => site.id === 'xiangyang')?.owner).toBe('liubei')
@@ -362,9 +385,15 @@ describe('GameSession 结局挂钩', () => {
 
     const first = session.endTurnStaged()
     expect(first?.kind).toBe('defense')
-    expect(first?.kind === 'defense' ? first.request.targetSiteId : null).toBe('xiangyang')
+    if (first === null || first.kind !== 'defense') {
+      return
+    }
+    expect(first.request.targetSiteId).toBe('xiangyang')
 
-    const second = session.answerDefense(null)
+    // 无人迎战，不战而下。
+    expect(session.deployDefense(first.request.battle, [])).toBeNull()
+    const second = session.finishDefense(first.request.battle)
+
     expect(second?.kind).toBe('battle')
     expect(state.outcome).toBe('defeat')
     // 玩家既已覆灭，本回合余下的势力不再出手。
@@ -379,9 +408,16 @@ describe('GameSession 结局挂钩', () => {
 
     const first = session.endTurnStaged()
     expect(first?.kind).toBe('defense')
+    if (first === null || first.kind !== 'defense') {
+      return
+    }
+    const battle = first.request.battle
+    expect(session.deployDefense(battle, autoDeployment(['zhugeliang']))).toBeNull()
 
-    // 守方要赢，取攻方视角即传 lose。
-    const second = session.answerDefense({ challenger: null, forcedOutcome: 'lose' })
+    // 守方要赢，取攻方视角即判攻方败。
+    battle.attackerWins = false
+    battle.finished = true
+    const second = session.finishDefense(battle)
 
     expect(second?.kind).toBe('battle')
     expect(second?.kind === 'battle' ? second.report?.attackerWins : null).toBe(false)

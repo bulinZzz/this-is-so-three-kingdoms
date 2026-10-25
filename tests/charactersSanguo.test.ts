@@ -21,23 +21,30 @@ describe('三国人物数据', () => {
     }
   })
 
-  it('除袁氏外各势力各有且只有一名君主，袁氏不设君主', () => {
+  it('除荆南外各势力各有且只有一名君主，荆南不设君主', () => {
     for (const factionId of FACTION_IDS) {
       const monarchs = CHARACTERS_SANGUO.filter(
         (character) =>
           character.status === 'serving' && character.factionId === factionId && character.isMonarch,
       )
 
-      // 袁氏是唯一的无君主势力：袁绍已死，三子相争，只列部属。
-      expect(monarchs).toHaveLength(factionId === 'yuanshi' ? 0 : 1)
+      // 荆南四郡各守其郡，不奉一人为主。
+      expect(monarchs).toHaveLength(factionId === 'jingnan' ? 0 : 1)
     }
   })
 
-  it('在仕武将驻守各自势力的自有战略点', () => {
-    const siteOwner = new Map(GEOGRAPHY_SANGUO.sites.map((site) => [site.id, site.owner]))
+  it('在仕武将或在名册候命、或驻守一处自有战略点，每点至多一名驻将', () => {
+    const siteById = new Map(GEOGRAPHY_SANGUO.sites.map((site) => [site.id, site]))
+    const stationed = new Set<string>()
 
     for (const character of CHARACTERS_SANGUO.filter((item) => item.status === 'serving')) {
-      expect(siteOwner.get(character.stationedSiteId as string)).toBe(character.factionId)
+      if (character.stationedSiteId === null) {
+        continue
+      }
+      const site = siteById.get(character.stationedSiteId)
+      expect(site?.owner).toBe(character.factionId)
+      expect(stationed.has(character.stationedSiteId)).toBe(false)
+      stationed.add(character.stationedSiteId)
     }
   })
 

@@ -12,7 +12,6 @@ import type {
   CharacterId,
   CharacterStatus,
   DevelopmentKind,
-  DuelReport,
   Faction,
   FactionId,
   GameDate,
@@ -25,21 +24,27 @@ import type {
   SiteType,
 } from '../core/model'
 import {
-  attackBlockReason,
+  ARM_STATS,
   attackCandidates,
-  battleOutlook,
-  defenseOutlook,
-  duelAnswererAt,
-  garrisonAt,
-  garrisonCommanderAt,
+  ATTACKER_SELECTION,
+  autoFormation,
+  currentActor,
+  DEFENDER_SELECTION,
+  defenderCandidates,
   isAttackable,
-  MORALE_FULL,
-  stationedDefendersAt,
-  type AttackParty,
+  rowOfSlot,
+  setUnitSlot,
+  stationedAt,
+  targetsFor,
+  type BattleActionEvent,
+  type BattleDeployment,
+  type BattleOrder,
+  type BattleSide,
+  type BattleState,
+  type BattleUnit,
   type ForcedOutcome,
-  type Party,
 } from '../core/battle'
-import { isRecruitable, isRetired, isServing } from '../core/characters'
+import { isRecruitable, isRetired, isServing, scopeSitesFor } from '../core/characters'
 import { captivesOf } from '../core/captives'
 import {
   buildCost,
@@ -53,7 +58,6 @@ import {
 } from '../core/development'
 import { grainBalance, granaryIncome, moneyYield, troopUpkeep } from '../core/economy'
 import { ALLIANCE_FAVOR, GIFT_MONEY, PEACE_FAVOR } from '../core/diplomacy'
-import { duelLineOf, duelResponseLineOf } from '../core/duelLines'
 import { granaryOf } from '../core/granary'
 import { ABILITY_KINDS, ABILITY_LABELS, BOOST_GAIN, boostCredits, EXP_PER_BOOST } from '../core/growth'
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
@@ -64,10 +68,7 @@ import {
   factionTroops,
   hasActedThisTurn,
   isFactionDestroyed,
-  isTransferTarget,
-  MAX_TRANSFER_PARTY,
   sitePopulationCap,
-  transferCandidates,
   troopLimit,
 } from '../core/military'
 import { favorBetween, relationBetween } from '../core/relations'
@@ -110,8 +111,8 @@ const SHELL_HTML = `
         <button type="button" class="site-panel__action" data-action="site-info" hidden>
           <span>进入</span>
         </button>
-        <button type="button" class="site-panel__action" data-action="transfer-here" hidden>
-          <span>调兵至此</span>
+        <button type="button" class="site-panel__action" data-action="station-here" hidden>
+          <span>任命驻将</span>
           <span class="action-cost"></span>
         </button>
         <button type="button" class="site-panel__action" data-action="seek-here" hidden>
@@ -230,10 +231,6 @@ const SHELL_HTML = `
             <span class="domestic__value domestic__money-flow"></span>
           </div>
         </section>
-        <section class="domestic__section">
-          <h3 class="domestic__heading">行动</h3>
-          <button type="button" class="domestic__action" data-action="harvest-here"></button>
-        </section>
         <p class="domestic__status" role="status"></p>
       </div>
     </dialog>
@@ -244,6 +241,11 @@ const SHELL_HTML = `
       </div>
       <div class="order__body">
         <p class="order__target"></p>
+        <p class="order__count"></p>
+        <label class="order__site-row" hidden>
+          <span class="order__site-label">战略点</span>
+          <select class="order__site"></select>
+        </label>
         <ul class="order__officers"></ul>
         <button type="button" class="order__submit" data-action="order-go"></button>
         <p class="order__status" role="status"></p>
@@ -587,11 +589,10 @@ function formatSigned(value: number): string {
   return value >= 0 ? `+${value}` : `−${Math.abs(value)}`
 }
 
-/** 内政弹窗：上半记当前资源，下半记每季收支（运回减军粮、金钱收入）；征粮派将也在这里。 */
+/** 内政弹窗：上半记当前资源，下半记每季收支（运回减军粮、金钱收入）；征兵与征粮改在战略点窗口办理。 */
 function renderDomestic(
   dialog: HTMLElement,
   state: GameState,
-  showCosts: boolean,
   message: string,
 ): void {
   const faction = state.factions.find((item) => item.id === state.playerFaction)
@@ -612,10 +613,6 @@ function renderDomestic(
     )}`
   requireElement<HTMLElement>(dialog, '.domestic__money-flow').textContent =
     `+${moneyYield(state, state.playerFaction)}`
-  // 征粮同样要进入选将页：行动力不够就压暗、点不动。
-  const harvestButton = requireElement<HTMLButtonElement>(dialog, '[data-action="harvest-here"]')
-  setActionButton(harvestButton, '征粮', ACTION_COSTS.harvestGrain, showCosts)
-  harvestButton.disabled = !canAfford(state, state.playerFaction, 'harvestGrain')
   requireElement<HTMLElement>(dialog, '.domestic__status').textContent = message
 }
 
@@ -679,29 +676,9 @@ function ageText(age: number): string {
   return age < 20 ? '未冠' : `${age} 岁`
 }
 
-/** 数的中文写法；守军规模的粗算只在个位数千、个位数万之间取值。 */
-const SCALE_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'] as const
-
-/**
- * 无主守军规模的定性说法：不足千作「不足千」，其余四舍五入到千，过万则四舍五入到万，
- * 以中文数字表达（如 3000 → 约三千，12000 → 约一万）。只给粗数，不让玩家去算术。
- */
-function guardScaleText(troops: number): string {
-  if (troops < 1000) {
-    return '不足千'
-  }
-
-  const thousands = Math.round(troops / 1000)
-  if (thousands < 10) {
-    return `约${SCALE_DIGITS[thousands]}千`
-  }
-
-  return `约${SCALE_DIGITS[Math.round(troops / 10000)]}万`
-}
-
-/** 武将的即战摘要：兵力（连同带兵上限）与四项能力。 */
+/** 武将的即战摘要：兵种、兵力（连同带兵上限）与四项能力。 */
 function officerSummaryText(character: Character): string {
-  return `兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
+  return `${ARM_STATS[character.armType].label} · 兵 ${character.troops}/${troopLimit(character)} · 武 ${character.might} · 智 ${character.intellect} · 统 ${character.command} · 政 ${character.politics}`
 }
 
 /** 忠诚提示（「离心」「不满」）；忠心无提示时为空串。 */
@@ -716,7 +693,7 @@ function partyMetaText(character: Character, factionId: FactionId): string {
   return `${officerSummaryText(character)}${loyaltyHintText(character, factionId)}`
 }
 
-/** 侧栏战略点面板：所选战略点的名称、类型、归属与驻守武将；按接壤情况提供进攻、调动与寻访。 */
+/** 侧栏战略点面板：名称、类型、归属与驻将；按接壤情况提供进攻、任命与寻访。 */
 function renderSitePanel(
   panel: HTMLElement,
   state: GameState,
@@ -742,42 +719,32 @@ function renderSitePanel(
   requireElement<HTMLElement>(panel, '.site-panel__owner').textContent = `归属：${ownerName}`
 
   const isOwn = site.owner === state.playerFaction
-  const officers = state.characters.filter(
-    (character) => isServing(character) && character.stationedSiteId === site.id,
-  )
-  // 无主战略点凭险自守的守军：单独列一行，与驻守武将区分开。
-  const guardRows =
-    site.owner === null && site.guard !== undefined
-      ? [
-          createListItem(
-            'site-panel__guard',
-            `守军　${site.guard.name}，${guardScaleText(site.guard.troops)}`,
-          ),
-        ]
-      : []
-  // 有守军时不再报「无驻守武将」，免得与守军一行自相矛盾；野地无归属，驻在其上的人马一样列出来。
-  const officerRows =
-    officers.length > 0
-      ? officers.map((officer) => createListItem('site-panel__officer', officer.name))
-      : guardRows.length > 0
-        ? []
-        : [createListItem('site-panel__empty', '无驻守武将')]
-
+  const station = stationedAt(state, site.id)
   requireElement<HTMLElement>(panel, '.site-panel__officers').replaceChildren(
-    ...officerRows,
-    ...guardRows,
+    createListItem(
+      station === null ? 'site-panel__empty' : 'site-panel__officer',
+      station === null ? '无驻将' : `${station.name}（兵 ${station.troops}）`,
+    ),
   )
 
-  // 进攻与调兵都要进入选将页：行动力不够就不该放进去，按钮压暗、点不动。
+  // 进攻、任命与寻访都要进入选将页：行动力不够就不该放进去，按钮压暗、点不动。
   const attackButton = requireElement<HTMLButtonElement>(panel, '[data-action="attack-here"]')
   attackButton.hidden = !isAttackable(state, site.id)
   attackButton.disabled = !canAfford(state, state.playerFaction, 'attack')
-  const transferButton = requireElement<HTMLButtonElement>(panel, '[data-action="transfer-here"]')
-  transferButton.hidden = !isTransferTarget(state, site.id)
-  transferButton.disabled = !canAfford(state, state.playerFaction, 'transfer')
+  const stationButton = requireElement<HTMLButtonElement>(panel, '[data-action="station-here"]')
+  stationButton.hidden = !isOwn
+  stationButton.disabled = !canAfford(state, state.playerFaction, 'station')
+  setActionButton(
+    stationButton,
+    station === null ? '任命驻将' : '撤换驻将',
+    ACTION_COSTS.station,
+    true,
+  )
   // 「进入」只对自家领地开放；建设也在那个窗口里办。
   requireElement<HTMLButtonElement>(panel, '[data-action="site-info"]').hidden = !isOwn
-  requireElement<HTMLButtonElement>(panel, '[data-action="seek-here"]').hidden = !isOwn
+  const seekButton = requireElement<HTMLButtonElement>(panel, '[data-action="seek-here"]')
+  seekButton.hidden = !isOwn
+  seekButton.disabled = !canAfford(state, state.playerFaction, 'seekTalent')
   requireElement<HTMLElement>(panel, '.site-panel__status').textContent = message
 }
 
@@ -803,9 +770,11 @@ function renderSiteInfoDialog(
       ? '无归属'
       : (state.factions.find((faction) => faction.id === site.owner)?.name ?? site.owner)
 
+  const station = stationedAt(state, site.id)
   const facts: readonly [string, string][] = [
     ['类型', SITE_TYPE_LABELS[site.type]],
     ['归属', ownerName],
+    ['驻将', station === null ? '无' : `${station.name}（兵 ${station.troops}）`],
     ['人口', String(site.population)],
     ['丁口', String(sitePopulationCap(site))],
     ['存粮', String(granaryOf(site))],
@@ -821,6 +790,32 @@ function renderSiteInfoDialog(
       term.textContent = label
       const detail = document.createElement('dd')
       detail.textContent = value
+
+      // 征兵、征粮的入口就放在丁口与存粮右侧，点开即进入选将。
+      if (label === '丁口' || label === '存粮') {
+        const isRecruit = label === '丁口'
+        detail.classList.add('site-info__fact')
+        detail.title = isRecruit ? '丁口为每次征兵的上限，取该点人口的 2%' : ''
+
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'site-info__button'
+        button.dataset.action = isRecruit ? 'recruit-here' : 'harvest-here'
+        button.dataset.site = site.id
+        setActionButton(
+          button,
+          isRecruit ? '征兵' : '征粮',
+          isRecruit ? ACTION_COSTS.recruit : ACTION_COSTS.harvestGrain,
+          showCosts,
+        )
+        button.disabled =
+          site.owner !== state.playerFaction ||
+          !canAfford(state, state.playerFaction, isRecruit ? 'recruit' : 'harvestGrain') ||
+          harvestCandidates(state, site.id).length === 0 ||
+          (isRecruit ? sitePopulationCap(site) < 1 : granaryOf(site) < 1)
+        detail.append(button)
+      }
+
       return [term, detail]
     }),
   )
@@ -848,7 +843,8 @@ function renderDevelopmentList(
       const level = developmentLevel(site, kind)
       const atLimit = level >= limit
       const cost = buildCost(site, kind)
-      const affordable = (faction?.money ?? 0) >= cost
+      const affordable =
+        (faction?.money ?? 0) >= cost && canAfford(state, state.playerFaction, 'build')
 
       const item = document.createElement('li')
       item.className = 'site-info__item'
@@ -880,12 +876,12 @@ function renderDevelopmentList(
   )
 }
 
-/** 命令弹窗的当前请求：进攻、调动、防守与征粮，都以选将框为入口。 */
+/** 命令弹窗的当前请求：进攻、防守、征兵、征粮与任命驻将，都以选将框为入口。 */
 interface OrderRequest {
-  kind: 'attack' | 'transfer' | 'defense' | 'harvest'
-  /** 目标战略点；征粮不针对具体战略点，故可省略。 */
+  kind: 'attack' | 'defense' | 'harvest' | 'recruit' | 'station'
+  /** 目标战略点；防守、任命、进攻必带，征兵与征粮自战略点窗口进入时也必带。 */
   siteId?: SiteId
-  /** 防守时随附来犯的势力与编成，供编成弹窗显示敌情。 */
+  /** 防守时随附来犯的势力与已布好攻方的战斗，供弹窗显示敌情。 */
   defense?: DefenseRequest
 }
 
@@ -898,20 +894,22 @@ function attackDisabledReason(state: GameState, character: Character): string | 
   return character.troops > 0 ? null : '无兵力'
 }
 
-/** 该武将此刻不能调动的原因：本季已行动；可以调动时返回 null。 */
-function transferDisabledReason(state: GameState, character: Character): string | null {
-  return hasActedThisTurn(state, character.id) ? '已行动' : null
+/** 征兵、征粮可选的人：名册中本季未行动、且活动范围含该城的武将。 */
+function harvestCandidates(state: GameState, siteId?: string): Character[] {
+  return state.characters.filter(
+    (character) =>
+      isServing(character) &&
+      character.factionId === state.playerFaction &&
+      !hasActedThisTurn(state, character.id) &&
+      (siteId === undefined || scopeSitesFor(state, character).includes(siteId)),
+  )
 }
 
-/** 进攻编成中的三个角色：主将必选，副将与军师可选。 */
-type PartyRole = 'commander' | 'deputy' | 'strategist'
-
-const PARTY_ROLES: readonly PartyRole[] = ['commander', 'deputy', 'strategist']
-
-const PARTY_ROLE_LABELS: Record<PartyRole, string> = {
-  commander: '主将',
-  deputy: '副将',
-  strategist: '军师',
+/** 自有战略点，按人口由多到少，供征兵、征粮选择地点。 */
+function ownSites(state: GameState): Site[] {
+  return state.geography.sites
+    .filter((site) => site.owner === state.playerFaction)
+    .sort((a, b) => b.population - a.population)
 }
 
 /** 侧栏「待招募」：玩家接触过、尚未招到的在野者，可再次拜访以提升其意愿。 */
@@ -956,20 +954,29 @@ function renderContacts(
   requireElement<HTMLElement>(panel, '.recruit-panel__status').textContent = message
 }
 
-/** 可派去征粮的部属：麾下有驻地的在仕武将。 */
-function harvestCandidates(state: GameState): Character[] {
-  return state.characters.filter(
-    (character) =>
-      isServing(character) &&
-      character.factionId === state.playerFaction &&
-      character.stationedSiteId !== null,
+/** 命令弹窗里选择地点的一行：征兵与征粮都要先定一处自有战略点。 */
+function renderOrderSites(select: HTMLSelectElement, state: GameState, siteId: SiteId | undefined): void {
+  const sites = ownSites(state)
+
+  select.replaceChildren(
+    ...sites.map((site) => {
+      const option = document.createElement('option')
+      option.value = site.id
+      option.textContent =
+        site.type === 'field'
+          ? site.name
+          : `${site.name}　人口 ${site.population}　存粮 ${granaryOf(site)}`
+      return option
+    }),
   )
+  if (siteId !== undefined && sites.some((site) => site.id === siteId)) {
+    select.value = siteId
+  }
 }
 
 /**
- * 命令弹窗：进攻、调动、防守与征粮共用同一套选将框。
- * 进攻与防守排编成（主将、副将、军师），调动勾选多人，征粮单选一人；
- * 本季已行动（或进攻时无兵）者标出且不可选。
+ * 命令弹窗：进攻、防守、征兵、征粮与任命驻将共用同一套选将框。
+ * 进攻、防守勾选一至五人，征兵、征粮先选地点再单选一人，任命驻将只选一人。
  */
 function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRequest | null): void {
   if (request === null) {
@@ -982,38 +989,63 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
       : state.geography.sites.find((site) => site.id === request.siteId)
   const name = target?.name ?? ''
   const raiders = request.defense
+  const attackerUnits = raiders?.battle.attacker.units ?? []
   const defenseTarget =
     raiders === undefined
       ? name
-      : `${factionName(state, raiders.attackerId)} 来攻 ${name}　${partySummary(state, raiders.party)}`
+      : `${factionName(state, raiders.attackerId)} 来攻 ${name}　${attackerUnits
+          .map((unit) => unit.name)
+          .join('、')}`
 
   const titles: Record<OrderRequest['kind'], string> = {
     attack: '进攻',
-    transfer: '调动',
     defense: '防守',
     harvest: '征粮',
+    recruit: '征兵',
+    station: '驻将',
   }
   const targets: Record<OrderRequest['kind'], string> = {
     attack: `进攻 ${name}`,
-    transfer: `调动到 ${name}`,
     defense: defenseTarget,
-    harvest: '派一名部属征粮',
+    harvest:
+      request.siteId === undefined
+        ? '先择一处战略点，再派一名未行动的武将征粮'
+        : `在 ${name} 征粮，选一名未行动的武将`,
+    recruit:
+      request.siteId === undefined
+        ? '先择一处战略点，再派一名未行动的武将征兵'
+        : `在 ${name} 征兵，选一名未行动的武将`,
+    station: `任命 ${name} 的驻将，每点至多一人`,
   }
   const submits: Record<OrderRequest['kind'], string> = {
     attack: '进入战斗',
-    transfer: '调动',
     defense: '迎战',
     harvest: '征粮',
+    recruit: '征兵',
+    station: '任命',
   }
 
   requireElement<HTMLElement>(root, '.order__title').textContent = titles[request.kind]
   requireElement<HTMLElement>(root, '.order__target').textContent = targets[request.kind]
   requireElement<HTMLButtonElement>(root, '.order__submit').textContent = submits[request.kind]
-  // 征粮自内政面板进入，关掉时回到内政，而不是丢掉这个入口。
-  requireElement<HTMLButtonElement>(root, '[data-action="close-order"]').textContent =
-    request.kind === 'harvest' ? '返回内政' : '关闭'
+  const countLabel = requireElement<HTMLElement>(root, '.order__count')
+  countLabel.hidden = request.kind !== 'attack' && request.kind !== 'defense'
+  // 征兵、征粮自战略点窗口进入，关掉时回到那个窗口。
+  const closeLabel =
+    request.kind === 'harvest' || request.kind === 'recruit' ? '返回战略点' : '关闭'
+  requireElement<HTMLButtonElement>(root, '[data-action="close-order"]').textContent = closeLabel
+
+  const siteRow = requireElement<HTMLElement>(root, '.order__site-row')
+  const siteSelect = requireElement<HTMLSelectElement>(root, '.order__site')
+  const isLogistics = request.kind === 'harvest' || request.kind === 'recruit'
+  // 从战略点窗口进来时城池已定，不再让玩家改选；旧入口仍可先选地点。
+  siteRow.hidden = !isLogistics || request.siteId !== undefined
+  if (!siteRow.hidden) {
+    renderOrderSites(siteSelect, state, request.siteId)
+  }
 
   const list = requireElement<HTMLElement>(root, '.order__officers')
+  siteSelect.onchange = null
 
   if (request.kind === 'attack') {
     const candidates = attackCandidates(state, request.siteId ?? '')
@@ -1022,133 +1054,133 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
       return
     }
 
-    const defaultCommander = candidates.find(
-      (character) => attackDisabledReason(state, character) === null,
-    )
     list.replaceChildren(
       ...candidates.map((character) =>
-        createSelectionItem(
-          character,
-          state.playerFaction,
-          'roles',
-          attackDisabledReason(state, character),
-          { isDefaultCommander: character.id === defaultCommander?.id },
-        ),
+        createSelectionItem(character, state.playerFaction, 'multi', attackDisabledReason(state, character)),
       ),
     )
     return
   }
 
   if (request.kind === 'defense') {
-    const members = [...stationedDefendersAt(state, request.siteId ?? '')].sort(
+    const members = defenderCandidates(state, request.siteId ?? '').sort(
       (a, b) => b.troops - a.troops,
     )
-    // 与进攻同构：主将必选，副将与军师可选；已行动者也可以出战，只是兵力减半。
-    const defaultCommander = garrisonCommanderAt(state, request.siteId ?? '')
+    if (members.length === 0) {
+      list.replaceChildren(createListItem('order__empty', '无人可守，只能空城迎敌'))
+      return
+    }
+
     list.replaceChildren(
       ...members.map((member) =>
-        createSelectionItem(member, state.playerFaction, 'roles', member.troops > 0 ? null : '无兵力', {
-          isDefaultCommander: member.id === defaultCommander?.id,
-          note: hasActedThisTurn(state, member.id) ? '已行动 · 兵力减半' : null,
-        }),
+        createSelectionItem(
+          member,
+          state.playerFaction,
+          'multi',
+          null,
+          {
+            checked: member.stationedSiteId === request.siteId,
+            locked: member.stationedSiteId === request.siteId,
+            note: member.stationedSiteId === request.siteId ? '驻将，自动参战' : null,
+          },
+        ),
       ),
     )
     return
   }
 
-  if (request.kind === 'harvest') {
-    const candidates = harvestCandidates(state)
-    list.replaceChildren(
-      ...(candidates.length === 0
-        ? [createListItem('order__empty', '暂无可征粮的武将')]
-        : candidates.map((character) =>
-            createSelectionItem(
-              character,
-              state.playerFaction,
-              'single',
-              hasActedThisTurn(state, character.id) ? '已行动' : null,
-            ),
-          )),
-    )
+  if (request.kind === 'harvest' || request.kind === 'recruit') {
+    const renderCandidates = (): void => {
+      const candidates = harvestCandidates(state, request.siteId ?? siteSelect.value).sort(
+        (a, b) => b.politics - a.politics,
+      )
+      list.replaceChildren(
+        ...(candidates.length === 0
+          ? [createListItem('order__empty', request.kind === 'harvest' ? '暂无可征粮的武将' : '暂无可征兵的武将')]
+          : candidates.map((character) =>
+              createSelectionItem(character, state.playerFaction, 'single', null),
+            )),
+      )
+    }
+
+    siteSelect.onchange = request.siteId === undefined ? renderCandidates : null
+    renderCandidates()
     return
   }
 
-  const candidates = transferCandidates(state, request.siteId ?? '')
+  // 任命驻将：单选项里先放「不设驻将」，其余为活动范围含此城的在册武将。
+  const members = state.characters
+    .filter(
+      (character) =>
+        isServing(character) &&
+        character.factionId === state.playerFaction &&
+        (request.siteId === undefined ||
+          scopeSitesFor(state, character).includes(request.siteId)),
+    )
+    .sort((a, b) => b.troops - a.troops)
+  const current = stationedAt(state, request.siteId ?? '')
+  const clearItem = document.createElement('li')
+  clearItem.className = 'picker'
+  const clearLabel = document.createElement('label')
+  clearLabel.className = 'picker__label'
+  const clearInput = document.createElement('input')
+  clearInput.type = 'radio'
+  clearInput.name = 'order-single'
+  clearInput.className = 'picker__checkbox'
+  clearInput.value = ''
+  clearInput.checked = current === null
+  const clearName = document.createElement('span')
+  clearName.className = 'picker__name'
+  clearName.textContent = '不设驻将'
+  clearLabel.append(clearInput, clearName)
+  clearItem.append(clearLabel)
+
   list.replaceChildren(
-    ...(candidates.length === 0
-      ? [createListItem('order__empty', '暂无可调动的武将')]
-      : candidates.map((character) =>
-          createSelectionItem(
-            character,
-            state.playerFaction,
-            'multi',
-            transferDisabledReason(state, character),
-          ),
-        )),
+    clearItem,
+    ...members.map((character) =>
+      createSelectionItem(
+        character,
+        state.playerFaction,
+        'single',
+        null,
+        {
+          checked: character.id === current?.id,
+          note:
+            character.stationedSiteId === null
+              ? null
+              : character.stationedSiteId === request.siteId
+                ? '现任驻将'
+                : '驻守他处，改任将移驻',
+        },
+      ),
+    ),
   )
 }
 
-/** 编成摘要：主将、副将与军师及各自的兵力。 */
-function partySummary(state: GameState, party: AttackParty): string {
-  const entries: readonly [string, CharacterId | null | undefined][] = [
-    ['主将', party.commander],
-    ['副将', party.deputy],
-    ['军师', party.strategist],
-  ]
-
-  return entries
-    .filter(([, id]) => id != null && id !== '')
-    .map(([label, id]) => {
-      const character = state.characters.find((item) => item.id === id)
-      return character === undefined ? null : `${label} ${character.name}（兵 ${character.troops}）`
-    })
-    .filter((text): text is string => text !== null)
-    .join(' · ')
-}
-
-/** 某战略点归属势力的名称。 */
-function siteOwnerName(state: GameState, owner: FactionId | null): string {
-  return state.factions.find((faction) => faction.id === owner)?.name ?? '无归属'
-}
-
-/** 守军摘要：主将与应战者；无守军时为空串。 */
-function enemySummary(state: GameState, siteId: SiteId): string {
-  const commander = garrisonCommanderAt(state, siteId)
-  if (commander === null) {
-    return ''
-  }
-
-  const leader = `守将 ${commander.name}（兵 ${commander.troops}）`
-  const answerer = duelAnswererAt(state, siteId)
-  if (answerer === null || answerer.id === commander.id) {
-    return leader
-  }
-
-  return `${leader} · 应战 ${answerer.name}（兵 ${answerer.troops}）`
-}
-
-/** 战斗演出的一幕：情报与选择、单挑、交战与结果、占领后的分配。 */
-type BattleStep = 'intel' | 'duel' | 'fight' | 'assign'
+/** 战斗演出的一幕：确认阵型、逐次交锋、战果与占领后的留驻。 */
+type BattleStep = 'deploy' | 'fight' | 'result' | 'assign'
 
 /** 正在上演的一场战斗：我方进攻，或他方来攻我方。 */
 interface BattleStage {
   /** 这一战是我方进攻，还是我方被攻。 */
   mode: 'attack' | 'defense'
-  /** 攻方的编成：进攻时是我方编成，防御时是敌军编成。 */
-  party: AttackParty
-  /** 战斗发生的战略点。 */
-  siteId: SiteId
-  /** 防御演出：来犯的势力；进攻时为空。 */
-  attackerId: FactionId | null
-  /** 防御演出：我方自选的迎战编成；进攻或无将可守时为空。 */
-  garrison: Party | null
+  /** 规则层持有的战斗状态；开战后逐次推进。 */
+  battle: BattleState
   step: BattleStep
-  /** 已结算的战报；尚未开战时为 null。 */
+  /** 已结算的战报；战斗未打完时为 null。 */
   report: BattleReport | null
-  /** 攻方参战者在进攻前的原驻地，供占领后的「分配」一幕回驻用；防御演出为空。 */
-  origins: Record<CharacterId, SiteId>
   /** 写入历史的结论文案，结果一幕展示。 */
   outcome: string
+  /** 我方参战者，供占领后指定一人留驻。 */
+  participants: CharacterId[]
+  /** 已发生的行动，供战况记录与演出高亮。 */
+  log: BattleActionEvent[]
+  /** 最近一次行动；为空时不显示受击演出。 */
+  lastAction: BattleActionEvent | null
+  /** 阵型一幕已点选的阵位，再点另一格即换位。 */
+  pickedSlot: number | null
+  /** 阵型调整的提示。 */
+  formationMessage: string
 }
 
 /** 演出里的一行文字；`variant` 用于加语义样式（如台词、判语）。 */
@@ -1183,57 +1215,219 @@ function stageActions(...buttons: HTMLButtonElement[]): HTMLElement {
   return row
 }
 
-/** 「分配」一幕的一行：勾选则回原驻地，不勾则留守新点。 */
-function assignRow(character: Character, originName: string): HTMLLabelElement {
-  const label = document.createElement('label')
-  label.className = 'battle-plan__assign'
-  const checkbox = document.createElement('input')
-  checkbox.type = 'checkbox'
-  checkbox.className = 'battle-plan__assign-check'
-  checkbox.value = character.id
-  const text = document.createElement('span')
-  text.textContent = `${character.name} 回驻 ${originName}`
-  label.append(checkbox, text)
-
-  return label
+/** 我方在这一战里坐在哪一侧。 */
+function ourSideOf(stage: BattleStage): BattleSide {
+  return stage.mode === 'attack' ? 'attacker' : 'defender'
 }
 
-/** 「分配」一幕的候选：本战进驻新点、仍在仕的参战者，各配其原驻地。 */
-function assignRows(state: GameState, stage: BattleStage): HTMLLabelElement[] {
-  const rows: HTMLLabelElement[] = []
-
-  for (const id of [stage.party.commander, stage.party.deputy, stage.party.strategist]) {
-    if (id == null) {
-      continue
-    }
-    const character = state.characters.find((item) => item.id === id)
-    if (character === undefined || !isServing(character) || character.stationedSiteId !== stage.siteId) {
-      continue
-    }
-    const origin = stage.origins[id]
-    const originSite = origin === undefined ? undefined : state.geography.sites.find((site) => site.id === origin)
-    if (originSite === undefined) {
-      continue
-    }
-    rows.push(assignRow(character, originSite.name))
-  }
-
-  return rows
+/** 战场一方的势力名。 */
+function sideFactionName(state: GameState, battle: BattleState, side: BattleSide): string {
+  return state.factions.find((faction) => faction.id === battle[side].factionId)?.name ?? '敌军'
 }
 
-/** 单挑的交合句：谁与谁交战数合，结果如何。 */
-function duelClashText(duel: DuelReport): string {
-  if (duel.fallen === duel.answerer) {
-    return `${duel.challenger} 与 ${duel.answerer} 交战数合，${duel.answerer} 被斩于马下`
+/**
+ * 一个阵位：武将、兵种与战兵条；空位也留一格，便于换阵。
+ * 攻击按钮落在可打的目标身上，防御按钮落在当前行动者自己身上。
+ */
+function createBattleSlot(
+  battle: BattleState,
+  side: BattleSide,
+  slot: number,
+  options: {
+    draggable: boolean
+    playable: boolean
+    picked: boolean
+    actor: BattleUnit | null
+    targets: readonly BattleUnit[]
+    lastAction: BattleActionEvent | null
+  },
+): HTMLElement {
+  const unit = battle[side].units.find((item) => item.slot === slot)
+  const element = document.createElement('div')
+  element.className = 'battle-slot'
+  element.dataset.slot = String(slot)
+  element.dataset.side = side
+
+  if (unit === undefined) {
+    element.classList.add('battle-slot--empty')
+    if (options.picked) {
+      element.classList.add('battle-slot--picked')
+    }
+    element.textContent = '空'
+    return element
   }
-  if (duel.fallen === duel.challenger) {
-    return `${duel.challenger} 与 ${duel.answerer} 交战数合，${duel.challenger} 被斩于马下`
-  }
-  if (duel.challengerWon === true) {
-    return `${duel.challenger} 与 ${duel.answerer} 交战数合，${duel.answerer} 抵敌不住，仓皇败走`
+  element.dataset.character = unit.characterId
+
+  if (options.picked) {
+    element.classList.add('battle-slot--picked')
   }
 
-  return `${duel.challenger} 与 ${duel.answerer} 交战数合，${duel.challenger} 抵敌不住，败下阵来`
+  if (unit.exited) {
+    element.classList.add('battle-slot--out')
+  }
+  if (options.actor?.characterId === unit.characterId) {
+    element.classList.add('battle-slot--acting')
+  }
+  if (options.lastAction?.actorId === unit.characterId) {
+    element.classList.add('battle-slot--struck')
+  }
+  if (options.lastAction?.targetId === unit.characterId) {
+    element.classList.add('battle-slot--hit')
+  }
+
+  const head = document.createElement('div')
+  head.className = 'battle-slot__head'
+  const name = document.createElement('span')
+  name.className = 'battle-slot__name'
+  name.textContent = unit.name
+  const meta = document.createElement('span')
+  meta.className = 'battle-slot__meta'
+  meta.textContent = unit.exited
+    ? `${ARM_STATS[unit.armType].label} · 溃`
+    : `${ARM_STATS[unit.armType].label} · ${unit.battleTroops}`
+  head.append(name, meta)
+  element.append(head)
+
+  const bar = document.createElement('span')
+  bar.className = 'battle-slot__bar'
+  const fill = document.createElement('span')
+  fill.className = 'battle-slot__fill'
+  fill.style.width = `${Math.max(0, Math.min(100, (unit.battleTroops / Math.max(1, unit.troops)) * 100))}%`
+  bar.append(fill)
+  element.append(bar)
+
+  const states: string[] = [rowOfSlot(unit.slot) === 0 ? '前' : '后']
+  if (!unit.exited && unit.defendingRound === battle.round) {
+    states.push('守')
+  }
+  const state = document.createElement('span')
+  state.className = 'battle-slot__state'
+  state.textContent = states.join(' ')
+  element.append(state)
+
+  if (unit.exited) {
+    return element
+  }
+
+  if (options.targets.some((target) => target.characterId === unit.characterId)) {
+    const attack = document.createElement('button')
+    attack.type = 'button'
+    attack.className = 'battle-slot__action battle-slot__action--attack'
+    attack.dataset.action = 'stage-attack'
+    attack.dataset.target = unit.characterId
+    attack.textContent = '攻击'
+    element.append(attack)
+  }
+
+  if (options.playable && options.actor?.characterId === unit.characterId) {
+    const defend = document.createElement('button')
+    defend.type = 'button'
+    defend.className = 'battle-slot__action battle-slot__action--defend'
+    defend.dataset.action = 'stage-defend'
+    defend.textContent = '防御'
+    element.append(defend)
+  }
+
+  if (options.draggable) {
+    element.classList.add('battle-slot--movable')
+    element.draggable = true
+  }
+
+  return element
+}
+
+/**
+ * 战场：敌军在上、我军在下，各排两列（前排在靠近对方的一侧）。
+ * 阵型一幕可拖动换位；交锋一幕只在目标与行动者身上出按钮。
+ */
+function createBattleField(
+  state: GameState,
+  stage: BattleStage,
+  actor: BattleUnit | null,
+  targets: readonly BattleUnit[],
+): HTMLElement {
+  const battle = stage.battle
+  const ours = ourSideOf(stage)
+  const theirs: BattleSide = ours === 'attacker' ? 'defender' : 'attacker'
+  const field = document.createElement('div')
+  field.className = 'battle-field'
+
+  const banner = (side: BattleSide, label: string): HTMLElement => {
+    const item = document.createElement('p')
+    item.className = 'battle-field__side'
+    const name = document.createElement('span')
+    name.textContent = `${sideFactionName(state, battle, side)}　${label}`
+    const morale = document.createElement('span')
+    morale.className = 'battle-field__morale'
+    morale.textContent = `士气 ${battle[side].morale}`
+    item.append(name, morale)
+    return item
+  }
+
+  const row = (side: BattleSide, slots: readonly number[], label: string): HTMLElement => {
+    const line = document.createElement('div')
+    line.className = 'battle-field__row'
+    const caption = document.createElement('span')
+    caption.className = 'battle-field__label'
+    caption.textContent = label
+    line.append(
+      caption,
+      ...slots.map((slot) =>
+        createBattleSlot(battle, side, slot, {
+          draggable: stage.step === 'deploy' && side === ours,
+          playable: stage.step === 'fight' && side === ours,
+          picked: stage.step === 'deploy' && side === ours && stage.pickedSlot === slot,
+          actor,
+          targets,
+          lastAction: stage.lastAction,
+        }),
+      ),
+    )
+    return line
+  }
+
+  const clash = document.createElement('p')
+  clash.className = 'battle-field__clash'
+  clash.textContent = '⚔'
+
+  field.append(
+    banner(theirs, '敌军'),
+    row(theirs, [3, 4, 5], '后排'),
+    row(theirs, [0, 1, 2], '前排'),
+    clash,
+    row(ours, [0, 1, 2], '前排'),
+    row(ours, [3, 4, 5], '后排'),
+    banner(ours, '我军'),
+  )
+
+  return field
+}
+
+/** 战况记录：只留最近几条，免得窗口越拉越长。 */
+function battleLogLines(stage: BattleStage): HTMLElement[] {
+  return stage.log.slice(-4).map((event) => {
+    if (event.kind === 'defend') {
+      return stageLine(`${event.actorName} 防御`, 'note')
+    }
+    if (event.targetName === null) {
+      return stageLine(`${event.actorName} 扑空`, 'note')
+    }
+    if (event.damage === 0) {
+      return stageLine(`${event.actorName} 攻 ${event.targetName}，未能破防`, 'note')
+    }
+
+    return stageLine(`${event.actorName} 攻 ${event.targetName}，歼敌 ${event.damage}`, 'note')
+  })
+}
+
+/** 「留驻」一幕的候选：本战参战、仍在仕、尚未驻守的攻方武将。 */
+function assignCandidates(state: GameState, stage: BattleStage): Character[] {
+  return stage.participants
+    .map((id) => state.characters.find((item) => item.id === id))
+    .filter(
+      (character): character is Character =>
+        character !== undefined && isServing(character) && character.stationedSiteId === null,
+    )
 }
 
 /** 战斗过程的简短叙述，由战报数据生成；从玩家这一侧叙述。 */
@@ -1256,83 +1450,11 @@ function factionName(state: GameState, factionId: FactionId | null): string {
   return state.factions.find((faction) => faction.id === factionId)?.name ?? '敌军'
 }
 
-/** 武将姓名；查不到时为空串。 */
-function characterNameOf(state: GameState, id: CharacterId | null | undefined): string {
-  return state.characters.find((item) => item.id === id)?.name ?? ''
-}
-
-/** 我方守军一行：按编成列出主将、副将与军师及兵力，与攻方的编成摘要同构。 */
-function garrisonSummary(state: GameState, siteId: SiteId, party: Party): string {
-  const members = garrisonAt(state, siteId, party).members
-  const roles: readonly [string, CharacterId | null | undefined][] = [
-    ['主将', party.commander],
-    ['副将', party.deputy],
-    ['军师', party.strategist],
-  ]
-
-  return roles
-    .filter(([, id]) => id != null && id !== '')
-    .map(([label, id]) => {
-      const member = members.find((item) => item.id === id)
-      return member === undefined ? null : `${label} ${member.name}（兵 ${member.troops}）`
-    })
-    .filter((text): text is string => text !== null)
-    .join(' · ')
-}
-
-/** 开发者模式专供：越过战力结算，一键定下这一战的胜负，攻守两侧同一对按钮。 */
+/** 开发者模式专供：越过结算，一键定下这一战的胜负，攻守两侧同一对按钮。 */
 function shortcutButtons(showBattleShortcuts: boolean): HTMLButtonElement[] {
   return showBattleShortcuts
     ? [stageButton('一键胜利', 'stage-forced-win'), stageButton('一键失败', 'stage-forced-lose')]
     : []
-}
-
-/** 情报幕的按钮：进攻时由主将或副将出马，防御时由迎战编成的主将或副将出马。 */
-function intelButtons(state: GameState, stage: BattleStage, showBattleShortcuts: boolean): HTMLButtonElement[] {
-  const buttons: HTMLButtonElement[] = []
-
-  if (stage.mode === 'attack') {
-    if (garrisonCommanderAt(state, stage.siteId) !== null) {
-      // 与守方对称：出马者限编成中的主将或副将，君主不参与。
-      const roles: readonly [string, CharacterId | null | undefined][] = [
-        ['主将', stage.party.commander],
-        ['副将', stage.party.deputy],
-      ]
-      for (const [label, id] of roles) {
-        const member = id == null ? undefined : state.characters.find((item) => item.id === id)
-        if (member !== undefined && !member.isMonarch) {
-          buttons.push(stageButton(`${label} ${member.name} 出马`, 'stage-pick', member.id))
-        }
-      }
-    }
-    buttons.push(stageButton('不单挑，直接开战', 'stage-fight'))
-    buttons.push(...shortcutButtons(showBattleShortcuts))
-
-    return buttons
-  }
-
-  // 进攻方已提单挑，守方不再选择，只能迎战。
-  if (stage.party.challenger != null) {
-    return [stageButton('迎战', 'stage-fight'), ...shortcutButtons(showBattleShortcuts)]
-  }
-
-  // 与攻方对称：出马者限迎战编成中的主将或副将，君主不参与。
-  const garrison = stage.garrison
-  const members = garrison === null ? [] : garrisonAt(state, stage.siteId, garrison).members
-  const roles: readonly [string, CharacterId | null | undefined][] = [
-    ['主将', garrison?.commander],
-    ['副将', garrison?.deputy],
-  ]
-  for (const [label, id] of roles) {
-    const member = id == null ? undefined : members.find((item) => item.id === id)
-    if (member !== undefined && !member.isMonarch) {
-      buttons.push(stageButton(`${label} ${member.name} 出马`, 'stage-pick', member.id))
-    }
-  }
-  buttons.push(stageButton('不单挑，直接迎战', 'stage-fight'))
-  buttons.push(...shortcutButtons(showBattleShortcuts))
-
-  return buttons
 }
 
 /** 战果判语，从我方一侧说。 */
@@ -1346,101 +1468,50 @@ function verdictText(report: BattleReport, mode: 'attack' | 'defense'): string {
 
 /** 按当前幕排出内容：文字若干，末了是一排可操作的按钮。 */
 function stageContent(state: GameState, stage: BattleStage, showBattleShortcuts: boolean): HTMLElement[] {
-  const target = state.geography.sites.find((site) => site.id === stage.siteId)
-  const siteName = target?.name ?? ''
-  const report = stage.report
-  const duel = report?.duel ?? null
-  const ourSide = stage.mode === 'attack' ? 'attacker' : 'defender'
+  const battle = stage.battle
+  const ours = ourSideOf(stage)
+  const actor = stage.step === 'fight' ? currentActor(battle) : null
+  const playable = actor !== null && actor.side === ours
+  const targets = actor !== null && playable ? targetsFor(battle, actor) : []
 
   switch (stage.step) {
-    case 'intel': {
-      if (stage.mode === 'attack') {
-        return [
-          stageLine(`进攻 ${siteName}　归属 ${siteOwnerName(state, target?.owner ?? null)}`),
-          stageLine(`敌情：${battleOutlook(state, stage.party, stage.siteId)}`, 'outlook'),
-          stageLine(`我方　${partySummary(state, stage.party)}`),
-          stageLine(`守军　${enemySummary(state, stage.siteId)}`),
-          stageLine('是否提出单挑？', 'prompt'),
-          stageActions(...intelButtons(state, stage, showBattleShortcuts)),
-        ]
-      }
-
-      const garrison = stage.garrison
-      const lines: HTMLElement[] = [
-        stageLine(
-          `${factionName(state, stage.attackerId)} 来攻 ${siteName}　归属 ${siteOwnerName(state, target?.owner ?? null)}`,
-        ),
-        stageLine(
-          `敌情：${defenseOutlook(state, stage.party, stage.siteId, garrison ?? undefined)}`,
-          'outlook',
-        ),
-        stageLine(`敌方　${partySummary(state, stage.party)}`),
+    case 'deploy':
+      return [
+        stageLine(`两军对阵于 ${battle.siteName}，请先排列阵型。`, 'prompt'),
+        stageLine('拖动或依次点选两个阵位即可互换；近战宜列前排，弓手可居后排。', 'note'),
+        ...(stage.formationMessage === '' ? [] : [stageLine(stage.formationMessage, 'prompt')]),
+        createBattleField(state, stage, null, []),
+        stageActions(stageButton('开战', 'stage-begin')),
       ]
 
-      // 守军无将：空城迎敌，无从单挑。
-      if (garrison === null) {
-        return [
-          ...lines,
-          stageLine('城中无将，只能空城迎敌。', 'prompt'),
-          stageActions(stageButton('迎战', 'stage-fight'), ...shortcutButtons(showBattleShortcuts)),
-        ]
-      }
-
+    case 'fight':
       return [
-        ...lines,
-        stageLine(`我方　${garrisonSummary(state, stage.siteId, garrison)}`),
-        // 进攻方已提单挑时，守方不再选，只提示一句。
+        stageLine(`${battle.siteName}　行动 ${battle.actionsUsed} / ${battle.actionLimit}`),
+        ...(stage.formationMessage === '' ? [] : [stageLine(stage.formationMessage, 'prompt')]),
+        createBattleField(state, stage, actor, targets),
         stageLine(
-          stage.party.challenger != null
-            ? `${characterNameOf(state, stage.party.challenger)} 前来挑战。`
-            : '是否提出单挑？',
+          actor === null
+            ? '战斗结束'
+            : playable
+              ? targets.length === 0
+                ? `轮到我军 ${actor.name} 行动：本阵前排挡在前面，只能防御`
+                : actor.armType === 'infantry'
+                  ? `轮到我军 ${actor.name} 行动：点敌军攻击；防御可护住${rowOfSlot(actor.slot) === 0 ? '前' : '后'}排`
+                  : `轮到我军 ${actor.name} 行动：点敌军一处攻击，或点自己防御`
+              : `敌军 ${actor.name} 行动`,
           'prompt',
         ),
-        stageActions(...intelButtons(state, stage, showBattleShortcuts)),
+        ...battleLogLines(stage),
+        stageActions(
+          stageButton('交给部将', 'stage-auto'),
+          ...shortcutButtons(showBattleShortcuts),
+        ),
       ]
-    }
 
-    case 'duel': {
-      const challenger =
-        duel === null ? undefined : state.characters.find((item) => item.id === duel.challengerId)
-      const answerer =
-        duel?.answererId == null
-          ? undefined
-          : state.characters.find((item) => item.id === duel.answererId)
-      const lines: HTMLElement[] = []
-      if (challenger !== undefined) {
-        lines.push(stageLine(`${challenger.name}：${duelLineOf(challenger)}`, 'speech'))
-      }
-      if (duel !== null && !duel.refused && answerer !== undefined) {
-        lines.push(stageLine(`${answerer.name}：${duelResponseLineOf(answerer)}`, 'speech'))
-      }
-      if (duel !== null) {
-        lines.push(
-          stageLine(
-            duel.refused
-              ? duel.answerer === ''
-                ? '无人应战'
-                : `${duel.answerer} 拒战`
-              : duelClashText(duel),
-          ),
-        )
-        // 士气按「哪一方」说：我方是攻方还是守方，与由谁出马无关。
-        const ourDelta =
-          duel.challengerSide === ourSide ? duel.challengerMoraleDelta : duel.answererMoraleDelta
-        const theirDelta =
-          duel.challengerSide === ourSide ? duel.answererMoraleDelta : duel.challengerMoraleDelta
-        lines.push(
-          stageLine(`我方士气 ${MORALE_FULL} → ${MORALE_FULL + ourDelta}`),
-          stageLine(`敌方士气 ${MORALE_FULL} → ${MORALE_FULL + theirDelta}`),
-        )
-      }
-
-      return [...lines, stageActions(stageButton('继续', 'stage-next'))]
-    }
-
-    case 'fight': {
+    case 'result': {
+      const report = stage.report
       if (report === null) {
-        return []
+        return [stageActions(stageButton('收兵', 'stage-close'))]
       }
 
       const sides = document.createElement('div')
@@ -1453,11 +1524,10 @@ function stageContent(state: GameState, stage: BattleStage, showBattleShortcuts:
       fillBattleSide(defender, '守方', '守将', report.defender)
       sides.append(attacker, defender)
 
-      // 胜仗同时给出「收兵」与「分派驻守」：收兵即全员留驻新点，不必再点一次。
       const next =
         stage.mode === 'attack'
           ? report.attackerWins
-            ? [stageButton('收兵', 'stage-close'), stageButton('分派驻守', 'stage-assign')]
+            ? [stageButton('收兵', 'stage-close'), stageButton('指定留驻', 'stage-assign')]
             : [stageButton('收兵', 'stage-close')]
           : [stageButton('继续', 'stage-continue-turn')]
 
@@ -1471,10 +1541,35 @@ function stageContent(state: GameState, stage: BattleStage, showBattleShortcuts:
     }
 
     case 'assign': {
+      const candidates = assignCandidates(state, stage)
+      if (candidates.length === 0) {
+        return [
+          stageLine('参战者都已另有去处，无人可留驻。', 'prompt'),
+          stageActions(stageButton('收兵', 'stage-close')),
+        ]
+      }
+
+      const rows = candidates.map((character) => {
+        const label = document.createElement('label')
+        label.className = 'battle-plan__assign'
+        const radio = document.createElement('input')
+        radio.type = 'radio'
+        radio.name = 'battle-assign'
+        radio.className = 'battle-plan__assign-check'
+        radio.value = character.id
+        const text = document.createElement('span')
+        text.textContent = `${character.name}（兵 ${character.troops}）留驻 ${battle.siteName}`
+        label.append(radio, text)
+        return label
+      })
+
       return [
-        stageLine(`已取下 ${siteName}。谁留守、谁回原驻地？`, 'prompt'),
-        ...assignRows(state, stage),
-        stageActions(stageButton('确定', 'stage-assign-confirm')),
+        stageLine(`已取下 ${battle.siteName}。可指定一人留驻，余者回名册。`, 'prompt'),
+        ...rows,
+        stageActions(
+          stageButton('留驻', 'stage-assign-confirm'),
+          stageButton('不留驻，收兵', 'stage-close'),
+        ),
       ]
     }
 
@@ -1494,30 +1589,29 @@ function renderBattleStage(
     return
   }
 
-  const target = state.geography.sites.find((site) => site.id === stage.siteId)
   const title = stage.mode === 'attack' ? '战斗' : '防守'
-  requireElement<HTMLElement>(root, '.battle-plan__title').textContent = `${title} · ${target?.name ?? ''}`
+  requireElement<HTMLElement>(root, '.battle-plan__title').textContent = `${title} · ${stage.battle.siteName}`
   requireElement<HTMLElement>(root, '.battle-plan__body').replaceChildren(
     ...stageContent(state, stage, showBattleShortcuts),
   )
 }
 
-/** 选将框的三种形态：排编成（主将、副将、军师）、多选与单选。 */
-type SelectionMode = 'roles' | 'multi' | 'single'
+/** 选将框的两种形态：多选（进攻、防守）与单选（征兵、征粮、驻将）。 */
+type SelectionMode = 'multi' | 'single'
 
 /**
- * 选将条目：进攻、防守、调动与征粮共用。
- * `roles` 逐行点选主将、副将与军师；`multi` 与 `single` 是同一套勾选控件，只差复选框与单选框。
+ * 选将条目：进攻、防守、征兵、征粮与任命驻将共用。
+ * `multi` 与 `single` 是同一套勾选控件，只差复选框与单选框。
  */
 function createSelectionItem(
   character: Character,
   factionId: FactionId,
   mode: SelectionMode,
   disabledReason: string | null,
-  options: { checked?: boolean; isDefaultCommander?: boolean; note?: string | null } = {},
+  options: { checked?: boolean; locked?: boolean; note?: string | null } = {},
 ): HTMLLIElement {
   const item = document.createElement('li')
-  item.className = mode === 'roles' ? 'picker picker--order' : 'picker'
+  item.className = 'picker'
   if (disabledReason !== null) {
     item.classList.add('picker--disabled')
   }
@@ -1536,33 +1630,6 @@ function createSelectionItem(
   status.className = 'picker__status'
   status.textContent = statusText ?? ''
 
-  if (mode === 'roles') {
-    item.append(name, meta)
-    if (statusText !== null) {
-      item.append(status)
-    }
-
-    const roles = document.createElement('div')
-    roles.className = 'picker__roles'
-    for (const role of PARTY_ROLES) {
-      const button = document.createElement('button')
-      button.type = 'button'
-      button.className = 'picker__role'
-      button.dataset.action = 'order-role'
-      button.dataset.character = character.id
-      button.dataset.role = role
-      button.textContent = PARTY_ROLE_LABELS[role]
-      button.disabled = disabledReason !== null
-      const active = options.isDefaultCommander === true && role === 'commander'
-      button.classList.toggle('picker__role--active', active)
-      button.setAttribute('aria-pressed', String(active))
-      roles.append(button)
-    }
-    item.append(roles)
-
-    return item
-  }
-
   const label = document.createElement('label')
   label.className = 'picker__label'
 
@@ -1573,9 +1640,12 @@ function createSelectionItem(
   }
   input.className = 'picker__checkbox'
   input.value = character.id
-  input.disabled = disabledReason !== null
+  input.disabled = disabledReason !== null || options.locked === true
   input.checked = options.checked === true
   input.dataset.blocked = disabledReason === null ? 'false' : 'true'
+  if (options.locked === true) {
+    input.dataset.locked = 'true'
+  }
 
   label.append(input, name, meta)
   if (statusText !== null) {
@@ -1586,58 +1656,49 @@ function createSelectionItem(
   return item
 }
 
-/** 点选角色标记：同一人至多担任一角、同一角至多一人；再次点击已任的角色即取消。 */
-function toggleOrderRole(list: HTMLElement, button: HTMLButtonElement): void {
-  const wasActive = button.classList.contains('picker__role--active')
-  const { character, role } = button.dataset
-
-  for (const other of list.querySelectorAll<HTMLButtonElement>('.picker__role[data-role]')) {
-    if (other.dataset.role === role || other.dataset.character === character) {
-      other.classList.remove('picker__role--active')
-      other.setAttribute('aria-pressed', 'false')
-    }
-  }
-
-  if (!wasActive) {
-    button.classList.add('picker__role--active')
-    button.setAttribute('aria-pressed', 'true')
-  }
+/** 从多选框中读出勾选的人。 */
+function readSelection(list: HTMLElement): CharacterId[] {
+  return Array.from(list.querySelectorAll<HTMLInputElement>('.picker__checkbox:checked')).map(
+    (checkbox) => checkbox.value,
+  )
 }
 
-/** 从角色标记读出当前编成；主将未指定时以空串表示，交由规则层拒绝。 */
-function readOrderParty(list: HTMLElement): AttackParty {
-  const activeId = (role: PartyRole): CharacterId | null => {
-    const selected = list.querySelector<HTMLButtonElement>(
-      `.picker__role--active[data-role="${role}"]`,
-    )
-
-    return selected?.dataset.character ?? null
-  }
-
-  return {
-    commander: activeId('commander') ?? '',
-    deputy: activeId('deputy'),
-    strategist: activeId('strategist'),
-  }
+/** 从勾选的标识取出武将，按兵种排出默认阵形：近战在前、弓手在后。 */
+function autoFormationOf(state: GameState, ids: readonly CharacterId[]): BattleDeployment[] {
+  return autoFormation(
+    ids
+      .map((id) => state.characters.find((character) => character.id === id))
+      .filter((character): character is Character => character !== undefined),
+  )
 }
 
-/**
- * 当前选择距可提交还差什么；已足时返回 null。
- * 进攻与防守必选主将，调动至少一人，征粮恰好一人——与提交时的校验同一口径。
- */
+/** 一次出战的名额：进攻五人，防守另有驻将，故至多六队。 */
+function selectionLimit(kind: OrderRequest['kind']): number {
+  if (kind === 'attack') {
+    return ATTACKER_SELECTION
+  }
+
+  return kind === 'defense' ? DEFENDER_SELECTION + 1 : 1
+}
+
+/** 当前选择距可提交还差什么；已足时返回 null。与提交时的校验同一口径。 */
 function orderSelectionGap(list: HTMLElement, kind: OrderRequest['kind']): string | null {
+  if (kind === 'station') {
+    // 「不设驻将」也是一项选择，故单选组有任何勾选即可提交。
+    return list.querySelector('.picker__checkbox:checked') === null ? '请先点选一名武将' : null
+  }
+
+  const checked = readSelection(list).length
   if (kind === 'attack' || kind === 'defense') {
-    return list.querySelector('.picker__role--active[data-role="commander"]') === null
-      ? '请先点选一名主将'
-      : null
+    if (checked === 0) {
+      return '请先点选出征的武将'
+    }
+
+    const limit = selectionLimit(kind)
+    return checked > limit ? `至多 ${limit} 人` : null
   }
 
-  const checked = list.querySelectorAll('.picker__checkbox:checked').length
-  if (kind === 'harvest') {
-    return checked === 0 ? '请先点选一名部属' : null
-  }
-
-  return checked === 0 ? '请先点选要调动的武将' : null
+  return checked === 0 ? '请先点选一名部属' : null
 }
 
 function createListItem(className: string, text: string): HTMLLIElement {
@@ -1678,7 +1739,7 @@ function createOfficerNameCell(character: Character): HTMLTableCellElement {
   return cell
 }
 
-/** 操作单元格：本季未行动者给征兵，已行动者换成不可点的「已行动」；遣散不计行动，始终可选。 */
+/** 操作单元格：遣散不计行动，始终可选；已行动者另标「已行动」。征兵入口在战略点窗口。 */
 function createOpsCell(
   character: Character,
   acted: boolean,
@@ -1690,15 +1751,7 @@ function createOpsCell(
 
   const disband = createRosterAction('遣散', 'disband-open', character.id, ACTION_COSTS.disband, showCosts)
 
-  if (acted) {
-    ops.append(createDoneAction(), disband)
-  } else {
-    ops.append(
-      createRosterAction('征兵', 'recruit', character.id, ACTION_COSTS.recruit, showCosts),
-      disband,
-    )
-  }
-
+  ops.append(...(acted ? [createDoneAction()] : []), disband)
   cell.append(ops)
 
   return cell
@@ -1721,7 +1774,6 @@ function renderOfficers(list: Element, state: GameState, showCosts: boolean): nu
     (character) => isServing(character) && character.factionId === state.playerFaction,
   )
   const siteNames = new Map(state.geography.sites.map((site) => [site.id, site.name]))
-
   if (officers.length === 0) {
     const row = document.createElement('tr')
     const cell = document.createElement('td')
@@ -1744,7 +1796,11 @@ function renderOfficers(list: Element, state: GameState, showCosts: boolean): nu
 
       row.append(
         createOfficerNameCell(officer),
-        createTextCell(siteNames.get(officer.stationedSiteId ?? '') ?? '—'),
+        createTextCell(
+          officer.stationedSiteId === null
+            ? '-'
+            : (siteNames.get(officer.stationedSiteId) ?? '—'),
+        ),
         createTextCell(`${officer.troops}/${troopLimit(officer)}`),
         createTextCell(String(officer.might)),
         createTextCell(String(officer.command)),
@@ -1808,9 +1864,18 @@ function renderOfficerDetail(
 
   const hint = loyaltyHint(character.loyalty, defectThresholdFor(character, state.playerFaction))
   const credits = boostCredits(character)
+  const siteNames = new Map(state.geography.sites.map((site) => [site.id, site.name]))
+  const scopeText =
+    scopeSitesFor(state, character)
+      .map((id) => siteNames.get(id) ?? id)
+      .join('、') || '—'
+  const scopeNote = character.roamingSiteId === null || character.roamingSiteId === undefined
+    ? scopeText
+    : `${scopeText}（无籍，当季落脚）`
   const facts: readonly [string, string][] = [
     ['年龄', ageText(character.age)],
     ['性格', PERSONALITY_LABELS[character.personality]],
+    ['活动范围', scopeNote],
     ['忠诚', character.isMonarch ? '君主不计' : `${character.loyalty}${hint === null ? '' : `（${hint}）`}`],
     ['对己方态度', affinityAttitude(affinityToward(character, state.playerFaction))],
     ['经验', `${character.exp ?? 0}（每 ${EXP_PER_BOOST} 点得一次强化，现有 ${credits} 次）`],
@@ -2027,7 +2092,7 @@ function renderHistory(list: Element, state: GameState): void {
   )
 }
 
-/** 战报中一方的展示块：主将与参战者、兵力与战力、伤亡与剩余。 */
+/** 战报中一方的展示块：主将与参战者、兵力、伤亡与剩余。 */
 function fillBattleSide(
   container: HTMLElement,
   label: string,
@@ -2050,7 +2115,6 @@ function fillBattleSide(
   stats.className = 'battle__stats'
   stats.append(
     createBattleStat('兵力', String(side.troops)),
-    createBattleStat('战力', String(side.power)),
     createBattleStat('伤亡', String(side.casualties)),
     createBattleStat('剩余', String(side.remaining)),
   )
@@ -2484,7 +2548,6 @@ export function mountGameShell(
   const openDomesticButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-domestic"]')
   const closeDomesticButton = requireElement<HTMLButtonElement>(root, '[data-action="close-domestic"]')
   const domesticDialog = requireElement<HTMLDialogElement>(root, '.domestic')
-  const harvestActionButton = requireElement<HTMLButtonElement>(root, '[data-action="harvest-here"]')
   const officerList = requireElement<HTMLElement>(root, '.roster__officers')
   const officerCount = requireElement<HTMLElement>(root, '.roster__officers-count')
   const officersTitle = requireElement<HTMLElement>(root, '.roster__officers-title')
@@ -2562,18 +2625,21 @@ export function mountGameShell(
     }
 
     setActionCost('attack-here', String(ACTION_COSTS.attack), `${ACTION_COSTS.attack} 行动力`)
-    setActionCost(
-      'transfer-here',
-      `${ACTION_COSTS.transfer}/人`,
-      `每人 ${ACTION_COSTS.transfer} 行动力`,
-    )
+    setActionCost('station-here', String(ACTION_COSTS.station), `${ACTION_COSTS.station} 行动力`)
     setActionCost('seek-here', String(ACTION_COSTS.seekTalent), `${ACTION_COSTS.seekTalent} 行动力`)
   }
 
-  /** 选择一变就地更新提交按钮与状态行，不必等点提交才知道还差什么。 */
+  /** 选择一变就地更新提交按钮、已选计数与状态行，不必等点提交才知道还差什么。 */
   const refreshOrderSubmit = (): void => {
     if (orderRequest === null) {
       return
+    }
+
+    const multi = orderRequest.kind === 'attack' || orderRequest.kind === 'defense'
+    if (multi) {
+      const limit = selectionLimit(orderRequest.kind)
+      requireElement<HTMLElement>(root, '.order__count').textContent =
+        `已选 ${readSelection(orderList).length} / ${limit}`
     }
 
     const gap = orderSelectionGap(orderList, orderRequest.kind)
@@ -2591,6 +2657,10 @@ export function mountGameShell(
   let orderRequest: OrderRequest | null = null
   /** 编成后进入战斗的演出：编成、已结算的战报与当前幕。 */
   let battleStage: BattleStage | null = null
+  /** 战斗演出里正在拖动的武将。 */
+  let draggingCharacterId: CharacterId | null = null
+  /** 自动推进敌方行动的定时器。 */
+  let battleTimer: number | null = null
   /** 刚结束的一战里的俘虏；等演出收兵后再单独弹出俘虏窗口。 */
   let pendingCaptives: CaptiveReport[] = []
   /** 俘虏营的上一次操作反馈。 */
@@ -2615,7 +2685,7 @@ export function mountGameShell(
     dateLabel.textContent = formatDate(state)
     turnLabel.textContent = `第 ${state.currentTurn} 回合`
     renderActionPoints(actionPointsLabel, state)
-    renderDomestic(domesticDialog, state, showCosts, domesticMessage)
+    renderDomestic(domesticDialog, state, domesticMessage)
     renderFactions(factionList, state)
     applyActionCosts(showCosts)
     renderSitePanel(sitePanel, state, selection.get(), siteMessage)
@@ -2709,22 +2779,22 @@ export function mountGameShell(
     domesticDialog.close()
   })
 
-  /** 内政里的征粮：借选将框单选一名部属，随即派他征收。 */
-  harvestActionButton.addEventListener('click', () => {
-    domesticDialog.close()
-    domesticMessage = ''
-    orderRequest = { kind: 'harvest' }
-    orderStatus.textContent = ''
-    paint(session.getState())
-    orderDialog.showModal()
-  })
-
   closeOrderButton.addEventListener('click', () => {
     abandonOrder()
   })
 
+  /** 收掉自动推进的定时器，免得关窗后还在打。 */
+  const clearBattleTimer = (): void => {
+    if (battleTimer !== null) {
+      window.clearTimeout(battleTimer)
+      battleTimer = null
+    }
+  }
+
   /** 收兵：关掉演出；这一战若抓了俘虏，接上俘虏窗口。 */
   const finishStage = (): void => {
+    clearBattleTimer()
+    draggingCharacterId = null
     battleStage = null
     battlePlanDialog.close()
     if (pendingCaptives.length > 0) {
@@ -2736,6 +2806,7 @@ export function mountGameShell(
 
   /** 这一季结束：关掉演出并报出新回合；此处只留自动存档一条提示，新回合的日期与粮耗看界面本身。 */
   const settleTurn = (): void => {
+    clearBattleTimer()
     battleStage = null
     battlePlanDialog.close()
     if (session.getState().outcome !== 'ongoing') {
@@ -2748,6 +2819,7 @@ export function mountGameShell(
 
   /** 结局或读档之后收掉残留在场的演出与弹窗，回到可玩状态。 */
   const resetTransientUi = (): void => {
+    clearBattleTimer()
     battleStage = null
     battlePlanDialog.close()
     orderRequest = null
@@ -2755,26 +2827,91 @@ export function mountGameShell(
     endingDialog.close()
   }
 
-  /** 迎战编成既定：进入防守演出（情报与选择 → 单挑 → 交战与结果）。 */
-  const startDefenseStage = (request: DefenseRequest, garrison: Party | null): void => {
+  /** 进入战斗演出：先确认阵型，再逐次交锋，战后摆出战果并可就地留驻。 */
+  const startBattleStage = (
+    mode: 'attack' | 'defense',
+    battle: BattleState,
+    participants: CharacterId[],
+  ): void => {
+    clearBattleTimer()
+    draggingCharacterId = null
     battleStage = {
-      mode: 'defense',
-      party: request.party,
-      siteId: request.targetSiteId,
-      attackerId: request.attackerId,
-      garrison,
-      step: 'intel',
+      mode,
+      battle,
+      step: battle.finished ? 'result' : 'deploy',
       report: null,
-      origins: {},
       outcome: '',
+      participants,
+      log: [],
+      lastAction: null,
+      pickedSlot: null,
+      formationMessage: '',
     }
+    orderRequest = null
+    orderDialog.close()
     paint(session.getState())
     battlePlanDialog.showModal()
+    if (battle.finished) {
+      settleBattle(null)
+    }
+  }
+
+  /** 把已结算的战报摆上结果一幕。 */
+  const applyBattleResult = (report: BattleReport | null, outcome: string): void => {
+    if (battleStage === null) {
+      return
+    }
+    battleStage.report = report
+    battleStage.outcome = outcome
+    battleStage.step = 'result'
+    pendingCaptives = report === null ? [] : report.captives
+    siteMessage = outcome
+    paint(session.getState())
+  }
+
+  /**
+   * 结算这一战。进攻走我方结算，战果写入历史；防守交回推进器，取回战报。
+   * `forced` 为开发者模式专供，取攻方视角。
+   */
+  const settleBattle = (forced: ForcedOutcome | null): void => {
+    if (battleStage === null) {
+      return
+    }
+
+    if (battleStage.mode === 'attack') {
+      const result = session.finishAttack(battleStage.battle, forced)
+      if (!result.ok) {
+        statusLabel.textContent = result.reason
+        paint(session.getState())
+        return
+      }
+      applyBattleResult(result.record.battle ?? null, result.record.outcome)
+      return
+    }
+
+    if (forced !== null) {
+      battleStage.battle.attackerWins = forced === 'win'
+      battleStage.battle.finished = true
+    }
+    const signal = session.finishDefense(battleStage.battle)
+    if (signal === null) {
+      settleTurn()
+      return
+    }
+    if (signal.kind === 'battle') {
+      applyBattleResult(signal.report, signal.outcome)
+      return
+    }
+    // 又一场来犯：先收掉这一场的演出，再让玩家排下一场。
+    clearBattleTimer()
+    battleStage = null
+    battlePlanDialog.close()
+    runTurnFlow(signal)
   }
 
   /**
    * 他方来犯：先让守方定下迎战编成（复用命令弹窗），再由演出呈现这一战。
-   * 依次上演每一次来犯，全部看完才进入下一季；无将可守时无从编成，直接进演出。
+   * 无人可守则不战而下，攻方照付行动力与粮草，守方直接看到失守的战报。
    */
   const runTurnFlow = (signal: FactionTurnSignal | null): void => {
     if (signal === null) {
@@ -2787,120 +2924,192 @@ export function mountGameShell(
       return
     }
 
-    if (stationedDefendersAt(session.getState(), signal.request.targetSiteId).length === 0) {
-      startDefenseStage(signal.request, null)
+    const request = signal.request
+    if (defenderCandidates(session.getState(), request.targetSiteId).length === 0) {
+      session.deployDefense(request.battle, [])
+      startBattleStage('defense', request.battle, [])
       return
     }
 
-    orderRequest = { kind: 'defense', siteId: signal.request.targetSiteId, defense: signal.request }
+    orderRequest = { kind: 'defense', siteId: request.targetSiteId, defense: request }
     orderStatus.textContent = ''
     paint(session.getState())
     orderDialog.showModal()
   }
 
-  /** 我方进攻：编成既定，按是否由某人出马结算这一战，再转入演出的后续幕。 */
-  const resolveBattle = (challenger: CharacterId | null, forcedOutcome: ForcedOutcome | null = null): void => {
-    if (battleStage === null || battleStage.mode !== 'attack') {
+  /** 我方为当前行动的一队下令；结算一步后继续演出。 */
+  const submitBattleOrder = (order: BattleOrder): void => {
+    if (battleStage === null || battleStage.battle.finished) {
       return
     }
 
-    const party = { ...battleStage.party, challenger }
-    const result = session.attack(party, battleStage.siteId, forcedOutcome)
-    if (!result.ok) {
-      battleStage.step = 'intel'
-      statusLabel.textContent = result.reason
+    const event = session.battleAction(battleStage.battle, order)
+    if (event === null) {
+      return
+    }
+    recordBattleAction(event)
+    if (battleStage.battle.finished) {
+      settleBattle(null)
+      return
+    }
+    scheduleBattleStep()
+  }
+
+  /** 记下这一步行动，供战况记录与受击高亮。 */
+  const recordBattleAction = (event: BattleActionEvent): void => {
+    if (battleStage === null) {
+      return
+    }
+    battleStage.log = [...battleStage.log, event].slice(-8)
+    battleStage.lastAction = event
+    paint(session.getState())
+  }
+
+  /** 敌方的行动按节拍自动推进；轮到我方即停下等指令。 */
+  const scheduleBattleStep = (): void => {
+    clearBattleTimer()
+    if (battleStage === null || battleStage.step !== 'fight') {
+      return
+    }
+
+    const battle = battleStage.battle
+    if (battle.finished) {
+      settleBattle(null)
+      return
+    }
+    const actor = currentActor(battle)
+    if (actor === null) {
+      settleBattle(null)
+      return
+    }
+    if (actor.side === ourSideOf(battleStage)) {
+      return
+    }
+
+    battleTimer = window.setTimeout(() => {
+      battleTimer = null
+      if (battleStage === null || battleStage.step !== 'fight') {
+        return
+      }
+      const event = session.battleAutoAction(battle)
+      if (event === null) {
+        settleBattle(null)
+        return
+      }
+      recordBattleAction(event)
+      if (battle.finished) {
+        settleBattle(null)
+        return
+      }
+      scheduleBattleStep()
+    }, 520)
+  }
+
+  /** 阵型确认完毕，开始交锋。 */
+  const beginBattle = (): void => {
+    if (battleStage === null) {
+      return
+    }
+    battleStage.step = 'fight'
+    battleStage.formationMessage = ''
+    battleStage.pickedSlot = null
+    paint(session.getState())
+    scheduleBattleStep()
+  }
+
+  /** 阵型一幕挪动一个阵位：拖放或点选两格都走这里。 */
+  const moveToSlot = (slot: number): void => {
+    if (battleStage === null || battleStage.step !== 'deploy') {
+      return
+    }
+
+    const battle = battleStage.battle
+    const ours = ourSideOf(battleStage)
+    const unitAt = (target: number): BattleUnit | undefined =>
+      battle[ours].units.find((unit) => unit.slot === target)
+
+    if (draggingCharacterId !== null) {
+      battleStage.formationMessage = setUnitSlot(battle, draggingCharacterId, slot) ?? ''
+      draggingCharacterId = null
+      battleStage.pickedSlot = null
       paint(session.getState())
       return
     }
 
-    const report = result.record.battle ?? null
-    battleStage.party = party
-    battleStage.report = report
-    battleStage.outcome = result.record.outcome
-    // 我方不提时守军也可能反来挑战，所以看战报里有没有单挑，而不是看我方是否出马。
-    battleStage.step = report?.duel == null ? 'fight' : 'duel'
-    pendingCaptives = report === null ? [] : report.captives
-    siteMessage = result.record.outcome
+    if (battleStage.pickedSlot === null) {
+      if (unitAt(slot) === undefined) {
+        return
+      }
+      battleStage.pickedSlot = slot
+      battleStage.formationMessage = ''
+      paint(session.getState())
+      return
+    }
+
+    const moving = unitAt(battleStage.pickedSlot)
+    battleStage.pickedSlot = null
+    if (moving === undefined) {
+      paint(session.getState())
+      return
+    }
+    battleStage.formationMessage = setUnitSlot(battle, moving.characterId, slot) ?? ''
     paint(session.getState())
+  }
+
+  /** 演出一幕未完就关窗：余下交锋按自动指令打完再结算。 */
+  const abandonBattle = (): void => {
+    if (battleStage === null) {
+      return
+    }
+    clearBattleTimer()
+    if (!battleStage.battle.finished) {
+      session.battleAutoBattle(battleStage.battle)
+    }
+    settleBattle(null)
   }
 
   /**
-   * 我方防守：把迎战编成与出马决定交回推进器，随即取到这一战的战报。
-   * `forcedOutcome` 为开发者模式专供，取攻方视角——守方要赢即传 `lose`。
+   * 迎战编成被跳过：手上这一场按自动布阵，余下的来犯也一并自动结算到底。
+   * 传入 `request` 时先应下当前这一场，否则从推进器取下一场。
    */
-  const answerDefense = (challenger: CharacterId | null, forcedOutcome: ForcedOutcome | null = null): void => {
-    if (battleStage === null || battleStage.mode !== 'defense') {
-      return
-    }
-
-    const signal = session.answerDefense({
-      party: battleStage.garrison ?? undefined,
-      challenger,
-      forcedOutcome,
-    })
-    if (signal === null) {
-      settleTurn()
-      return
-    }
-    if (signal.kind !== 'battle') {
-      runTurnFlow(signal)
-      return
-    }
-
-    battleStage.report = signal.report
-    battleStage.outcome = signal.outcome
-    battleStage.step = signal.report?.duel == null ? 'fight' : 'duel'
-    siteMessage = signal.outcome
-    paint(session.getState())
-  }
-
-  /** 情报幕的选择：进攻时发起进攻，防御时就这一战作出应战决定。 */
-  const chooseDueler = (challenger: CharacterId | null): void => {
-    if (battleStage === null) {
-      return
-    }
-
-    if (battleStage.mode === 'attack') {
-      resolveBattle(challenger)
-    } else {
-      answerDefense(challenger)
-    }
-  }
-
-  /** 推进一幕：看过单挑后便是交战与结果。 */
-  const advanceStage = (): void => {
-    if (battleStage === null) {
-      return
-    }
-
-    if (battleStage.step === 'duel') {
-      battleStage.step = 'fight'
-    }
-    paint(session.getState())
-  }
-
-  /** 防御演出走到一半关掉：把剩下的来犯一律按不单挑结算到底。 */
-  const skipDefenses = (): void => {
-    let signal = battleStage?.step === 'intel' ? session.answerDefense(null) : session.continueTurn()
+  const skipDefenses = (request?: DefenseRequest): void => {
+    let signal: FactionTurnSignal | null =
+      request === undefined ? session.continueTurn() : { kind: 'defense', request }
     while (signal !== null) {
-      signal = signal.kind === 'defense' ? session.answerDefense(null) : session.continueTurn()
+      if (signal.kind === 'battle') {
+        signal = session.continueTurn()
+        continue
+      }
+
+      const battle = signal.request.battle
+      const defenders = defenderCandidates(session.getState(), battle.siteId).slice(
+        0,
+        DEFENDER_SELECTION + 1,
+      )
+      session.deployDefense(battle, autoFormation(defenders))
+      signal = session.finishDefense(battle)
     }
     settleTurn()
   }
 
-  /** 关掉命令弹窗；迎战编成按默认编成一路结算，征粮则返回内政面板。 */
+  /** 关掉命令弹窗；迎战编成按自动布阵一路结算，征兵与征粮则回到战略点窗口。 */
   const abandonOrder = (): void => {
     if (orderRequest?.kind === 'defense') {
+      const request = orderRequest.defense
       orderRequest = null
       orderDialog.close()
-      skipDefenses()
+      skipDefenses(request)
       return
     }
 
-    const backToDomestic = orderRequest?.kind === 'harvest'
+    const backSiteId =
+      orderRequest?.kind === 'harvest' || orderRequest?.kind === 'recruit'
+        ? orderRequest.siteId
+        : undefined
     orderDialog.close()
-    if (backToDomestic) {
-      domesticDialog.showModal()
+    if (backSiteId !== undefined) {
+      buildSiteId = backSiteId
+      siteInfoDialog.showModal()
     }
   }
 
@@ -2947,165 +3156,266 @@ export function mountGameShell(
       return
     }
 
-    if (orderRequest.kind === 'attack') {
-      const party = readOrderParty(orderList)
-      const state = session.getState()
-      const siteId = orderRequest.siteId ?? ''
-      const blocked = attackBlockReason(state, party, siteId)
-      if (blocked !== null) {
-        orderStatus.textContent = blocked
-        return
-      }
+    const kind = orderRequest.kind
+    const siteSelect = requireElement<HTMLSelectElement>(root, '.order__site')
+    const siteId =
+      kind === 'harvest' || kind === 'recruit'
+        ? (orderRequest.siteId ?? siteSelect.value)
+        : (orderRequest.siteId ?? '')
 
-      const origins: Record<CharacterId, SiteId> = {}
-      for (const id of [party.commander, party.deputy, party.strategist]) {
-        if (id == null) {
-          continue
-        }
-        const member = state.characters.find((item) => item.id === id)
-        if (member?.stationedSiteId != null) {
-          origins[id] = member.stationedSiteId
-        }
-      }
-
-      battleStage = {
-        mode: 'attack',
-        party,
-        siteId,
-        attackerId: null,
-        garrison: null,
-        step: 'intel',
-        report: null,
-        origins,
-        outcome: '',
-      }
-      orderStatus.textContent = ''
-      orderDialog.close()
-      renderBattleStage(root, state, battleStage, settings.get().battleShortcuts)
-      battlePlanDialog.showModal()
-      return
-    }
-
-    if (orderRequest.kind === 'defense') {
-      const garrison = readOrderParty(orderList)
-      const request = orderRequest.defense
-      orderStatus.textContent = ''
-      orderRequest = null
-      orderDialog.close()
-      if (request !== undefined) {
-        startDefenseStage(request, garrison)
-      }
-      return
-    }
-
-    if (orderRequest.kind === 'harvest') {
-      const selected = orderList.querySelector<HTMLInputElement>('.picker__checkbox:checked')
-      if (selected === null) {
-        return
-      }
-
-      const result = session.harvestGrain(selected.value)
+    if (kind === 'attack') {
+      const memberIds = readSelection(orderList)
+      const result = session.attack(siteId, autoFormationOf(session.getState(), memberIds))
       if (!result.ok) {
         orderStatus.textContent = result.reason
         return
       }
 
-      // 结果回显到内政面板，并回到内政。
       orderStatus.textContent = ''
+      startBattleStage('attack', result.battle, memberIds)
+      return
+    }
+
+    if (kind === 'defense') {
+      const request = orderRequest.defense
+      if (request === undefined) {
+        return
+      }
+      const problem = session.deployDefense(
+        request.battle,
+        autoFormationOf(session.getState(), readSelection(orderList)),
+      )
+      if (problem !== null) {
+        orderStatus.textContent = problem
+        return
+      }
+
+      orderStatus.textContent = ''
+      startBattleStage('defense', request.battle, [])
+      return
+    }
+
+    if (kind === 'station') {
+      const selected = orderList.querySelector<HTMLInputElement>('.picker__checkbox:checked')
+      const result = session.assignStation(siteId, selected?.value || null)
+      if (!result.ok) {
+        orderStatus.textContent = result.reason
+        return
+      }
+
+      siteMessage = result.record.outcome
       orderDialog.close()
-      domesticMessage = result.record.outcome
-      domesticDialog.showModal()
       paint(session.getState())
       return
     }
 
-    const characterIds = Array.from(
-      orderList.querySelectorAll<HTMLInputElement>('.picker__checkbox:checked'),
-    ).map((checkbox) => checkbox.value)
-    if (characterIds.length === 0) {
+    const selected = orderList.querySelector<HTMLInputElement>('.picker__checkbox:checked')
+    if (selected === null) {
       return
     }
 
-    const result = session.transfer(characterIds, orderRequest.siteId ?? '')
+    if (kind === 'harvest') {
+      const result = session.harvestGrain(siteId, selected.value)
+      if (!result.ok) {
+        orderStatus.textContent = result.reason
+        return
+      }
+
+      // 结果回显到战略点窗口。
+      orderStatus.textContent = ''
+      orderDialog.close()
+      buildSiteId = siteId
+      buildMessage = result.record.outcome
+      paint(session.getState())
+      siteInfoDialog.showModal()
+      return
+    }
+
+    const result = session.recruit(siteId, selected.value)
     if (!result.ok) {
       orderStatus.textContent = result.reason
       return
     }
 
-    siteMessage = result.record.outcome
+    orderStatus.textContent = ''
+    recruitMessage = result.record.outcome
     orderDialog.close()
+    buildSiteId = siteId
+    buildMessage = result.record.outcome
     paint(session.getState())
+    siteInfoDialog.showModal()
   })
 
-  /** 进攻选人：点选武将行内的主将、副将与军师标记。 */
-  orderList.addEventListener('click', (event) => {
-    const button = actionButtonOf(event)
-    if (button === null || button.dataset.action !== 'order-role') {
-      return
-    }
-
-    toggleOrderRole(orderList, button)
-    refreshOrderSubmit()
-  })
+  /** 防守战看完战果后继续推进本回合。 */
+  const continueTurnAfterDefense = (): void => {
+    clearBattleTimer()
+    battleStage = null
+    battlePlanDialog.close()
+    runTurnFlow(session.continueTurn())
+  }
 
   closeBattlePlanButton.addEventListener('click', () => {
-    if (battleStage?.mode === 'defense') {
-      skipDefenses()
+    if (battleStage === null) {
+      return
+    }
+    if (battleStage.step === 'result' && battleStage.mode === 'defense') {
+      continueTurnAfterDefense()
+      return
+    }
+    if (battleStage.step === 'deploy' || battleStage.step === 'fight') {
+      abandonBattle()
       return
     }
     finishStage()
   })
 
-  /** 演出里的一次操作：选定出马者或直接开战、推进一幕、收兵或继续本回合。 */
+  /** 演出里的一次操作：开战、攻击、防御、交给部将、收兵或继续本回合。 */
   battleStageBody.addEventListener('click', (event) => {
-    const button = actionButtonOf(event)
-    const action = button?.dataset.action
-    if (button === null || battleStage === null || action === undefined) {
+    if (!(event.target instanceof Element)) {
       return
     }
 
-    if (action === 'stage-fight') {
-      chooseDueler(null)
-    } else if (action === 'stage-forced-win' || action === 'stage-forced-lose') {
-      // 「胜利」始终指我方胜：我方在攻即攻方胜，我方在守则攻方败。
-      const wanted: ForcedOutcome = action === 'stage-forced-win' ? 'win' : 'lose'
-      if (battleStage?.mode === 'defense') {
-        answerDefense(null, wanted === 'win' ? 'lose' : 'win')
-      } else {
-        resolveBattle(null, wanted)
+    const button = event.target.closest<HTMLButtonElement>('button[data-action]')
+    if (button === null) {
+      // 阵型一幕：点选一个阵位，再点另一个即可互换。
+      if (battleStage?.step === 'deploy') {
+        const slotElement = event.target.closest<HTMLElement>('.battle-slot')
+        if (
+          slotElement !== null &&
+          battleStage !== null &&
+          slotElement.dataset.side === ourSideOf(battleStage)
+        ) {
+          const slot = Number(slotElement.dataset.slot)
+          if (Number.isInteger(slot)) {
+            moveToSlot(slot)
+          }
+        }
       }
-    } else if (action === 'stage-pick') {
-      chooseDueler(button.dataset.character ?? null)
-    } else if (action === 'stage-next') {
-      advanceStage()
-    } else if (action === 'stage-close') {
+      return
+    }
+    if (battleStage === null) {
+      return
+    }
+
+    const action = button.dataset.action
+    if (action === 'stage-begin') {
+      beginBattle()
+      return
+    }
+    if (action === 'stage-attack') {
+      const targetId = button.dataset.target
+      const actor = currentActor(battleStage.battle)
+      if (targetId === undefined || actor === null) {
+        return
+      }
+      submitBattleOrder({ characterId: actor.characterId, kind: 'attack', targetId })
+      return
+    }
+    if (action === 'stage-defend') {
+      const actor = currentActor(battleStage.battle)
+      if (actor === null) {
+        return
+      }
+      submitBattleOrder({ characterId: actor.characterId, kind: 'defend' })
+      return
+    }
+    if (action === 'stage-auto') {
+      clearBattleTimer()
+      session.battleAutoBattle(battleStage.battle)
+      settleBattle(null)
+      return
+    }
+    if (action === 'stage-forced-win' || action === 'stage-forced-lose') {
+      // 「胜利」始终指我方胜：我方在攻即攻方胜，我方在守则攻方败。
+      clearBattleTimer()
+      const wanted: ForcedOutcome = action === 'stage-forced-win' ? 'win' : 'lose'
+      settleBattle(battleStage.mode === 'defense' ? (wanted === 'win' ? 'lose' : 'win') : wanted)
+      return
+    }
+    if (action === 'stage-close') {
       finishStage()
-    } else if (action === 'stage-assign') {
+      return
+    }
+    if (action === 'stage-assign') {
       battleStage.step = 'assign'
       paint(session.getState())
-    } else if (action === 'stage-assign-confirm') {
-      const stage = battleStage
-      const checked = battleStageBody.querySelectorAll<HTMLInputElement>('.battle-plan__assign-check:checked')
-      const returns = Array.from(checked).map((box) => ({
-        characterId: box.value,
-        siteId: stage.origins[box.value] ?? '',
-      }))
-      const summary = session.assignAfterCapture(stage.siteId, returns)
+      return
+    }
+    if (action === 'stage-assign-confirm') {
+      const checked = battleStageBody.querySelector<HTMLInputElement>(
+        'input[name="battle-assign"]:checked',
+      )
+      const summary = session.stationAfterCapture(battleStage.battle.siteId, checked?.value ?? null)
       if (summary !== '') {
         siteMessage = summary
       }
       finishStage()
-    } else if (action === 'stage-continue-turn') {
-      battleStage = null
-      runTurnFlow(session.continueTurn())
+      return
+    }
+    if (action === 'stage-continue-turn') {
+      continueTurnAfterDefense()
     }
   })
 
-  /** 演出进行中不允许 Esc 直接关掉：防御演出未完结时，等同于「关闭」的处理。 */
+  /** 阵型一幕的拖放换位。 */
+  battleStageBody.addEventListener('dragstart', (event) => {
+    if (battleStage?.step !== 'deploy' || !(event.target instanceof Element)) {
+      return
+    }
+    const slotElement = event.target.closest<HTMLElement>('.battle-slot--movable')
+    if (slotElement === null) {
+      return
+    }
+    draggingCharacterId = slotElement.dataset.character ?? null
+    if (event.dataTransfer !== null) {
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData('text/plain', draggingCharacterId ?? '')
+    }
+  })
+
+  battleStageBody.addEventListener('dragover', (event) => {
+    if (battleStage?.step !== 'deploy' || !(event.target instanceof Element)) {
+      return
+    }
+    if (event.target.closest('.battle-slot') !== null) {
+      event.preventDefault()
+    }
+  })
+
+  battleStageBody.addEventListener('drop', (event) => {
+    if (battleStage?.step !== 'deploy' || !(event.target instanceof Element)) {
+      return
+    }
+    const slotElement = event.target.closest<HTMLElement>('.battle-slot')
+    if (slotElement === null || battleStage === null) {
+      return
+    }
+    if (slotElement.dataset.side !== ourSideOf(battleStage)) {
+      return
+    }
+    event.preventDefault()
+    const slot = Number(slotElement.dataset.slot)
+    if (Number.isInteger(slot)) {
+      moveToSlot(slot)
+    }
+  })
+
+  battleStageBody.addEventListener('dragend', () => {
+    draggingCharacterId = null
+  })
+
+  /** 演出进行中不允许 Esc 直接关掉：未分胜负的先自动打完再结算。 */
   battlePlanDialog.addEventListener('cancel', (event) => {
     event.preventDefault()
-    if (battleStage?.mode === 'defense') {
-      skipDefenses()
+    if (battleStage === null) {
+      return
+    }
+    if (battleStage.step === 'result' && battleStage.mode === 'defense') {
+      continueTurnAfterDefense()
+      return
+    }
+    if (battleStage.step === 'deploy' || battleStage.step === 'fight') {
+      abandonBattle()
       return
     }
     finishStage()
@@ -3120,14 +3430,24 @@ export function mountGameShell(
     abandonOrder()
   })
 
-  /** 调动与征粮选人：勾满三人后其余候选不可再选，并即时更新提交按钮。 */
+  /** 进攻、防守选人：勾满名额后其余候选不可再选，并即时更新提交按钮。 */
   orderList.addEventListener('change', () => {
+    if (orderRequest === null) {
+      return
+    }
+
+    const kind = orderRequest.kind
+    const multi = kind === 'attack' || kind === 'defense'
+    const limit = selectionLimit(kind)
     const checkboxes = Array.from(orderList.querySelectorAll<HTMLInputElement>('.picker__checkbox'))
     const checked = checkboxes.filter((checkbox) => checkbox.checked).length
 
     for (const checkbox of checkboxes) {
+      const locked = checkbox.dataset.locked === 'true'
       checkbox.disabled =
-        checkbox.dataset.blocked === 'true' || (!checkbox.checked && checked >= MAX_TRANSFER_PARTY)
+        locked ||
+        checkbox.dataset.blocked === 'true' ||
+        (multi && !checkbox.checked && checked >= limit)
     }
 
     refreshOrderSubmit()
@@ -3154,10 +3474,6 @@ export function mountGameShell(
       disbandDialog.showModal()
       return
     }
-
-    const result = session.recruit(characterId)
-    recruitMessage = result.ok ? result.record.outcome : result.reason
-    paint(session.getState())
   })
 
   /** 详情页：返回列表、赏赐与解任。 */
@@ -3299,8 +3615,8 @@ export function mountGameShell(
 
     if (action === 'attack-here') {
       orderRequest = { kind: 'attack', siteId }
-    } else if (action === 'transfer-here') {
-      orderRequest = { kind: 'transfer', siteId }
+    } else if (action === 'station-here') {
+      orderRequest = { kind: 'station', siteId }
     } else {
       return
     }
@@ -3325,6 +3641,30 @@ export function mountGameShell(
     const result = session.build(buildSiteId, kind as DevelopmentKind)
     buildMessage = result.ok ? result.record.outcome : result.reason
     paint(session.getState())
+  })
+
+  /** 战略点窗口里的征兵、征粮：带着当前城池直接进入选将。 */
+  siteInfoDialog.addEventListener('click', (event) => {
+    const button = actionButtonOf(event)
+    const action = button?.dataset.action
+    if (button === null || (action !== 'recruit-here' && action !== 'harvest-here')) {
+      return
+    }
+
+    const siteId = button.dataset.site ?? buildSiteId
+    if (siteId === null || siteId === undefined) {
+      return
+    }
+
+    siteInfoDialog.close()
+    buildMessage = ''
+    orderRequest = {
+      kind: action === 'recruit-here' ? 'recruit' : 'harvest',
+      siteId,
+    }
+    orderStatus.textContent = ''
+    paint(session.getState())
+    orderDialog.showModal()
   })
 
   /** 外交面板：先选交涉对象，再执行动作；返回可退回势力列表。 */

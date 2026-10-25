@@ -64,24 +64,6 @@ export interface SiteDevelopment {
 export type DevelopmentKind = keyof SiteDevelopment
 
 /**
- * 无主的城池与关隘的守军：凭险自守的地方武装，独立于武将体系之外——
- * 不计忠诚与偏好、不产俘虏、不败退迁移、不随季增长；名号、兵力与武力、统率、智谋三项能力齐备。
- * 野地无归属、无人烟，不设守军。
- */
-export interface SiteGuard {
-  /** 名号，如「义军·领袖」。 */
-  name: string
-  /** 兵力。 */
-  troops: number
-  /** 武力，参与单挑结算。 */
-  might: number
-  /** 统率，参与编成与主将取用。 */
-  command: number
-  /** 智谋，参与战力结算。 */
-  intellect: number
-}
-
-/**
  * 战略点：领土与进攻的基本单位。
  * 不以行政级别为限，城市、关隘、野地皆可成为战略点。
  */
@@ -103,11 +85,6 @@ export interface Site {
   granary?: number
   /** 三项开发等级；剧本数据可省略，开局时补为全 0。 */
   development?: SiteDevelopment
-  /**
-   * 无主战略点凭险自守的守军；开局时补上，有主点不设。
-   * 独立于武将体系，进攻得胜占领时清除。
-   */
-  guard?: SiteGuard
 }
 
 /** 天下地理结构。 */
@@ -124,6 +101,12 @@ export type CharacterStatus = 'wild' | 'serving' | 'captured' | 'retired'
 /** 人物卡池层级：基础、二级、三级。层级越高，越需要更高的州控制度才会放出。 */
 export type CharacterTier = 'basic' | 'second' | 'third'
 
+/**
+ * 兵种：随人而定，不随战事改变。机动决定行动顺序，射程决定可攻击的排，
+ * 攻防决定伤害与减伤，三者互不相克。
+ */
+export type ArmType = 'infantry' | 'archer' | 'cavalry'
+
 /** 性格标签：武将的性情，集中定义。决定基准招聘成功率，将来也用于送礼、答问等交互。 */
 export const PERSONALITIES = ['open', 'scheming', 'brave', 'steady', 'cautious', 'proud'] as const
 
@@ -131,7 +114,7 @@ export type Personality = (typeof PERSONALITIES)[number]
 
 /**
  * 武将：能力、倾向与处境。
- * 兵种随部队留待迭代 8。
+ * 在仕者列入所属势力的名册，名册不限定驻地；驻守只是名册内的一项指派。
  */
 export interface Character {
   id: CharacterId
@@ -141,6 +124,13 @@ export interface Character {
   factionId: FactionId | null
   /** 所在州，决定可被哪一州寻访到。 */
   provinceId: ProvinceId
+  /**
+   * 活动范围：有序的城池清单，首位为最可能出现之地。
+   * 驻守、征兵、征粮、防守与出兵都受它限制；在野者的招募州由首位所在州决定。
+   */
+  scope: SiteId[]
+  /** 无籍武将当季随机落脚的自有城池；活动范围内仍有本方城池者不记。 */
+  roamingSiteId?: SiteId | null
   /** 武力，参与战斗结算。 */
   might: number
   /** 统率，参与战斗结算。 */
@@ -165,7 +155,9 @@ export interface Character {
   loyalty: number
   /** 是否为所在势力的君主，每个势力有且只有一人。 */
   isMonarch: boolean
-  /** 驻守的自有战略点，供部队定位与调动；未出仕者为 null。 */
+  /** 兵种，随人而定，不随战事改变。 */
+  armType: ArmType
+  /** 驻守的自有战略点；在名册待命或在野者为 null。 */
   stationedSiteId: SiteId | null
   /** 所统率部队的兵力；未出仕者为 0。 */
   troops: number
@@ -263,7 +255,6 @@ export type ActionKind =
   | 'recruit'
   | 'harvestGrain'
   | 'build'
-  | 'transfer'
   | 'attack'
   | 'declareWar'
   | 'makePeace'
@@ -271,6 +262,7 @@ export type ActionKind =
   | 'gift'
   | 'demand'
   | 'dismiss'
+  | 'station'
   | 'reward'
   | 'strengthen'
   | 'disband'
@@ -285,15 +277,13 @@ export type ActionRecordKind = ActionKind | 'defect' | 'event'
 export interface BattleReportSide {
   /** 主将姓名；守方无将时为空串。 */
   commander: string
-  /** 参战武将姓名，按主将、副将、军师排列；无将时为空。 */
+  /** 参战武将姓名，按上场次序排列；无将时为空。 */
   officers: string[]
-  /** 投入兵力。守方不含防守补正，仍是实际驻守的兵力。 */
+  /** 投入兵力，即开战时的战兵总数。 */
   troops: number
-  /** 战力，含随机浮动与防守补正，供双方对比。 */
-  power: number
-  /** 伤亡兵力。 */
+  /** 伤亡兵力，按战损比例折算后的实际减员。 */
   casualties: number
-  /** 战后剩余兵力；不含因败退无路被俘者。 */
+  /** 战后剩余兵力。 */
   remaining: number
 }
 
@@ -307,40 +297,14 @@ export interface CaptiveReport {
   attitude: CaptiveAttitude
 }
 
-/** 一场战斗里单挑的结果，供战斗演出与战报使用；提出单挑的可以是攻方，也可以是守方。 */
-export interface DuelReport {
-  /** 提出单挑的是哪一方。 */
-  challengerSide: 'attacker' | 'defender'
-  /** 挑战方出马者姓名。 */
-  challenger: string
-  /** 挑战者标识。 */
-  challengerId: CharacterId
-  /** 应战方出马者姓名；拒战或无人可应时为空串。 */
-  answerer: string
-  /** 应战者标识；无应战者时为 null。 */
-  answererId: CharacterId | null
-  /** 应战方是否拒战（含无人可应）。 */
-  refused: boolean
-  /** 挑战方是否取胜；拒战时为 null。 */
-  challengerWon: boolean | null
-  /** 阵亡者姓名；无人阵亡时为空串。 */
-  fallen: string
-  /** 挑战方这一场士气的增减。 */
-  challengerMoraleDelta: number
-  /** 应战方这一场士气的增减。 */
-  answererMoraleDelta: number
-}
-
 /** 一场战斗的战报；规则层结算时产出，表现层只读。 */
 export interface BattleReport {
   /** 目标战略点名。 */
   siteName: string
-  /** 目标是否无守军。 */
+  /** 目标是否无人可守。 */
   undefended: boolean
   /** 攻方是否获胜。 */
   attackerWins: boolean
-  /** 交战中的单挑；未发起单挑时为空。 */
-  duel: DuelReport | null
   attacker: BattleReportSide
   defender: BattleReportSide
   /** 被俘武将的去向；无人被俘时为空。 */

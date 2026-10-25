@@ -1,6 +1,6 @@
 import { affinityToward, NEUTRAL_AFFINITY } from './affinity'
 import { isServing } from './characters'
-import type { Character, CharacterTier, FactionId, GameState } from './model'
+import type { Character, CharacterTier, FactionId, GameState, ProvinceId } from './model'
 import { clearContacts } from './seekTalent'
 
 /** 各挫折带来的忠诚下降，集中定义。 */
@@ -67,9 +67,52 @@ export function loyaltyHint(loyalty: number, threshold: number = DEFECT_THRESHOL
 }
 
 /**
+ * 叛离者回归在野后所在的州：取其原属势力占点最多的州；势力已无据点时保留原州。
+ * 同数时按战略点的排列顺序取先者，保证固定局面下去向一致。
+ */
+export function wildProvinceAfter(
+  state: GameState,
+  factionId: FactionId,
+  fallback: ProvinceId,
+): ProvinceId {
+  const counts = new Map<string, number>()
+  for (const site of state.geography.sites) {
+    if (site.owner === factionId) {
+      counts.set(site.provinceId, (counts.get(site.provinceId) ?? 0) + 1)
+    }
+  }
+
+  let best: string | null = null
+  let most = 0
+  for (const [provinceId, count] of counts) {
+    if (count > most) {
+      best = provinceId
+      most = count
+    }
+  }
+
+  return best ?? fallback
+}
+
+/** 归入某州的在野池：所在州与活动范围一并改为该州诸城，招募州随后按首位城池计。 */
+export function settleWildInProvince(
+  state: GameState,
+  character: Character,
+  provinceId: ProvinceId,
+): void {
+  character.provinceId = provinceId
+  const sites = state.geography.sites
+    .filter((site) => site.provinceId === provinceId)
+    .map((site) => site.id)
+  if (sites.length > 0) {
+    character.scope = sites
+  }
+}
+
+/**
  * 触发叛离：忠诚低于其阈值者在仕者离走，转为在野。阈值以 40 为基准、随对主家的偏好小幅浮动（见 `defectThresholdFor`）。
  * 只在受挫（败仗、失守）时判定——忠诚低而不再受挫者不会自行离开，等下一次触发（将来的离间、笼络）。
- * 转为在野后：州取驻地所在州、卡池层级按能力、对原势力偏好下降、清出各势力的接触名单。
+ * 转为在野后：州取原属势力占点最多者、卡池层级按能力、对原势力偏好下降、清出各势力的接触名单。
  * 返回去向说明并写入历史；未叛离返回 null。
  */
 export function maybeDefect(state: GameState, character: Character, reason: string): string | null {
@@ -81,14 +124,16 @@ export function maybeDefect(state: GameState, character: Character, reason: stri
     return null
   }
 
-  const station = state.geography.sites.find((site) => site.id === character.stationedSiteId)
-
   character.status = 'wild'
   character.factionId = null
   character.stationedSiteId = null
   character.troops = 0
   character.loyalty = 0
-  character.provinceId = station?.provinceId ?? character.provinceId
+  settleWildInProvince(
+    state,
+    character,
+    wildProvinceAfter(state, factionId, character.provinceId),
+  )
   character.tier = wildTierFor(character)
   character.affinities[factionId] = Math.max(
     0,

@@ -216,12 +216,12 @@ describe('resolveFactionOrder', () => {
       'caocao',
       'sunquan',
       'liuzhang',
-      'mateng',
-      'hansui',
-      'gongsunkang',
-      'shixie',
       'zhanglu',
-      'yuanshi',
+      'mateng',
+      'jingnan',
+      'shixie',
+      'gongsunkang',
+      'nanman',
     ])
   })
 

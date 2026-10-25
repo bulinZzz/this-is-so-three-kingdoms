@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GameSession } from '../src/app/gameSession'
+import { autoDeployment } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
 import { granaryOf } from '../src/core/granary'
 import { ABILITY_MAX, BOOST_GAIN, EXP_PER_BOOST, LOSS_EXP, WIN_EXP, boostCredits, strengthen } from '../src/core/growth'
@@ -30,7 +31,9 @@ function serving(
     affinities: {},
     loyalty: 90,
     isMonarch: false,
+    armType: 'infantry',
     tier: null,
+    scope: [over.stationedSiteId ?? 'a'],
     ...over,
   }
 }
@@ -56,9 +59,9 @@ function j10Scenario(): Scenario {
     },
     characters: [
       // 征粮靠内政与兵力，征兵靠统率，出征靠兵力——三件事各是不同的人。
-      serving({ id: 'farmer', name: '屯田', factionId: 'liubei', stationedSiteId: 'a', troops: 3000, command: 40, politics: 80 }),
+      serving({ id: 'farmer', name: '屯田', factionId: 'liubei', stationedSiteId: null, troops: 3000, command: 40, politics: 80 }),
       serving({ id: 'recruiter', name: '招兵', factionId: 'liubei', stationedSiteId: 'a', troops: 500, command: 90, politics: 30 }),
-      serving({ id: 'warrior', name: '战将', factionId: 'liubei', stationedSiteId: 'a', troops: 9000, command: 80, might: 90 }),
+      serving({ id: 'warrior', name: '战将', factionId: 'liubei', stationedSiteId: null, troops: 9000, command: 80, might: 90 }),
       serving({ id: 'defender', name: '守将', factionId: 'caocao', stationedSiteId: 'b', troops: 300, command: 60 }),
     ],
   }
@@ -95,9 +98,12 @@ function playerGrain(state: GameState): number {
 function runJ10Chain(session: GameSession): GameState {
   const state = session.getState()
 
-  session.harvestGrain('farmer')
-  session.recruit('recruiter')
-  session.attack({ commander: 'warrior' }, 'b')
+  session.harvestGrain('a', 'farmer')
+  session.recruit('a', 'recruiter')
+  const opened = session.attack('b', autoDeployment(['warrior']))
+  if (opened.ok) {
+    session.finishAttack(opened.battle)
+  }
   session.endTurn()
 
   return state
@@ -112,7 +118,7 @@ describe('迭代 10 全链（无画面）', () => {
     const grainBefore = playerGrain(state)
 
     // 征粮：取量以驻地存粮为上限，并自存粮中扣除。
-    expect(session.harvestGrain('farmer').ok).toBe(true)
+    expect(session.harvestGrain('a', 'farmer').ok).toBe(true)
     const gained = playerGrain(state) - grainBefore
     expect(gained).toBe(granaryBefore)
     expect(granaryOf(site)).toBe(0)
@@ -121,14 +127,19 @@ describe('迭代 10 全链（无画面）', () => {
     const recruiter = characterOf(state, 'recruiter')
     const troopsBefore = recruiter.troops
     const populationBefore = site.population
-    expect(session.recruit('recruiter').ok).toBe(true)
+    expect(session.recruit('a', 'recruiter').ok).toBe(true)
     expect(recruiter.troops).toBeGreaterThan(troopsBefore)
     expect(site.population).toBeLessThan(populationBefore)
 
     // 出征：胜方参战者得经验，败方守军得更多（败仗长进更多）。
     const warrior = characterOf(state, 'warrior')
     expect(expOf(warrior)).toBe(0)
-    expect(session.attack({ commander: 'warrior' }, 'b').ok).toBe(true)
+    const opened = session.attack('b', autoDeployment(['warrior']))
+    expect(opened.ok).toBe(true)
+    if (!opened.ok) {
+      return
+    }
+    expect(session.finishAttack(opened.battle).ok).toBe(true)
     expect(siteOf(state, 'b').owner).toBe('liubei')
     expect(expOf(warrior)).toBe(WIN_EXP)
     expect(expOf(characterOf(state, 'defender'))).toBe(LOSS_EXP)

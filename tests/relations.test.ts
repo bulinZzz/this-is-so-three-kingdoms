@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attack, isAttackable } from '../src/core/battle'
+import { attackBlockReason, isAttackable } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
 import { declareWar } from '../src/core/diplomacy'
 import {
@@ -56,10 +56,9 @@ describe('势力关系', () => {
     const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
 
     expect(isAttackable(state, 'chaisang')).toBe(false)
-    expect(attack(state, { commander: 'guanyu' }, 'chaisang')).toEqual({
-      ok: false,
-      reason: '与对方同盟，不能进攻',
-    })
+    expect(
+      attackBlockReason(state, 'chaisang', [], state.playerFaction, { skipParty: true }),
+    ).toBe('与对方非敌对，须先宣战')
   })
 })
 

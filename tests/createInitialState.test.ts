@@ -12,15 +12,15 @@ describe('createInitialState', () => {
     expect(state.currentTurn).toBe(1)
     expect(state.factions.map((faction) => faction.name)).toEqual([
       '曹操',
-      '刘备',
       '孙权',
+      '刘备',
       '刘璋',
-      '马腾',
-      '韩遂',
-      '公孙康',
-      '士燮',
       '张鲁',
-      '袁氏',
+      '马腾',
+      '荆南',
+      '士燮',
+      '公孙康',
+      '南蛮',
     ])
     expect(state.factions.some((faction) => faction.id === state.playerFaction)).toBe(true)
   })
@@ -104,6 +104,7 @@ describe('createInitialState', () => {
           status: 'wild',
           factionId: null,
           provinceId: 'jing',
+          scope: ['gongan'],
           might: 50,
           command: 50,
           intellect: 50,
@@ -113,6 +114,7 @@ describe('createInitialState', () => {
           affinities: {},
           loyalty: 0,
           isMonarch: false,
+          armType: 'infantry',
           stationedSiteId: null,
           troops: 0,
           tier: null,

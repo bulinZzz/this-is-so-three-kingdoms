@@ -1,5 +1,19 @@
 import type { ActionResult } from '../core/actions'
-import { assignAfterCapture as runAssignAfterCapture, attack as runAttack, type AttackParty, type DefenseChoice, type ForcedOutcome } from '../core/battle'
+import {
+  autoAction,
+  autoBattle,
+  deployDefenders,
+  finishBattle,
+  openAttack,
+  resolveAction,
+  stationAfterCapture as runStationAfterCapture,
+  type BattleActionEvent,
+  type BattleDeployment,
+  type BattleOpenResult,
+  type BattleOrder,
+  type BattleState,
+  type ForcedOutcome,
+} from '../core/battle'
 import { executeCaptive as runExecuteCaptive, persuade as runPersuade, releaseCaptive as runReleaseCaptive } from '../core/captives'
 import { createInitialState } from '../core/createInitialState'
 import { build as runBuild } from '../core/development'
@@ -12,7 +26,7 @@ import {
 } from '../core/diplomacy'
 import { LocalSaveStore } from '../core/localSaveStore'
 import { strengthen as runStrengthen } from '../core/growth'
-import { harvestGrain as runHarvestGrain, recruit as runRecruit, transfer as runTransfer } from '../core/military'
+import { assignStation as runAssignStation, harvestGrain as runHarvestGrain, recruit as runRecruit } from '../core/military'
 import type { AbilityKind, CharacterId, DevelopmentKind, FactionId, GameState, Scenario, SiteId } from '../core/model'
 import { disband as runDisband, dismiss as runDismiss, reward as runReward } from '../core/personnel'
 import { createRandom, type Random } from '../core/random'
@@ -106,9 +120,9 @@ export class GameSession {
     return this.advanceTurnStep(null)
   }
 
-  /** 就上一次来犯作出决定：迎战编成与出马者；null 表示按默认编成、不单挑。 */
-  answerDefense(decision: DefenseChoice | null): FactionTurnSignal | null {
-    return this.advanceTurnStep(decision)
+  /** 把打完的防守战交回推进器：结算战果并取下一场来犯，或跑完本回合。 */
+  finishDefense(battle: BattleState): FactionTurnSignal | null {
+    return this.advanceTurnStep(battle)
   }
 
   /** 演出看完后继续推进本回合：取下一场来犯，或跑完本回合。 */
@@ -121,7 +135,7 @@ export class GameSession {
    * 每步之后结算结局：玩家中途覆灭即停下，不再让余下势力出手。
    * 已结束的一局不写自动存档，留下上一回合开局的可玩存档供重来。
    */
-  private advanceTurnStep(decision: DefenseChoice | null): FactionTurnSignal | null {
+  private advanceTurnStep(decision: BattleState | null): FactionTurnSignal | null {
     if (this.turnRun === null) {
       return null
     }
@@ -152,14 +166,19 @@ export class GameSession {
     return this.apply(runVisit(this.state, this.drawRandom, characterId))
   }
 
-  /** 在武将驻地征兵；成功后通知界面。 */
-  recruit(characterId: CharacterId): ActionResult {
-    return this.apply(runRecruit(this.state, characterId))
+  /** 在本方某处战略点征兵，由名册中选一名武将执行；成功后通知界面。 */
+  recruit(siteId: SiteId, characterId: CharacterId): ActionResult {
+    return this.apply(runRecruit(this.state, siteId, characterId))
   }
 
-  /** 派部属征粮；成功后通知界面。 */
-  harvestGrain(characterId: CharacterId): ActionResult {
-    return this.apply(runHarvestGrain(this.state, characterId))
+  /** 在本方某处战略点征粮，由名册中选一名武将执行；成功后通知界面。 */
+  harvestGrain(siteId: SiteId, characterId: CharacterId): ActionResult {
+    return this.apply(runHarvestGrain(this.state, siteId, characterId))
+  }
+
+  /** 任命或撤换某点的驻将；传 null 表示撤下现任。成功后通知界面。 */
+  assignStation(siteId: SiteId, characterId: CharacterId | null): ActionResult {
+    return this.apply(runAssignStation(this.state, siteId, characterId))
   }
 
   /** 赏赐麾下武将，花金钱提升其忠诚；成功后通知界面。 */
@@ -187,19 +206,61 @@ export class GameSession {
     return this.apply(runBuild(this.state, siteId, kind))
   }
 
-  /** 把一批部属调到相邻的自有战略点；成功后通知界面。 */
-  transfer(characterIds: readonly CharacterId[], targetSiteId: SiteId): ActionResult {
-    return this.apply(runTransfer(this.state, characterIds, targetSiteId))
+  /**
+   * 开战：校验目标与出征者，扣行动力与粮草并排好我方阵形；成功后由界面逐回合指挥。
+   * 守方由规则层自动布阵。
+   */
+  attack(targetSiteId: SiteId, deployments: readonly BattleDeployment[]): BattleOpenResult {
+    const result = openAttack(this.state, targetSiteId, deployments)
+    if (result.ok) {
+      this.notify()
+    }
+
+    return result
   }
 
-  /** 派主将、副将与军师合攻相邻的他方或无主战略点；成功后通知界面，地图随领土变化刷新。 */
-  attack(party: AttackParty, targetSiteId: SiteId, forcedOutcome: ForcedOutcome | null = null): ActionResult {
-    return this.apply(runAttack(this.state, party, targetSiteId, undefined, null, forcedOutcome))
+  /** 为当前行动的一队下令，结算一次行动；返回演出所需的结果。 */
+  battleAction(battle: BattleState, order: BattleOrder): BattleActionEvent | null {
+    const event = resolveAction(battle, order)
+    if (event !== null) {
+      this.notify()
+    }
+
+    return event
   }
 
-  /** 占领后的分派驻守：谁留驻新点、谁回原驻地；不耗行动力，随后通知界面。 */
-  assignAfterCapture(siteId: SiteId, returns: readonly { characterId: CharacterId; siteId: SiteId }[]): string {
-    const summary = runAssignAfterCapture(this.state, siteId, returns)
+  /** 由规则层替当前行动的一队下令，结算一次行动；他方行动与「交给部将」共用。 */
+  battleAutoAction(battle: BattleState): BattleActionEvent | null {
+    const event = autoAction(battle)
+    if (event !== null) {
+      this.notify()
+    }
+
+    return event
+  }
+
+  /** 余下的战斗一路推演到底。 */
+  battleAutoBattle(battle: BattleState): void {
+    autoBattle(battle)
+    this.notify()
+  }
+
+  /** 我方进攻打完：折算战损、定去向、易主并写入历史；成功后通知界面。 */
+  finishAttack(battle: BattleState, forcedOutcome: ForcedOutcome | null = null): ActionResult {
+    return this.apply(finishBattle(this.state, battle, forcedOutcome))
+  }
+
+  /** 我方守土：排定守方阵形；不合规时返回原因。 */
+  deployDefense(battle: BattleState, deployments: readonly BattleDeployment[]): string | null {
+    const problem = deployDefenders(battle, this.state, deployments)
+    this.notify()
+
+    return problem
+  }
+
+  /** 占领后指定一人留驻新点，不耗行动力；随后通知界面。 */
+  stationAfterCapture(siteId: SiteId, characterId: CharacterId | null): string {
+    const summary = runStationAfterCapture(this.state, siteId, characterId)
     this.notify()
 
     return summary

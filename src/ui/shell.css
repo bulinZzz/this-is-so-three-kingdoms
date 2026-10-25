@@ -367,10 +367,47 @@
   list-style: none;
 }
 
+/* 征兵、征粮先择一处自有战略点。 */
+.order__site-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #b9a87f;
+}
+
+.order__site-row[hidden] {
+  display: none;
+}
+
+.order__site {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid #3a3128;
+  border-radius: 5px;
+  background: #1b1712;
+  color: #e8d9b5;
+  font-family: inherit;
+  font-size: 13px;
+}
+
 .order__target {
   margin: 0;
   font-size: 14px;
   color: #e8d9b5;
+}
+
+/* 选将计数：一眼看出已选几名、还差几名。 */
+.order__count {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #9a8b70;
+}
+
+.order__count[hidden] {
+  display: none;
 }
 
 .order__submit {
@@ -431,6 +468,11 @@
 .battle-plan__line.battle-plan__verdict {
   font-size: 16px;
   color: #e8d9b5;
+}
+
+.battle-plan__line.battle-plan__note {
+  font-size: 12px;
+  color: #9a8b70;
 }
 
 .battle-plan__actions {
@@ -528,6 +570,200 @@
 .battle__stat-value {
   font-size: 15px;
   color: #e8d9b5;
+}
+
+/* 战场：敌军在上、我军在下，各排两列，前列靠近对方。 */
+.battle-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #2a241c;
+  border-radius: 6px;
+  background: #201a13;
+}
+
+.battle-field__side {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #9a8b70;
+}
+
+.battle-field__morale {
+  color: #c8b081;
+}
+
+.battle-field__row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.battle-field__label {
+  flex: none;
+  width: 26px;
+  align-self: center;
+  font-size: 11px;
+  color: #6f6250;
+  text-align: center;
+}
+
+.battle-field__clash {
+  margin: 2px 0;
+  font-size: 12px;
+  color: #6b5c42;
+  text-align: center;
+}
+
+/* 一个阵位：名字、兵种兵力与战兵条；空位留白以便换阵。 */
+.battle-slot {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  min-height: 58px;
+  padding: 6px 8px;
+  border: 1px solid #3a3128;
+  border-radius: 5px;
+  background: #1b1712;
+}
+
+.battle-slot--empty {
+  align-items: center;
+  justify-content: center;
+  border-style: dashed;
+  color: #4a4033;
+  font-size: 12px;
+}
+
+.battle-slot--movable {
+  cursor: grab;
+}
+
+.battle-slot--movable:hover {
+  border-color: #6b5c42;
+}
+
+.battle-slot--picked {
+  border-color: #c8a35a;
+  box-shadow: 0 0 0 1px #c8a35a inset;
+}
+
+/* 已退场的队伍留在原阵位作个记录。 */
+.battle-slot--out {
+  opacity: 0.4;
+}
+
+/* 当前行动者高亮。 */
+.battle-slot--acting {
+  border-color: #d8b25e;
+  background: #2f2517;
+}
+
+.battle-slot--hit {
+  animation: battle-hit 0.32s ease-out;
+}
+
+.battle-slot--struck {
+  animation: battle-struck 0.32s ease-out;
+}
+
+@keyframes battle-hit {
+  0% {
+    background: #4a2620;
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(-3px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+@keyframes battle-struck {
+  0% {
+    transform: translateX(0);
+  }
+  50% {
+    transform: translateX(3px);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.battle-slot__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.battle-slot__name {
+  overflow: hidden;
+  font-size: 13px;
+  color: #e8d9b5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.battle-slot__meta {
+  flex: none;
+  font-size: 11px;
+  color: #9a8b70;
+}
+
+.battle-slot__bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: #2a241c;
+  overflow: hidden;
+}
+
+.battle-slot__fill {
+  display: block;
+  height: 100%;
+  background: #8a7448;
+  transition: width 0.3s ease;
+}
+
+.battle-slot__state {
+  font-size: 10px;
+  color: #c8b081;
+}
+
+/* 按钮就落在目标或自己身上：攻击在敌军，防御在自己。 */
+.battle-slot__action {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border: 1px solid #6b5c42;
+  border-radius: 4px;
+  background: #2a2219;
+  color: #e8d9b5;
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.battle-slot__action:hover {
+  background: #362c20;
+}
+
+.battle-slot__action--attack {
+  border-color: #8a4a3a;
+  color: #f0c0a8;
+}
+
+.battle-slot__action--attack:hover {
+  background: #4a2620;
 }
 
 .captives__list {
@@ -786,59 +1022,6 @@
   border-radius: 999px;
   font-size: 11px;
   color: #c8b48c;
-}
-
-/* 进攻选人：一行内比较各武将，右侧点选主将、副将、军师。 */
-.picker--order {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.picker--order .picker__name {
-  flex: none;
-  width: 3.5em;
-}
-
-.picker--order .picker__meta {
-  flex: 1;
-  min-width: 0;
-}
-
-.picker--order .picker__status {
-  margin-left: 0;
-}
-
-.picker__roles {
-  flex: none;
-  display: flex;
-  gap: 4px;
-}
-
-.picker__role {
-  padding: 3px 8px;
-  border: 1px solid #3a3128;
-  border-radius: 5px;
-  background: #1b1712;
-  color: #9a8b70;
-  font-family: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.picker__role:hover:not(:disabled) {
-  border-color: #6b5c42;
-  color: #e8d9b5;
-}
-
-.picker__role--active {
-  border-color: #8a7448;
-  background: #3a2f20;
-  color: #f0e2bd;
-}
-
-.picker__role:disabled {
-  cursor: not-allowed;
 }
 
 .officer-action {
@@ -1358,6 +1541,16 @@
 .site-info__facts dd {
   margin: 0;
   color: #e8d9b5;
+}
+
+.site-info__facts dd.site-info__fact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.site-info__facts dd.site-info__fact .site-info__button {
+  margin-left: auto;
 }
 
 .roster__section-title {

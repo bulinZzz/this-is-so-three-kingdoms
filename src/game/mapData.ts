@@ -16,33 +16,20 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   tongguan: [110.25, 34.55],
   chencang: [107.2, 34.36],
   zhiwugu: [108.15, 33.75],
-  // 五丈原只留在旧图，新图已撤去这一点。
-  wuzhangyuan: [107.62, 34.28],
 
   // 兖州
-  guandu: [113.98, 34.72],
   chenliu: [114.62, 34.67],
-  baima: [114.52, 35.58],
-  puyang: [115.03, 35.76],
 
   // 豫州
   xudu: [113.85, 34.03],
-  xiaopei: [116.94, 34.73],
 
   // 徐州
   pengcheng: [117.19, 34.27],
   xiapi: [117.94, 33.91],
   guangling: [119.42, 32.39],
 
-  // 青州
-  linzi: [118.31, 36.83],
-
   // 冀州
   ye: [114.62, 36.35],
-  nanpi: [116.71, 38.04],
-
-  // 并州
-  jinyang: [112.55, 37.87],
 
   // 幽州
   jicheng: [116.4, 39.9],
@@ -57,7 +44,6 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   // 谯即谯县，曹操本贯，在许都与寿春之间的涡水一线。
   qiao: [115.78, 33.85],
   hefei: [117.22, 31.86],
-  lujiang: [117.29, 31.26],
   jianye: [118.8, 32.06],
   jingkou: [119.45, 31.95],
   ruxu: [117.86, 31.6],
@@ -69,13 +55,9 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   // 皖城即皖县，庐江郡治。
   wanxian: [116.58, 30.63],
   yuzhang: [115.86, 28.68],
-  poyang: [116.7, 29.0],
-  danyang: [118.76, 30.94],
 
   // 荆州
   wancheng: [112.53, 33.0],
-  bowangpo: [113.1, 33.28],
-  xinye: [112.36, 32.52],
   fancheng: [112.16, 32.06],
   xiangyang: [112.12, 32.01],
   jiangling: [112.19, 30.35],
@@ -106,7 +88,6 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   taohuadu: [98.9, 24.95],
 
   // 凉州
-  hanzhong: [107.03, 33.07],
   jieting: [105.98, 35.0],
   qishan: [105.18, 34.19],
   wudu: [105.62, 33.75],
@@ -129,7 +110,7 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
 /**
  * 表现层的错位量，单位为像素。
  * 少数地点在真实地理上过于接近（樊城与襄阳隔汉水相望、
- * 洛阳与虎牢关同在洛阳盆地、濮阳与白马隔河相望、当阳一带的长坂坡与夷陵、夷陵与秭归同在西陵峡口、
+ * 洛阳与虎牢关同在洛阳盆地、当阳一带的长坂坡与夷陵、夷陵与秭归同在西陵峡口、
  * 雒城、绵竹与成都同在成都平原上相距不远、
  * 定军山在沔阳与南郑之间与南郑相距不远、祁山与天水在陇右相距不远），图上按制图惯例把它们略微错开，地理坐标本身保持真实值。
  * 彭城另因紧贴徐、豫州界而东移：州界在城西约七公里，而图标半径约二十二公里、名称又落在点下约三十公里，
@@ -138,7 +119,6 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
 export const SITE_DISPLAY_OFFSETS: Partial<Record<SiteId, { dx: number; dy: number }>> = {
   fancheng: { dx: -13, dy: -6 },
   xiangyang: { dx: 13, dy: 6 },
-  puyang: { dx: 1, dy: -2 },
   changbanpo: { dx: 0, dy: -8 },
   zigui: { dx: -11, dy: -10 },
   luocheng: { dx: 10, dy: 0 },

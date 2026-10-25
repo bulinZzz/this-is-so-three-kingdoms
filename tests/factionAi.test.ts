@@ -115,13 +115,15 @@ function warScene() {
     characters: [
       {
         id: 'lord', name: '甲将', status: 'serving', factionId: 'liubei', provinceId: 'p',
+        scope: ['a'],
         might: 60, command: 60, intellect: 50, politics: 50, age: 40, personality: 'steady',
-        affinities: {}, loyalty: 90, isMonarch: true, stationedSiteId: 'a', troops: 500, tier: null,
+        affinities: {}, loyalty: 90, isMonarch: true, armType: 'infantry', stationedSiteId: 'a', troops: 500, tier: null,
       },
       {
         id: 'raider', name: '乙将', status: 'serving', factionId: 'caocao', provinceId: 'p',
+        scope: ['b'],
         might: 70, command: 70, intellect: 60, politics: 50, age: 40, personality: 'steady',
-        affinities: {}, loyalty: 90, isMonarch: true, stationedSiteId: 'b', troops: 20000, tier: null,
+        affinities: {}, loyalty: 90, isMonarch: false, armType: 'infantry', stationedSiteId: null, troops: 20000, tier: null,
       },
     ],
   }

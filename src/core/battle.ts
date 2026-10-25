@@ -1,335 +1,208 @@
-import { runAction, type ActionResult } from './actions'
-import { attitudeOf, releaseCaptives, takeCaptive } from './captives'
-import { isServing } from './characters'
+import { ACTION_COSTS, spendActionPoints, type ActionResult } from './actions'
+import { attitudeOf, becomeWild, releaseCaptives, takeCaptive } from './captives'
+import { isServing, scopeSitesFor } from './characters'
 import { damageOnCapture, DEVELOPMENT_LABELS } from './development'
 import { resolveProvinceOwners } from './geography'
-import { GUARD_CHARACTER_PREFIX, guardFor } from './guards'
 import { LOSS_EXP, WIN_EXP } from './growth'
-import { LOYALTY_LOSS, loseLoyalty, maybeDefect, wildTierFor } from './loyalty'
+import { LOYALTY_LOSS, loseLoyalty, maybeDefect } from './loyalty'
 import {
   attackGrainCost,
   hasActedThisTurn,
   isFactionDestroyed,
   markActed,
   officerBlockedReason,
-  stationAdjacentTo,
+  readyOfficers,
 } from './military'
 import type {
+  ActionRecord,
+  ArmType,
   BattleReport,
+  BattleReportSide,
   CaptiveReport,
   Character,
   CharacterId,
   DevelopmentKind,
-  DuelReport,
   FactionId,
   GameState,
-  Personality,
   Site,
-  SiteGuard,
   SiteId,
   SiteType,
 } from './model'
 import { createRandom, type Random } from './random'
-import { areAllied, areHostile } from './relations'
+import { areHostile } from './relations'
 
-/** 一场战斗的士气：双方开战默认满值，由单挑增减。 */
+/**
+ * 战斗：双方各排六个阵位（前三后三），开战后按机动依次行动，双方合计二十五次为限。
+ * 每次行动由玩家或规则层为当前行动的一队下指令，行动当场结算，便于界面逐次演出。
+ * 规则见《战斗系统》。本模块只管一场战斗的推演与结算，不依赖画面；
+ * 随机源随战斗状态携带，结束后写回对局，固定种子下同一场战斗可复现。
+ */
+
+/** 双方合计的行动次数上限。 */
+export const BATTLE_ACTIONS = 25
+/** 士气满值与下限。 */
 export const MORALE_FULL = 100
-/** 士气的上限：单挑的士气收益最高推到这里，免得士气系数被推过头。 */
-const MORALE_MAX = 120
+export const MORALE_FLOOR = 40
+/** 每方的阵位：前三后三。 */
+export const FRONT_SIZE = 3
+export const BACK_SIZE = 3
+export const SLOT_COUNT = FRONT_SIZE + BACK_SIZE
+/** 一队退场时本方的士气损失。 */
+const MORALE_LOSS_PER_EXIT = 5
+/** 主动攻击的自损比例。 */
+const ATTACK_SELF_LOSS = 0.05
+/** 防御指令的减伤。 */
+const DEFEND_DAMAGE_SCALE = 0.7
+/** 弓箭手对伤害的倍率。 */
+const ARCHER_DAMAGE_SCALE = 0.7
+/** 伤害与减伤的兵力系数；二十五次行动的节奏下，一击须有明显分量。 */
+const DAMAGE_TROOP_FACTOR = 0.6
+const REDUCTION_TROOP_FACTOR = 0.15
+/** 武力对伤害、智谋对减伤的点数系数。 */
+const MIGHT_SCALE = 0.003
+const INTELLECT_SCALE = 0.003
+/** 伤害与减伤各自的随机幅度。 */
+const DAMAGE_VARIANCE = 0.1
+/** 战损折算：按战损比例扣减七成。 */
+const CASUALTY_CONVERSION = 0.7
+/** 守方败退后的去向：撤回、战死、被俘。 */
+const DEFENDER_FLEE_CHANCE = 0.75
+const DEFENDER_DIE_CHANCE = 0.1
+/** 守方自选武将的上阵人数；驻将另计。 */
+export const DEFENDER_SELECTION = 5
+/** 攻方上阵人数。 */
+export const ATTACKER_SELECTION = 5
 
-// 以下战力参数均为暂定，待核心玩法验证后调整，最终数值记入《游戏机制》。
-/** 每点智谋带来的战力系数增量。 */
-const INTELLECT_POWER_PER_POINT = 0.005
-/** 士气为 0 时的战力系数；士气满值时系数为 1。 */
-const MORALE_POWER_FLOOR = 0.5
-/** 防守方的战力补正，按战略点类型分档：野地无险可依，关隘与都会最坚。 */
-const DEFENSE_BONUS: Record<SiteType, number> = {
-  field: 1,
-  town: 1.1,
-  city: 1.2,
-  pass: 1.3,
-  metropolis: 1.3,
-}
-/** 战力随机波动幅度，双方各在 1±此值 之间。 */
-const POWER_VARIANCE = 0.1
-/** 败方与胜方的伤亡率。败方不宜过重：一次攻城失利若打残主力，整局会一蹶不振。 */
-const LOSER_CASUALTY_RATE = 0.3
-const WINNER_CASUALTY_RATE = 0.2
-/** 已行动的守军在防守时只计的兵力比例。 */
-const ACTED_DEFENDER_RATIO = 0.5
-/** 迎战守军的至多人数，与攻方编成同宽。 */
-const GARRISON_SIZE = 3
-/** 无主守军失守后溃散的去向权重：多数溃散，少数头目被斩。 */
-const GUARD_ROUT_CHANCE = 0.5
-/** 单挑的士气增减。 */
-const DUEL_MORALE_DELTA = 10
-/** 单挑判定时叠加在武力上的随机幅度：幅度够大，武力小差不再是必败，冷门时有发生。 */
-const DUEL_RANDOM_SPAN = 40
-/** 单挑致败者阵亡的概率（暂定，待实测调整）。 */
-const DUEL_DEATH_CHANCE = 0.1
-/** 单挑致阵亡时，胜方的士气增幅大于寻常单挑。 */
-const DUEL_FATAL_MORALE_DELTA = 20
-
-/** 把一场战斗的士气夹在 0 到上限之间。 */
-function clampBattleMorale(morale: number): number {
-  return Math.max(0, Math.min(MORALE_MAX, morale))
-}
-
-/** 智谋换算得到的战力系数。 */
-function intellectFactor(intellect: number): number {
-  return 1 + intellect * INTELLECT_POWER_PER_POINT
+/** 兵种参数：机动决定行动顺序，攻防决定伤害与减伤，射程决定可打的排。 */
+export interface ArmStats {
+  label: string
+  mobility: number
+  attack: number
+  defense: number
+  ranged: boolean
 }
 
-/** 士气换算得到的战力系数。 */
-function moraleFactor(morale: number): number {
-  return MORALE_POWER_FLOOR + (1 - MORALE_POWER_FLOOR) * (morale / MORALE_FULL)
+export const ARM_STATS: Record<ArmType, ArmStats> = {
+  infantry: { label: '步兵', mobility: 8, attack: 1, defense: 1, ranged: false },
+  archer: { label: '弓箭手', mobility: 10, attack: 0.85, defense: 0.8, ranged: true },
+  cavalry: { label: '骑兵', mobility: 12, attack: 1.3, defense: 0.6, ranged: false },
 }
 
-/** 一次战力随机波动。 */
-function variance(random: Random): number {
-  return 1 - POWER_VARIANCE + random.next() * 2 * POWER_VARIANCE
+/** 战略点的防守补正：守方全员整场享有。 */
+export const SITE_DEFENSE_BONUS: Record<SiteType, number> = {
+  field: 0,
+  town: 0.1,
+  city: 0.2,
+  pass: 0.25,
+  metropolis: 0.3,
 }
 
-/** 参战一方的战力要素。 */
-export interface BattleSide {
-  troops: number
-  intellect: number
-  morale: number
+/** 开发者模式下强制一场战斗的胜负，取攻方视角。 */
+export type ForcedOutcome = 'win' | 'lose'
+
+/** 一队在战场的哪一侧。 */
+export type BattleSide = 'attacker' | 'defender'
+
+/** 一队本次行动的指令：攻击或防御。 */
+export type BattleOrderKind = 'attack' | 'defend'
+
+export interface BattleOrder {
+  characterId: CharacterId
+  kind: BattleOrderKind
+  /** 攻击的目标；省略时取射程内兵力最少的一队。 */
+  targetId?: CharacterId
 }
 
-/** 一方的战力（不含随机波动）：兵力 × 智谋加成 × 士气系数，防守方再乘其据点的防守补正。 */
-export function battlePower(side: BattleSide, options: { defendingAt?: SiteType } = {}): number {
-  const base = side.troops * intellectFactor(side.intellect) * moraleFactor(side.morale)
-
-  return options.defendingAt === undefined ? base : base * DEFENSE_BONUS[options.defendingAt]
-}
-
-/** 一次伤亡结算后的兵力。 */
-function applyLoss(troops: number, rate: number): number {
-  return Math.max(0, Math.round(troops * (1 - rate)))
-}
-
-/**
- * 某战略点上的守军。城池与关隘的守军是该点归属势力的驻将；野地无归属，
- * 凡驻守其上的武将都算它的守军——野地不入任何势力的版图，驻军便是它唯一的归属标识。
- * 退场者不在其中。
- */
-function defendersAt(state: GameState, site: Site): Character[] {
-  return state.characters.filter(
-    (character) =>
-      isServing(character) &&
-      character.stationedSiteId === site.id &&
-      (site.type === 'field' || character.factionId === site.owner),
-  )
-}
-
-/** 驻守某战略点的守军全员（可能多于迎战人数），供守方自选迎战编成时列出候选。 */
-export function stationedDefendersAt(state: GameState, siteId: SiteId): Character[] {
-  const site = state.geography.sites.find((item) => item.id === siteId)
-
-  return site === undefined ? [] : defendersAt(state, site)
-}
-
-/**
- * 一处目标的守方势力：城池与关隘取其归属势力（无主为 null）；野地无归属，取其驻军的势力，
- * 无人驻守时为 null。进攻可否发起、守方是否由玩家定夺，都以此为准。
- */
-export function defenderFactionAt(state: GameState, target: Site): FactionId | null {
-  return target.type === 'field'
-    ? (defendersAt(state, target)[0]?.factionId ?? null)
-    : target.owner
-}
-
-/**
- * 无主战略点的守军化为临时武将：并入迎战编成但不写入 `state.characters`，
- * 结算中的兵力与经验写回因此随对象丢弃，不影响存档。名号与能力皆取守军记录。
- */
-function guardCharacter(site: Site, guard: SiteGuard): Character {
-  return {
-    id: `${GUARD_CHARACTER_PREFIX}${site.id}`,
-    name: guard.name,
-    status: 'serving',
-    factionId: null,
-    provinceId: site.provinceId,
-    might: guard.might,
-    command: guard.command,
-    intellect: guard.intellect,
-    politics: 0,
-    age: 0,
-    personality: 'steady',
-    affinities: {},
-    loyalty: 0,
-    isMonarch: false,
-    stationedSiteId: site.id,
-    troops: guard.troops,
-    exp: 0,
-    tier: null,
-  }
-}
-
-/** 守军的迎战编成：至多三名武将，与攻方同构。 */
-export interface Garrison {
-  /** 迎战的三名武将，按兵力由多到少；无守军时为空。 */
-  members: Character[]
-  /** 迎战兵力的战力要素；兵力为三人之和，已行动者只计半数。 */
+/** 参战的一队：武力、智谋与兵种随武将，战兵是这一场的血量。 */
+export interface BattleUnit {
+  characterId: CharacterId
+  name: string
   side: BattleSide
+  armType: ArmType
+  /** 开战时的兵力，战损折算以此为基准。 */
+  troops: number
+  /** 当前战兵；扣至零即退场。 */
+  battleTroops: number
+  might: number
+  intellect: number
+  /** 阵位：0–2 为前排，3–5 为后排。 */
+  slot: number
+  /** 是否为该点的驻将：驻将不占自选名额、战后不因防守转为已行动。 */
+  stationed: boolean
+  /** 防御生效的轮次；与本轮相同则受击减伤。 */
+  defendingRound: number | null
+  exited: boolean
 }
 
-/**
- * 某战略点的迎战守军：默认从守军中取兵力最多的三人作为迎战编成；给了 `party` 就按此编成
- * （守方在编成弹窗自选，与攻方同为至多三人）。其中统率最高者为主将、智谋最高者为军师。
- * 败军退守会让一处战略点的守军越堆越多，只三人迎战才不会让最后一城无止境地变强；
- * 与攻方同为至多三人，双方兵力增长的口径才对等。守将不足三人时，无主点以凭险自守的守军迎战，
- * 有主点由地方民兵就地成军，故只有战略点不存在时兵力才为零。
- */
-export function garrisonAt(state: GameState, siteId: SiteId, party?: Party): Garrison {
-  const pool = stationedDefendersAt(state, siteId)
-  const chosen = party === undefined ? pool : pool.filter((member) => partyIds(party).includes(member.id))
-  let members = [...chosen].sort((a, b) => b.troops - a.troops).slice(0, GARRISON_SIZE)
-
-  // 守将尽出或调空时，无主点以凭险自守的地方武装迎战，有主点则由地方民兵就地成军；
-  // 凡攻打据点都要真打一场、付出血本，不存在无人可挡的空城。野地无守备可依，也无人可调，
-  // 空野地便无仗可打（见 isAttackable）。
-  if (members.length === 0) {
-    const site = state.geography.sites.find((item) => item.id === siteId)
-    const guard = site === undefined ? null : site.guard ?? guardFor(site)
-    if (site !== undefined && guard !== null) {
-      members = [guardCharacter(site, guard)]
-    }
-  }
-
-  if (members.length === 0) {
-    return { members, side: { troops: 0, intellect: 0, morale: MORALE_FULL } }
-  }
-
-  const strategist = members.reduce((best, item) => (item.intellect > best.intellect ? item : best))
-
-  return {
-    members,
-    side: {
-      troops: members.reduce(
-        (total, member) =>
-          total + member.troops * (hasActedThisTurn(state, member.id) ? ACTED_DEFENDER_RATIO : 1),
-        0,
-      ),
-      intellect: strategist.intellect,
-      morale: MORALE_FULL,
-    },
-  }
+/** 一方在战场上的状态：一条共用的士气与全部参战队。 */
+export interface BattleSideState {
+  factionId: FactionId | null
+  morale: number
+  units: BattleUnit[]
 }
 
-/** 该战略点守军的主将：给了编成则以编成中的主将为准，否则取统率最高者；无守军时为 null。 */
-export function garrisonCommanderAt(
-  state: GameState,
-  siteId: SiteId,
-  party?: Party,
-): Character | null {
-  const members = garrisonAt(state, siteId, party).members
-
-  return party === undefined
-    ? pickByCommand(members)
-    : (members.find((member) => member.id === party.commander) ?? pickByCommand(members))
+/** 一场进行中的战斗。 */
+export interface BattleState {
+  siteId: SiteId
+  siteName: string
+  siteType: SiteType
+  attacker: BattleSideState
+  defender: BattleSideState
+  /** 当前轮次，从 1 起；每队依次行动一次为一轮。 */
+  round: number
+  /** 双方已行动的次数。 */
+  actionsUsed: number
+  /** 行动次数上限。 */
+  actionLimit: number
+  /** 本轮尚未行动的单位，队首即当前行动者。 */
+  queue: CharacterId[]
+  finished: boolean
+  /** 守方是否无人可守，不战而下。 */
+  undefended: boolean
+  /** 是否由攻方得胜；战斗结束后才作数。 */
+  attackerWins: boolean
+  /** 本场战斗的随机流，结束后写回对局。 */
+  randomState: number
+  /** 开发者模式指定的胜负，取攻方视角。 */
+  forcedOutcome: ForcedOutcome | null
 }
 
-/** 单挑时代表守军应战的人：守军编成中统率最高的非君主；无人可应时为 null。 */
-export function duelAnswererAt(
-  state: GameState,
-  siteId: SiteId,
-  party?: Party,
-): Character | null {
-  return pickByCommand(garrisonAt(state, siteId, party).members.filter((member) => !member.isMonarch))
+/** 一次行动的结算结果，供界面演出与测试核对。 */
+export interface BattleActionEvent {
+  actorId: CharacterId
+  actorName: string
+  side: BattleSide
+  kind: BattleOrderKind
+  targetId: CharacterId | null
+  targetName: string | null
+  /** 对目标造成的战兵损失。 */
+  damage: number
+  /** 主动攻击的自损。 */
+  selfLoss: number
+  /** 行动后的剩余战兵。 */
+  actorTroops: number
+  targetTroops: number | null
+  /** 本次行动后退场的队伍。 */
+  exited: { characterId: CharacterId; name: string; side: BattleSide }[]
+  /** 行动所属的轮次与累计次数。 */
+  round: number
+  actionsUsed: number
+  finished: boolean
+  attackerWins: boolean
 }
 
-/** 守方提出单挑时，攻方代表应战的人：编成中统率最高的非君主；无人可应时为 null。 */
-export function attackAnswerer(state: GameState, party: Party): Character | null {
-  const members = partyIds(party)
-    .map((id) => state.characters.find((item) => item.id === id))
-    .filter((item): item is Character => item !== undefined && isServing(item) && !item.isMonarch)
-
-  return pickByCommand(members)
+/** 布阵：一名参战者占哪个阵位。 */
+export interface BattleDeployment {
+  characterId: CharacterId
+  slot: number
 }
 
-/** 各性格主动单挑的倾向：正数表示武力略逊也敢挑，负数表示要明显占优才挑。 */
-const DUEL_AGGRESSION: Record<Personality, number> = {
-  brave: 12,
-  proud: 8,
-  open: 2,
-  steady: 0,
-  scheming: -6,
-  cautious: -10,
-}
+/** 开战的结果：成功时带回战斗状态，失败时带回原因。 */
+export type BattleOpenResult = { ok: true; battle: BattleState } | { ok: false; reason: string }
 
-/** 主动单挑的骰子幅度：倾向之外再摇摆这么多，同样的力量对比有时挑、有时不挑。 */
-const DUEL_ROLL_SPAN = 7
-
-/**
- * 他方是否提出单挑：从候选里取武力最高的在仕非君主，按「武力差 + 性格倾向 + 骰子」判断。
- * 攻守通用——攻方先由调用方问过，攻方不提时守方再按此判断；只挑一次。
- */
-export function aiDuelChallenger(
-  candidates: readonly Character[],
-  answerer: Character | null,
-  random: Random,
-): CharacterId | null {
-  const dueler = candidates
-    .filter((member) => isServing(member) && !member.isMonarch)
-    .reduce<Character | null>(
-      (best, member) => (best === null || member.might > best.might ? member : best),
-      null,
-    )
-
-  if (dueler === null || answerer === null) {
-    return null
-  }
-
-  const margin =
-    dueler.might -
-    answerer.might +
-    DUEL_AGGRESSION[dueler.personality] +
-    (Math.floor(random.next() * DUEL_ROLL_SPAN) - Math.floor(DUEL_ROLL_SPAN / 2))
-
-  return margin >= 0 ? dueler.id : null
-}
-
-/** 他方进攻时是否提出单挑：由主将或副将中武力最高者出马。 */
-export function aiAttackChallenger(
-  state: GameState,
-  party: AttackParty,
-  targetSiteId: SiteId,
-  random: Random,
-): CharacterId | null {
-  const candidates = [party.commander, party.deputy ?? null]
-    .map((id) => (id === null ? undefined : state.characters.find((item) => item.id === id)))
-    .filter((item): item is Character => item !== undefined)
-
-  return aiDuelChallenger(candidates, duelAnswererAt(state, targetSiteId), random)
-}
-
-/** 守军失守后的初次去向：被俘者再由招降判定细分。 */
-type InitialFate = 'flee' | 'die' | 'capture'
-
-/** 去向权重：多数逃亡，少数被俘，战死最少。具体行为留待迭代 7 细化。 */
-const FLEE_CHANCE = 0.75
-const DIE_CHANCE = 0.1
-
-/** 按权重抽取一种初次去向。 */
-function rollFate(random: Random): InitialFate {
-  const roll = random.next()
-  if (roll < FLEE_CHANCE) {
-    return 'flee'
-  }
-
-  return roll < FLEE_CHANCE + DIE_CHANCE ? 'die' : 'capture'
-}
-
-/** 逃亡的去处：优先相邻的自有战略点；本势力在别处还有城池时也可远走，都没有则无处可逃。 */
-function fleeRefuges(state: GameState, defender: Character, target: Site): Site[] {
-  const friendly = state.geography.sites.filter(
-    (site) => site.id !== target.id && site.owner === defender.factionId,
-  )
-  const adjacent = friendly.filter((site) => target.neighbors.includes(site.id))
-
-  return adjacent.length > 0 ? adjacent : friendly
+/** 阵位属于前排还是后排。 */
+export function rowOfSlot(slot: number): 0 | 1 {
+  return slot < FRONT_SIZE ? 0 : 1
 }
 
 /** 势力名；查不到时退回标识。 */
@@ -337,113 +210,315 @@ function factionName(state: GameState, factionId: FactionId | null): string {
   return state.factions.find((faction) => faction.id === factionId)?.name ?? factionId ?? ''
 }
 
-/** 退场：脱离势力与驻地，兵力归零。 */
-function retire(character: Character): void {
-  character.status = 'retired'
-  character.factionId = null
-  character.stationedSiteId = null
-  character.troops = 0
+/** 某战略点的守方势力；全图尽归势力，故即其归属。 */
+export function defenderFactionAt(_state: GameState, target: Site): FactionId | null {
+  return target.owner
+}
+
+/** 某战略点的驻将；无人驻守时为 null。 */
+export function stationedAt(state: GameState, siteId: SiteId): Character | null {
+  return (
+    state.characters.find(
+      (character) =>
+        isServing(character) &&
+        character.stationedSiteId === siteId &&
+        character.factionId !== null,
+    ) ?? null
+  )
 }
 
 /**
- * 战略点失守后结算每名守军的去向：逃亡、战死、被俘三者按权重判定，任何战略点都一样，
- * 势力覆灭的那一战也不例外；君主只在本势力尚未覆灭时必定逃亡。
- * 逃亡者撤往自有的战略点；本势力再无城池可投（此战即覆灭）时，流落为在野，将来可以复起。
- * 被俘者按其对俘获方的偏好与自身忠诚判定：归附则入仕俘获方、驻守刚夺下的战略点，不屈则退场；
- * 君主不事二主，必不屈。返回去向说明与俘虏结局，前者写入行动记录，后者供战报展示。
+ * 某战略点可选的守将：该点驻将（有兵时自动上阵）与名册中未驻守、有兵、未行动的武将。
+ * 已行动的武将不能防守；兵为零的驻将不上阵。缺省按该点的归属势力取人。
  */
-function resolveDefenders(
+export function defenderCandidates(
   state: GameState,
-  defenders: readonly Character[],
-  target: Site,
-  captorId: FactionId,
-  random: Random,
-): { fates: string[]; captives: CaptiveReport[] } {
-  const fates: string[] = []
-  const captives: CaptiveReport[] = []
-  const captorName = factionName(state, captorId)
-
-  for (const defender of defenders) {
-    const refuges = fleeRefuges(state, defender, target)
-    const doomed = refuges.length === 0
-    const fate: InitialFate = defender.isMonarch && !doomed ? 'flee' : rollFate(random)
-
-    if (fate === 'flee') {
-      if (!doomed) {
-        const refuge = refuges[Math.floor(random.next() * refuges.length)]
-        defender.stationedSiteId = refuge.id
-        // 失守受挫：忠诚下降；低到阈值以下者就此离走，不再只是换个驻地。
-        loseLoyalty(defender, LOYALTY_LOSS.siteLost)
-        fates.push(maybeDefect(state, defender, '失守') ?? `${defender.name} 撤往${refuge.name}`)
-        continue
-      }
-
-      // 势力已覆灭，逃亡者流落为在野，若干年后还可以被寻访、复起。
-      defender.status = 'wild'
-      defender.factionId = null
-      defender.stationedSiteId = null
-      defender.troops = 0
-      defender.loyalty = 0
-      // 回归在野者的卡池层级按能力给。
-      defender.tier = wildTierFor(defender)
-      fates.push(`${defender.name} 流落为在野`)
-      continue
-    }
-
-    if (fate === 'die') {
-      retire(defender)
-      fates.push(`${defender.name} 战死`)
-      continue
-    }
-
-    // 被俘：一律进俘获方的俘虏营，能否归附由此后的劝降决定。
-    const record = takeCaptive(state, defender, captorId)
-    fates.push(`${defender.name} 被俘，入${captorName}营`)
-    captives.push({
-      name: defender.name,
-      formerFaction: factionName(state, record.formerFactionId),
-      attitude: attitudeOf(record.will),
-    })
+  siteId: SiteId,
+  factionId: FactionId = state.playerFaction,
+): Character[] {
+  const site = state.geography.sites.find((item) => item.id === siteId)
+  if (site === undefined || site.owner !== factionId) {
+    return []
   }
 
-  return { fates, captives }
+  const stationed = stationedAt(state, siteId)
+  const stationedUnit = stationed !== null && stationed.troops > 0 ? [stationed] : []
+  const others = readyOfficers(state, factionId).filter(
+    (character) =>
+      character.troops > 0 &&
+      character.stationedSiteId === null &&
+      scopeSitesFor(state, character).includes(siteId),
+  )
+
+  return [...stationedUnit, ...others]
+}
+
+/** 自动布阵：按传入次序依次填入六个阵位。 */
+export function autoDeployment(ids: readonly CharacterId[]): BattleDeployment[] {
+  return ids
+    .slice(0, SLOT_COUNT)
+    .map((characterId, index) => ({ characterId, slot: index }))
 }
 
 /**
- * 该战略点是否为指定势力可进攻的目标，且至少有一个自有战略点与它相邻。缺省按玩家势力评判。
- * 城池与关隘：无主之地可攻，他方领地须已宣战（敌对），同盟与中立都打不得。
- * 野地无归属，只在驻有他方人马时才打得起来——与驻军敌对可攻，中立与同盟的驻军都动不得，空野地无仗可打。
+ * 按兵种排出默认阵形：近战先上前排，弓箭手排到后排；同类仍按传入次序。
+ * 后排的近战被自家前排挡住，自动布阵不能把人白白晾在后排。
+ */
+export function autoFormation(
+  characters: readonly { id: CharacterId; armType: ArmType }[],
+): BattleDeployment[] {
+  const ordered = [...characters].sort(
+    (a, b) => Number(a.armType === 'archer') - Number(b.armType === 'archer'),
+  )
+
+  return autoDeployment(ordered.map((character) => character.id))
+}
+
+/**
+ * 开战前把一个队挪到另一个阵位；那里已有队伍时两者互换。
+ * 须保持前排至少一队；合规则返回 null，不合规时恢复原位并返回原因。
+ */
+export function setUnitSlot(
+  battle: BattleState,
+  characterId: CharacterId,
+  slot: number,
+): string | null {
+  if (battle.finished) {
+    return '战斗已结束'
+  }
+  if (battle.actionsUsed > 0 || battle.round > 1) {
+    return '开战后不能再变阵'
+  }
+  if (!Number.isInteger(slot) || slot < 0 || slot >= SLOT_COUNT) {
+    return '阵位超出范围'
+  }
+
+  const unit = findUnit(battle, characterId)
+  if (unit === undefined) {
+    return '该武将不在阵中'
+  }
+  if (unit.exited) {
+    return '该队已退场'
+  }
+  if (unit.slot === slot) {
+    return null
+  }
+
+  const side = battle[unit.side]
+  const occupant = side.units.find((item) => item.slot === slot)
+  const previous = unit.slot
+  if (occupant !== undefined) {
+    occupant.slot = previous
+  }
+  unit.slot = slot
+
+  if (side.units.filter((item) => !item.exited && rowOfSlot(item.slot) === 0).length < 1) {
+    if (occupant !== undefined) {
+      occupant.slot = slot
+    }
+    unit.slot = previous
+    return '前排至少一队'
+  }
+
+  return null
+}
+
+/** 参战者的人数上限：攻方五人，守方五名自选加驻将。 */
+function limitOf(side: BattleSide): number {
+  return side === 'attacker' ? ATTACKER_SELECTION : DEFENDER_SELECTION + 1
+}
+
+/** 校验布阵的名额与阵位；合规时返回 null。 */
+function deploymentProblem(
+  deployments: readonly BattleDeployment[],
+  side: BattleSide,
+): string | null {
+  const ids = deployments.map((item) => item.characterId)
+  if (new Set(ids).size !== ids.length) {
+    return '同一名武将不能排两次'
+  }
+  if (deployments.length === 0) {
+    return '至少派一队上阵'
+  }
+  if (deployments.length > limitOf(side)) {
+    return `至多 ${limitOf(side)} 队上阵`
+  }
+
+  const slots = deployments.map((item) => item.slot)
+  if (slots.some((slot) => !Number.isInteger(slot) || slot < 0 || slot >= SLOT_COUNT)) {
+    return '阵位超出范围'
+  }
+  if (new Set(slots).size !== slots.length) {
+    return '同一阵位不能排两队'
+  }
+  if (deployments.filter((item) => rowOfSlot(item.slot) === 0).length < 1) {
+    return '前排至少一队'
+  }
+
+  return null
+}
+
+/** 把武将编成一队。 */
+function makeUnit(
+  character: Character,
+  side: BattleSide,
+  slot: number,
+  stationed: boolean,
+): BattleUnit {
+  return {
+    characterId: character.id,
+    name: character.name,
+    side,
+    armType: character.armType,
+    troops: character.troops,
+    battleTroops: character.troops,
+    might: character.might,
+    intellect: character.intellect,
+    slot,
+    stationed,
+    defendingRound: null,
+    exited: false,
+  }
+}
+
+/** 由布阵造出一方的参战队；人员不合法时返回 null。 */
+function buildUnits(
+  state: GameState,
+  factionId: FactionId,
+  deployments: readonly BattleDeployment[],
+  side: BattleSide,
+  siteId: SiteId,
+): BattleUnit[] | null {
+  const units: BattleUnit[] = []
+
+  for (const deployment of deployments) {
+    const character = state.characters.find((item) => item.id === deployment.characterId)
+    if (
+      character === undefined ||
+      !isServing(character) ||
+      character.factionId !== factionId ||
+      character.troops <= 0
+    ) {
+      return null
+    }
+    units.push(makeUnit(character, side, deployment.slot, character.stationedSiteId === siteId))
+  }
+
+  return units
+}
+
+/**
+ * 该战略点是否为指定势力可进攻的目标：目标归属他方且已宣战，并与一处自有战略点相邻。
+ * 全图没有无主战略点，故不再有无主可打。缺省按玩家势力评判。
  */
 export function isAttackable(
   state: GameState,
   targetSiteId: SiteId,
   factionId: FactionId = state.playerFaction,
 ): boolean {
-  const target = state.geography.sites.find((site) => site.id === targetSiteId)
-  if (target === undefined) {
-    return false
-  }
-
-  const defender = defenderFactionAt(state, target)
-  if (defender === factionId) {
-    return false
-  }
-  // 空野地没有可攻的对象；无主的城池与关隘另论，随时可点名去打。
-  if (defender === null && target.type === 'field') {
-    return false
-  }
-  if (defender !== null && !areHostile(state, factionId, defender)) {
-    return false
-  }
-
-  return state.geography.sites.some(
-    (site) => site.owner === factionId && site.neighbors.includes(target.id),
-  )
+  return attackBlockReason(state, targetSiteId, [], factionId, { skipParty: true }) === null
 }
 
 /**
- * 进攻某战略点的候选部属：驻守在与目标相邻的自有战略点的人。
- * 已行动或无兵者也在列，由界面标注为不可选。缺省按玩家势力取候选。
+ * 该武将能否出兵攻打目标：其活动范围内须有一处本方所有、且与目标相邻的城池。
+ * 目标本身也可在范围内；跨州作战须先取下一处落脚点，再把它并入参战者的范围。
+ */
+export function canAttackTarget(
+  state: GameState,
+  character: Character,
+  targetSiteId: SiteId,
+  factionId: FactionId,
+): boolean {
+  return scopeSitesFor(state, character).some((siteId) => {
+    const site = state.geography.sites.find((item) => item.id === siteId)
+    return site !== undefined && site.owner === factionId && site.neighbors.includes(targetSiteId)
+  })
+}
+
+/** 进攻不可发起的原因；可以发起时返回 null。供界面与开战共用。 */
+export function attackBlockReason(
+  state: GameState,
+  targetSiteId: SiteId,
+  memberIds: readonly CharacterId[],
+  factionId: FactionId = state.playerFaction,
+  options: { skipParty?: boolean } = {},
+): string | null {
+  const target = state.geography.sites.find((item) => item.id === targetSiteId)
+  if (target === undefined) {
+    return '目标战略点不存在'
+  }
+  if (target.owner === factionId) {
+    return '目标已是自有战略点'
+  }
+  if (target.owner === null) {
+    return '目标无归属，无法宣战'
+  }
+  if (!areHostile(state, factionId, target.owner)) {
+    return '与对方非敌对，须先宣战'
+  }
+
+  const adjacent = state.geography.sites.some(
+    (site) => site.owner === factionId && site.neighbors.includes(target.id),
+  )
+  if (!adjacent) {
+    return '目标不与自有战略点相邻'
+  }
+
+  if (options.skipParty === true) {
+    return null
+  }
+
+  if (memberIds.length === 0) {
+    return '至少选一名武将出征'
+  }
+  if (memberIds.length > ATTACKER_SELECTION) {
+    return `至多 ${ATTACKER_SELECTION} 名武将出征`
+  }
+  if (new Set(memberIds).size !== memberIds.length) {
+    return '同一名武将不能重复出征'
+  }
+
+  for (const characterId of memberIds) {
+    const character = state.characters.find((item) => item.id === characterId) ?? null
+    const blocked = officerBlockedReason(state, character, factionId)
+    if (blocked !== null) {
+      return blocked
+    }
+    if (character === null) {
+      return '武将不存在'
+    }
+    if (character.stationedSiteId !== null) {
+      return `${character.name} 正在驻守，不能出征`
+    }
+    if (character.troops <= 0) {
+      return `${character.name} 没有兵力`
+    }
+    if (!canAttackTarget(state, character, targetSiteId, factionId)) {
+      return `${character.name} 的活动范围不及目标`
+    }
+    if (hasActedThisTurn(state, character.id)) {
+      return `${character.name} 本回合已行动`
+    }
+  }
+
+  const faction = state.factions.find((item) => item.id === factionId)
+  if ((state.actionPoints[factionId] ?? 0) < ACTION_COSTS.attack) {
+    return '行动力不足'
+  }
+  const troops = memberIds.reduce((total, characterId) => {
+    const character = state.characters.find((item) => item.id === characterId)
+    return total + (character?.troops ?? 0)
+  }, 0)
+  if (faction === undefined || faction.grain < attackGrainCost(troops)) {
+    return '粮草不足，不能出征'
+  }
+
+  return null
+}
+
+/**
+ * 进攻某战略点的候选部属：名册中未驻守、有兵、活动范围及于目标的武将。
+ * 已行动的也在列，由界面标为不可选。缺省按玩家势力取候选。
  */
 export function attackCandidates(
   state: GameState,
@@ -456,154 +531,475 @@ export function attackCandidates(
 
   return state.characters.filter(
     (character) =>
-      officerBlockedReason(state, character, factionId) === null &&
-      stationAdjacentTo(state, character, targetSiteId),
+      isServing(character) &&
+      character.factionId === factionId &&
+      character.stationedSiteId === null &&
+      character.troops > 0 &&
+      canAttackTarget(state, character, targetSiteId, factionId),
   )
 }
 
-/** 一支部队的编成：主将必选，副将与军师可选；攻守共用同一套编成。 */
-export interface Party {
-  commander: CharacterId
-  deputy?: CharacterId | null
-  strategist?: CharacterId | null
+/** 自动挑选守将：该点驻将与活动范围含此城的自选守将，按名册次序取至多六队。 */
+function autoDefenders(state: GameState, siteId: SiteId, factionId: FactionId): Character[] {
+  return defenderCandidates(state, siteId, factionId).slice(0, DEFENDER_SELECTION + 1)
 }
 
-/** 进攻的部队编成：在编成之外，还可指定由主将或副将出马单挑。 */
-export interface AttackParty extends Party {
-  /** 提出单挑者，须是主将或副将；不设则不挑。 */
-  challenger?: CharacterId | null
+/**
+ * 开战：校验目标与出征者，扣行动力与粮草，排定攻方阵形；守方视选项自动布阵。
+ * 守方无人可守时不战而下，战斗当场结束，攻方照付行动力与粮草。
+ */
+export function openAttack(
+  state: GameState,
+  targetSiteId: SiteId,
+  deployments: readonly BattleDeployment[],
+  factionId: FactionId = state.playerFaction,
+  options: { autoDefender?: boolean } = {},
+): BattleOpenResult {
+  const memberIds = deployments.map((item) => item.characterId)
+  const blocked = attackBlockReason(state, targetSiteId, memberIds, factionId)
+  if (blocked !== null) {
+    return { ok: false, reason: blocked }
+  }
+  const problem = deploymentProblem(deployments, 'attacker')
+  if (problem !== null) {
+    return { ok: false, reason: problem }
+  }
+
+  const target = state.geography.sites.find((item) => item.id === targetSiteId)
+  if (target === undefined) {
+    return { ok: false, reason: '目标战略点不存在' }
+  }
+  const units = buildUnits(state, factionId, deployments, 'attacker', target.id)
+  if (units === null) {
+    return { ok: false, reason: '出征者不合法' }
+  }
+
+  const troops = units.reduce((total, unit) => total + unit.troops, 0)
+  if (!spendActionPoints(state, factionId, 'attack')) {
+    return { ok: false, reason: '行动力不足' }
+  }
+  const faction = state.factions.find((item) => item.id === factionId)
+  if (faction !== undefined) {
+    faction.grain -= attackGrainCost(troops)
+  }
+
+  const defenderFaction = target.owner
+  const battle: BattleState = {
+    siteId: target.id,
+    siteName: target.name,
+    siteType: target.type,
+    attacker: { factionId, morale: MORALE_FULL, units },
+    defender: { factionId: defenderFaction, morale: MORALE_FULL, units: [] },
+    round: 1,
+    actionsUsed: 0,
+    actionLimit: BATTLE_ACTIONS,
+    queue: [],
+    finished: false,
+    undefended: false,
+    attackerWins: false,
+    randomState: state.randomState,
+    forcedOutcome: null,
+  }
+
+  if (options.autoDefender !== false && defenderFaction !== null) {
+    deployDefenders(battle, state, autoFormation(autoDefenders(state, target.id, defenderFaction)))
+  } else if (
+    defenderFaction === null ||
+    defenderCandidates(state, target.id, defenderFaction).length === 0
+  ) {
+    battle.undefended = true
+    battle.attackerWins = true
+    battle.finished = true
+  }
+
+  return { ok: true, battle }
 }
 
-/** 守方对一次来犯的决定：迎战编成与是否提出单挑。 */
-export interface DefenseChoice {
-  /** 迎战编成；不给则取兵力最多的三名，已行动者兵力按半计。 */
-  party?: Party
-  /** 守方提出单挑的出马者，须是迎战编成中的主将或副将；不单挑时为 null。 */
-  challenger: CharacterId | null
-  /** 开发者模式专供：强制这一战的胜负，取攻方视角；不给则按战力结算。 */
-  forcedOutcome?: ForcedOutcome | null
+/**
+ * 排定守方阵形；给空数组表示不派将迎战，守方不战而下。
+ * 守将须取自该点的候选（驻将或名册中有兵、未行动的武将）；不合规时返回原因。
+ */
+export function deployDefenders(
+  battle: BattleState,
+  state: GameState,
+  deployments: readonly BattleDeployment[],
+): string | null {
+  if (battle.finished) {
+    return null
+  }
+  const factionId = battle.defender.factionId
+  if (factionId === null) {
+    battle.undefended = true
+    battle.attackerWins = true
+    battle.finished = true
+    return null
+  }
+
+  if (deployments.length === 0) {
+    battle.undefended = true
+    battle.attackerWins = true
+    battle.finished = true
+    return null
+  }
+
+  const problem = deploymentProblem(deployments, 'defender')
+  if (problem !== null) {
+    return problem
+  }
+
+  const candidates = defenderCandidates(state, battle.siteId, factionId)
+  const allowed = new Set(candidates.map((character) => character.id))
+  for (const deployment of deployments) {
+    if (!allowed.has(deployment.characterId)) {
+      const character = state.characters.find((item) => item.id === deployment.characterId)
+      return `${character?.name ?? '守将'} 不能在此迎战`
+    }
+  }
+
+  const units = buildUnits(state, factionId, deployments, 'defender', battle.siteId)
+  if (units === null) {
+    return '守将不合法'
+  }
+  battle.defender.units = units
+  battle.queue = []
+
+  return null
 }
 
-/** 编成中的全部武将标识。 */
-function partyIds(party: Party): CharacterId[] {
-  return [party.commander, party.deputy ?? null, party.strategist ?? null].filter(
-    (id): id is CharacterId => id !== null,
+/** 士气系数：士气越低，伤害与减伤越弱。 */
+function moraleFactor(morale: number): number {
+  return 0.5 + 0.5 * (morale / MORALE_FULL)
+}
+
+/** 一次 1±10% 的随机波动。 */
+function variance(random: Random): number {
+  return 1 - DAMAGE_VARIANCE + random.next() * 2 * DAMAGE_VARIANCE
+}
+
+/** 把一队移出战场，并扣本方的士气。 */
+function exitUnit(unit: BattleUnit, side: BattleSideState): void {
+  if (unit.exited) {
+    return
+  }
+  unit.exited = true
+  unit.battleTroops = 0
+  side.morale = Math.max(MORALE_FLOOR, side.morale - MORALE_LOSS_PER_EXIT)
+}
+
+/** 一队的当前兵力。 */
+function alive(unit: BattleUnit): boolean {
+  return !unit.exited && unit.battleTroops > 0
+}
+
+/** 一方的在阵之队。 */
+function aliveUnits(side: BattleSideState): BattleUnit[] {
+  return side.units.filter(alive)
+}
+
+/** 一方视野内的全部敌队。 */
+function enemyUnits(battle: BattleState, side: BattleSide): BattleUnit[] {
+  return aliveUnits(side === 'attacker' ? battle.defender : battle.attacker)
+}
+
+/** 按标识找一队。 */
+function findUnit(battle: BattleState, characterId: CharacterId): BattleUnit | undefined {
+  return [...battle.attacker.units, ...battle.defender.units].find(
+    (unit) => unit.characterId === characterId,
   )
 }
 
-/** 取统率最高者；空数组返回 null。 */
-function pickByCommand(members: readonly Character[]): Character | null {
-  return members.reduce<Character | null>(
-    (best, item) => (best === null || item.command > best.command ? item : best),
+/**
+ * 一队可攻击的目标：近战只及敌方前排，弓箭手可及任意。
+ * 近战站在自家后排、而自家前排尚有人时，被本阵挡住，够不着敌军；
+ * 自家前排已空，后排的近战才成为阵线最前。敌方前排已空时，近战也及于后排。
+ */
+export function targetsFor(battle: BattleState, unit: BattleUnit): BattleUnit[] {
+  const enemies = enemyUnits(battle, unit.side)
+  if (ARM_STATS[unit.armType].ranged) {
+    return enemies
+  }
+  if (blockedByOwnFront(battle, unit)) {
+    return []
+  }
+
+  const front = enemies.filter((target) => rowOfSlot(target.slot) === 0)
+
+  return front.length > 0 ? front : enemies
+}
+
+/** 近战在后排且自家前排仍有队伍时，被本阵挡住。 */
+function blockedByOwnFront(battle: BattleState, unit: BattleUnit): boolean {
+  if (ARM_STATS[unit.armType].ranged || rowOfSlot(unit.slot) === 0) {
+    return false
+  }
+
+  return aliveUnits(battle[unit.side]).some((item) => rowOfSlot(item.slot) === 0)
+}
+
+/** 自动指定目标：取射程内兵力最少的一队。 */
+function autoTarget(_unit: BattleUnit, targets: readonly BattleUnit[]): BattleUnit | null {
+  return targets.reduce<BattleUnit | null>(
+    (best, target) => (best === null || target.battleTroops < best.battleTroops ? target : best),
     null,
   )
 }
 
-/**
- * 一支编成的战力要素：兵力为主将、副将与军师之和，智谋取三人中最高者——与守军的口径一致，
- * 不因没指定军师而吃亏。士气是战斗属性，双方开战默认满值，由单挑增减，故此处取满值。
- * 单挑致阵亡者已退场，不再计入。
- */
-export function partySide(state: GameState, party: Party): BattleSide {
-  const members = partyIds(party)
-    .map((id) => state.characters.find((item) => item.id === id))
-    .filter((item): item is Character => item !== undefined && isServing(item))
+/** 一队对另一队的实伤。减伤不低于伤害时这一击不造成伤害。 */
+function damageOf(
+  attacker: BattleUnit,
+  attackerSide: BattleSideState,
+  defender: BattleUnit,
+  defenderSide: BattleSideState,
+  siteBonus: number,
+  round: number,
+  random: Random,
+): number {
+  let damage =
+    attacker.battleTroops *
+    DAMAGE_TROOP_FACTOR *
+    ARM_STATS[attacker.armType].attack *
+    (1 + attacker.might * MIGHT_SCALE) *
+    moraleFactor(attackerSide.morale) *
+    variance(random)
+  if (ARM_STATS[attacker.armType].ranged) {
+    damage *= ARCHER_DAMAGE_SCALE
+  }
 
-  return {
-    troops: members.reduce((total, member) => total + member.troops, 0),
-    intellect: members.reduce((best, member) => Math.max(best, member.intellect), 0),
-    morale: MORALE_FULL,
+  const reduction =
+    defender.battleTroops *
+    REDUCTION_TROOP_FACTOR *
+    ARM_STATS[defender.armType].defense *
+    (1 + defender.intellect * INTELLECT_SCALE) *
+    moraleFactor(defenderSide.morale) *
+    variance(random)
+
+  if (reduction >= damage) {
+    return 0
+  }
+
+  let actual = damage - reduction
+  if (defender.defendingRound === round) {
+    actual *= DEFEND_DAMAGE_SCALE
+  }
+  if (defender.side === 'defender') {
+    actual *= 1 - siteBonus
+  }
+
+  return Math.max(0, Math.round(actual))
+}
+
+/** 防御动作覆盖的己方队伍：步兵守一排，其余兵种只守自己。 */
+export function defendScope(battle: BattleState, unit: BattleUnit): BattleUnit[] {
+  if (unit.armType !== 'infantry') {
+    return [unit]
+  }
+
+  const row = rowOfSlot(unit.slot)
+
+  return aliveUnits(battle[unit.side]).filter((item) => rowOfSlot(item.slot) === row)
+}
+
+/** 按机动排出本轮的先后；同值时攻方先行，再按阵位先后。 */
+function buildQueue(battle: BattleState): CharacterId[] {
+  return [
+    ...battle.attacker.units.map((unit, index) => ({ unit, index })),
+    ...battle.defender.units.map((unit, index) => ({ unit, index: index + 100 })),
+  ]
+    .filter((item) => alive(item.unit))
+    .sort((a, b) => {
+      const mobility = ARM_STATS[b.unit.armType].mobility - ARM_STATS[a.unit.armType].mobility
+      if (mobility !== 0) {
+        return mobility
+      }
+      if (a.unit.side !== b.unit.side) {
+        return a.unit.side === 'attacker' ? -1 : 1
+      }
+      return a.index - b.index
+    })
+    .map((item) => item.unit.characterId)
+}
+
+/** 第一轮的行动队列在开战前惰性排定；之后每轮由上一轮结束时续上。 */
+function prepareQueue(battle: BattleState): void {
+  if (battle.queue.length === 0 && battle.actionsUsed === 0) {
+    battle.queue = buildQueue(battle)
+  }
+}
+
+/** 把队列头部已退场的队伍清掉，使队首就是当前行动者。 */
+function pruneQueue(battle: BattleState): void {
+  while (battle.queue.length > 0) {
+    const unit = findUnit(battle, battle.queue[0]!)
+    if (unit !== undefined && alive(unit)) {
+      return
+    }
+    battle.queue.shift()
+  }
+}
+
+/** 当前该行动的一队；战斗已结束或队列不可用时为 null。 */
+export function currentActor(battle: BattleState): BattleUnit | null {
+  if (battle.finished) {
+    return null
+  }
+  prepareQueue(battle)
+  pruneQueue(battle)
+  const id = battle.queue[0]
+
+  return id === undefined ? null : (findUnit(battle, id) ?? null)
+}
+
+/** 他方为当前行动的一队下指令：残队转守，其余就近攻击。 */
+export function autoOrderFor(battle: BattleState, unit: BattleUnit): BattleOrder {
+  if (unit.battleTroops < unit.troops * 0.2) {
+    return { characterId: unit.characterId, kind: 'defend' }
+  }
+
+  const target = autoTarget(unit, targetsFor(battle, unit))
+
+  return target === null
+    ? { characterId: unit.characterId, kind: 'defend' }
+    : { characterId: unit.characterId, kind: 'attack', targetId: target.characterId }
+}
+
+/** 检查战斗是否已分出结果；次数用尽而守方仍在则守方守住。 */
+function evaluateEnd(battle: BattleState): void {
+  const attackersAlive = aliveUnits(battle.attacker).length > 0
+  const defendersAlive = aliveUnits(battle.defender).length > 0
+
+  if (!defendersAlive) {
+    battle.attackerWins = true
+    battle.finished = true
+    return
+  }
+  if (!attackersAlive) {
+    battle.attackerWins = false
+    battle.finished = true
+    return
+  }
+  if (battle.actionsUsed >= battle.actionLimit) {
+    battle.attackerWins = false
+    battle.finished = true
   }
 }
 
 /**
- * 交战中的单挑：一方出马、另一方应战，先于战力结算，胜负只反映为双方士气的增减。
- * 攻方提出时，出马者取编成中的主将或副将，守军以迎战编成中统率最高的非君主应战；
- * 守方提出时，出马者取迎战编成中的主将或副将，攻方以编成中统率最高的非君主应战。
- * 君主不参与单挑；应战方无人可应（如只剩君主）时按拒战处理。未发起单挑时返回 null。
+ * 结算当前行动者的一次行动，返回可供界面演出的结果。
+ * 指令须属于当前行动者；不合规时返回 null，战斗不推进。
  */
-function resolveDuel(
-  state: GameState,
-  party: AttackParty,
-  members: readonly Character[],
-  target: Site,
-  random: Random,
-  defenderChallengerId: CharacterId | null,
-  defenderParty: Party | undefined,
-): DuelReport | null {
-  const garrison = garrisonAt(state, target.id, defenderParty)
-
-  // 攻方先提：出马者由调用方给定（玩家或他方的决策）。
-  const attackerChallengerId = party.challenger ?? null
-  if (attackerChallengerId !== null) {
-    const challenger = members.find((member) => member.id === attackerChallengerId)
-    return challenger === undefined || garrison.members.length === 0
-      ? null
-      : settleDuelAs('attacker', challenger, duelAnswererAt(state, target.id, defenderParty), random)
-  }
-
-  // 攻方不提，守方再提：守方是玩家时按界面的决定，是他人时按策略判断。单挑只发生一次。
-  const defenderId =
-    defenderFactionAt(state, target) === state.playerFaction
-      ? defenderChallengerId
-      : aiDuelChallenger(garrison.members, attackAnswerer(state, party), random)
-  if (defenderId === null || defenderId === undefined) {
+export function resolveAction(
+  battle: BattleState,
+  order: BattleOrder,
+): BattleActionEvent | null {
+  const actor = currentActor(battle)
+  if (actor === null || order.characterId !== actor.characterId) {
     return null
   }
 
-  const challenger = garrison.members.find((member) => member.id === defenderId)
+  const random = createRandom(battle.randomState)
+  const ownSide = battle[actor.side]
+  const otherSide = actor.side === 'attacker' ? battle.defender : battle.attacker
+  const exitedBefore = [...battle.attacker.units, ...battle.defender.units]
+    .filter((unit) => unit.exited)
+    .map((unit) => unit.characterId)
+  const actingRound = battle.round
 
-  return challenger === undefined
-    ? null
-    : settleDuelAs('defender', challenger, attackAnswerer(state, party), random)
-}
+  let target: BattleUnit | null = null
+  let damage = 0
+  let selfLoss = 0
 
-/** 一方出马、另一方应战（应战者为 null 即拒战），把结果折成 `DuelReport`。 */
-function settleDuelAs(
-  challengerSide: 'attacker' | 'defender',
-  challenger: Character,
-  answerer: Character | null,
-  random: Random,
-): DuelReport {
-  if (answerer === null) {
-    // 应战方无人可应（如只剩君主），按拒战处理：应战方这一方士气下降。
-    return {
-      challengerSide,
-      challenger: challenger.name,
-      challengerId: challenger.id,
-      answerer: '',
-      answererId: null,
-      refused: true,
-      challengerWon: null,
-      fallen: '',
-      challengerMoraleDelta: 0,
-      answererMoraleDelta: -DUEL_MORALE_DELTA,
+  if (order.kind === 'attack') {
+    const targets = targetsFor(battle, actor)
+    target =
+      (order.targetId === undefined
+        ? undefined
+        : targets.find((item) => item.characterId === order.targetId)) ??
+      autoTarget(actor, targets)
+    if (target !== null) {
+      damage = damageOf(
+        actor,
+        ownSide,
+        target,
+        otherSide,
+        SITE_DEFENSE_BONUS[battle.siteType],
+        actingRound,
+        random,
+      )
+      if (damage > 0) {
+        target.battleTroops = Math.max(0, target.battleTroops - damage)
+        if (target.battleTroops <= 0) {
+          exitUnit(target, otherSide)
+        }
+      }
+
+      // 真正出手才有折损；被本阵挡住、够不着敌军时不损。
+      selfLoss = Math.min(actor.battleTroops, Math.round(actor.battleTroops * ATTACK_SELF_LOSS))
+      actor.battleTroops = Math.max(0, actor.battleTroops - selfLoss)
+      if (actor.battleTroops <= 0) {
+        exitUnit(actor, ownSide)
+      }
+    }
+  } else {
+    for (const unit of defendScope(battle, actor)) {
+      unit.defendingRound = actingRound
     }
   }
 
-  const result = settleDuel(challenger, answerer, random)
-  const delta = result.fatal ? DUEL_FATAL_MORALE_DELTA : DUEL_MORALE_DELTA
-  const challengerWon = result.winnerId === challenger.id
-  const loser = result.loserId === challenger.id ? challenger : answerer
+  battle.queue.shift()
+  battle.actionsUsed += 1
+  battle.randomState = random.getState()
+  pruneQueue(battle)
+  evaluateEnd(battle)
+  if (!battle.finished && battle.queue.length === 0) {
+    battle.round += 1
+    battle.queue = buildQueue(battle)
+  }
+
+  const exited = [...battle.attacker.units, ...battle.defender.units]
+    .filter((unit) => unit.exited && !exitedBefore.includes(unit.characterId))
+    .map((unit) => ({ characterId: unit.characterId, name: unit.name, side: unit.side }))
 
   return {
-    challengerSide,
-    challenger: challenger.name,
-    challengerId: challenger.id,
-    answerer: answerer.name,
-    answererId: answerer.id,
-    refused: false,
-    challengerWon,
-    fallen: result.fatal ? loser.name : '',
-    challengerMoraleDelta: challengerWon ? delta : -delta,
-    answererMoraleDelta: challengerWon ? -delta : delta,
+    actorId: actor.characterId,
+    actorName: actor.name,
+    side: actor.side,
+    kind: order.kind,
+    targetId: target?.characterId ?? null,
+    targetName: target?.name ?? null,
+    damage,
+    selfLoss,
+    actorTroops: actor.battleTroops,
+    targetTroops: target?.battleTroops ?? null,
+    exited,
+    round: actingRound,
+    actionsUsed: battle.actionsUsed,
+    finished: battle.finished,
+    attackerWins: battle.attackerWins,
   }
 }
 
-/** 交战前景的定性判断，供战斗界面展示：不给精确数值，只让玩家对胜负有个大概的感觉。 */
+/** 当前行动者交由规则层下令并结算；没有可行动者时为 null。 */
+export function autoAction(battle: BattleState): BattleActionEvent | null {
+  const actor = currentActor(battle)
+  if (actor === null) {
+    return null
+  }
+
+  return resolveAction(battle, autoOrderFor(battle, actor))
+}
+
+/** 按同一套规则自动推演到底，供玩家不参与的战斗与界面跳过时使用。 */
+export function autoBattle(battle: BattleState): void {
+  while (!battle.finished) {
+    if (autoAction(battle) === null) {
+      return
+    }
+  }
+}
+
+/** 一场战斗的交战前景，供界面作定性判断：不给精确数值。 */
 export type BattleOutlook = '不战而下' | '我军大优' | '我军占优' | '势均力敌' | '我军不利' | '我军大劣'
 
-/** 判定阈值（暂定）：攻方战力与守方战力之比。 */
 const OUTLOOK_FLOORS: readonly { min: number; outlook: BattleOutlook }[] = [
   { min: 2, outlook: '我军大优' },
   { min: 1.25, outlook: '我军占优' },
@@ -612,29 +1008,38 @@ const OUTLOOK_FLOORS: readonly { min: number; outlook: BattleOutlook }[] = [
   { min: 0, outlook: '我军大劣' },
 ]
 
-/**
- * 就一支编成对目标战略点的交战前景：双方战力取期望值（不含随机浮动），守方含防守补正。
- * 只作定性判断，不给具体数值——精确到数字反而会把人推成求解器。
- */
+/** 就一次进攻看交战前景：双方兵力按据点补正折算后比较。 */
 export function battleOutlook(
   state: GameState,
-  party: Party,
   targetSiteId: SiteId,
-  defenders?: Party,
+  memberIds: readonly CharacterId[],
+  defenderIds?: readonly CharacterId[],
 ): BattleOutlook {
-  const garrison = garrisonAt(state, targetSiteId, defenders)
-  const site = state.geography.sites.find((item) => item.id === targetSiteId)
-  const defenderPower = battlePower(garrison.side, { defendingAt: site?.type })
-  if (defenderPower <= 0) {
+  const target = state.geography.sites.find((item) => item.id === targetSiteId)
+  if (target === undefined) {
+    return '我军大劣'
+  }
+  const defenders =
+    defenderIds === undefined && target.owner !== null
+      ? autoDefenders(state, target.id, target.owner).map((item) => item.id)
+      : (defenderIds ?? [])
+  const defenderTroops = defenders.reduce((total, id) => {
+    const character = state.characters.find((item) => item.id === id)
+    return total + (character?.troops ?? 0)
+  }, 0)
+  if (defenderTroops <= 0) {
     return '不战而下'
   }
-
-  const ratio = battlePower(partySide(state, party)) / defenderPower
+  const attackerTroops = memberIds.reduce((total, id) => {
+    const character = state.characters.find((item) => item.id === id)
+    return total + (character?.troops ?? 0)
+  }, 0)
+  const ratio = attackerTroops / (defenderTroops * (1 + SITE_DEFENSE_BONUS[target.type]))
 
   return OUTLOOK_FLOORS.find((band) => ratio >= band.min)?.outlook ?? '我军大劣'
 }
 
-/** 守方视角的交战前景，供防御演出展示。 */
+/** 守方视角的交战前景。 */
 export type DefenseOutlook = '守军无将' | '敌军大优' | '敌军占优' | '势均力敌' | '我军占优' | '我军大优'
 
 const DEFENSE_LABELS: Record<BattleOutlook, DefenseOutlook> = {
@@ -649,492 +1054,268 @@ const DEFENSE_LABELS: Record<BattleOutlook, DefenseOutlook> = {
 /** 就一次来犯看我方（守方）的前景：把攻方视角的判断翻到守方一侧来说。 */
 export function defenseOutlook(
   state: GameState,
-  party: Party,
   targetSiteId: SiteId,
-  defenders?: Party,
+  attackerIds: readonly CharacterId[],
+  defenderIds?: readonly CharacterId[],
 ): DefenseOutlook {
-  if (garrisonAt(state, targetSiteId, defenders).members.length === 0) {
-    return '守军无将'
-  }
-
-  return DEFENSE_LABELS[battleOutlook(state, party, targetSiteId, defenders)]
+  return DEFENSE_LABELS[battleOutlook(state, targetSiteId, attackerIds, defenderIds)]
 }
 
-/**
- * 进攻不可发起的原因；可以发起时返回 null。供 `attack` 与界面共用，界面据此在进入战斗前拦下。
- */
-export function attackBlockReason(
-  state: GameState,
-  party: AttackParty,
-  targetSiteId: SiteId,
-  factionId: FactionId = state.playerFaction,
-): string | null {
-  const ids = partyIds(party)
-  const members = ids
-    .map((id) => state.characters.find((item) => item.id === id))
-    .filter((item): item is Character => item !== undefined)
-  const commander = state.characters.find((item) => item.id === party.commander) ?? null
-  const target = state.geography.sites.find((item) => item.id === targetSiteId) ?? null
-
-  if (target === null) {
-    return '目标战略点不存在'
-  }
-  const defender = defenderFactionAt(state, target)
-  if (defender === factionId) {
-    return target.type === 'field' ? '目标野地驻有己方人马' : '目标已是自有战略点'
-  }
-  if (defender === null) {
-    // 无主的城池与关隘可随时攻取；空野地无人可打，也就无从进攻。
-    if (target.type === 'field') {
-      return '目标野地没有可攻的驻军'
-    }
-  } else if (areAllied(state, factionId, defender)) {
-    return '与对方同盟，不能进攻'
-  } else if (!areHostile(state, factionId, defender)) {
-    return '与对方非敌对，须先宣战'
-  }
-  if (commander === null) {
-    return '必须指定主将'
-  }
-  if (members.length !== ids.length) {
-    return '编成中有武将不存在'
-  }
-  if (new Set(ids).size !== ids.length) {
-    return '主将、副将与军师不能是同一人'
-  }
-
-  const challengerId = party.challenger ?? null
-  if (challengerId !== null) {
-    if (challengerId !== party.commander && challengerId !== party.deputy) {
-      return '单挑须由主将或副将出马'
-    }
-    if (members.find((member) => member.id === challengerId)?.isMonarch === true) {
-      return '君主不参与单挑'
-    }
-  }
-
-  for (const member of members) {
-    const blocked = officerBlockedReason(state, member, factionId)
-    if (blocked !== null) {
-      return blocked
-    }
-    if (member.troops <= 0) {
-      return `${member.name} 没有兵力`
-    }
-    if (hasActedThisTurn(state, member.id)) {
-      return `${member.name} 本回合已行动`
-    }
-    if (!stationAdjacentTo(state, member, targetSiteId)) {
-      return `${member.name} 的驻地与目标不相邻`
-    }
-  }
-
-  // 出征另需用粮：粮草不足则不能出阵，且不扣行动力。
-  const faction = state.factions.find((item) => item.id === factionId)
-  if (faction === undefined || faction.grain < attackGrainCost(partySide(state, party).troops)) {
-    return '粮草不足，不能出征'
-  }
-
-  return null
+/** 退场：脱离势力与驻地，兵力归零。 */
+function retire(character: Character): void {
+  character.status = 'retired'
+  character.factionId = null
+  character.stationedSiteId = null
+  character.troops = 0
 }
 
-/** 开发者模式下强制一场战斗的胜负，只由界面在该模式开启时传入。 */
-export type ForcedOutcome = 'win' | 'lose'
+/** 按战损比例折算实际减员，未折算的部分视为溃散归队；返回实减。 */
+function applyBattleLoss(unit: BattleUnit): number {
+  if (unit.troops <= 0) {
+    return 0
+  }
+  const ratio = Math.min(1, (unit.troops - Math.max(0, unit.battleTroops)) / unit.troops)
+  const lost = Math.round(unit.troops * ratio * CASUALTY_CONVERSION)
 
-/**
- * 合攻相邻的一个他方或无主战略点，自动结算。
- * 主将、副将与军师的兵力合计为投入兵力，智谋加成取三人中最高者；士气是战斗属性，
- * 双方从满值起，由单挑按方增减。出征按投入兵力耗粮，粮草不足则不能出阵。
- * 胜则战略点归攻方、参战部队一同前移进驻，败则各自退回原驻地并受损。随机数取自随存档落盘的模拟流。
- * 单挑可由任一方提出：`party.challenger` 是攻方出马者，`defense` 是守方的迎战编成与出马者。
- * `forcedOutcome` 为开发者模式专供：传入即由界面指定这一战的胜负，其余结算照常。
- */
-export function attack(
-  state: GameState,
-  party: AttackParty,
-  targetSiteId: SiteId,
-  factionId: FactionId = state.playerFaction,
-  defense: DefenseChoice | null = null,
-  forcedOutcome: ForcedOutcome | null = null,
-): ActionResult {
-  const defenderChallenger = defense?.challenger ?? null
-  const defenderParty = defense?.party
-  const ids = partyIds(party)
-  const members = ids
-    .map((id) => state.characters.find((item) => item.id === id))
-    .filter((item): item is Character => item !== undefined)
-  const commander = state.characters.find((item) => item.id === party.commander) ?? null
-  const target = state.geography.sites.find((item) => item.id === targetSiteId) ?? null
-  const random = createRandom(state.randomState)
-
-  return runAction(state, {
-    kind: 'attack',
-    factionId,
-    precondition: (current) => {
-      const blocked = attackBlockReason(current, party, targetSiteId, factionId)
-      if (blocked !== null) {
-        return blocked
-      }
-
-      // 守方编成须落在本战略点的守军之内，主将确实在阵中。
-      if (defenderParty !== undefined) {
-        const garrison = garrisonAt(current, targetSiteId, defenderParty)
-        if (!garrison.members.some((member) => member.id === defenderParty.commander)) {
-          return '迎战编成的主将不在守军之中'
-        }
-      }
-
-      // 守方也可提出单挑：出马者须在迎战编成之中、为主将或副将，且君主不参与。
-      if (defenderChallenger !== null) {
-        const dueler = garrisonAt(current, targetSiteId, defenderParty).members.find(
-          (member) => member.id === defenderChallenger,
-        )
-        if (dueler === undefined) {
-          return '出马者不在守军之中'
-        }
-        if (dueler.isMonarch) {
-          return '君主不参与单挑'
-        }
-        if (
-          defenderChallenger !== defenderParty?.commander &&
-          defenderChallenger !== defenderParty?.deputy
-        ) {
-          return '单挑须由主将或副将出马'
-        }
-      }
-
-      return null
-    },
-    execute: (current) => {
-      if (target === null || commander === null || members.length === 0) {
-        return { outcome: '进攻未生效' }
-      }
-      // 野地无归属：打的是驻军，不是地盘，胜利只逐走守军。
-      const isField = target.type === 'field'
-
-      // 单挑先于交战结算：它只改本场士气与阵亡，二者随即计入战力。
-      const duel = resolveDuel(
-        current,
-        party,
-        members,
-        target,
-        random,
-        defenderChallenger,
-        defenderParty,
-      )
-      // 士气看的是「哪一方」，与由谁出马无关：挑战方胜则挑战方升、应战方降。
-      const challengerIsAttacker = duel?.challengerSide !== 'defender'
-      const attackerMoraleDelta =
-        duel === null ? 0 : challengerIsAttacker ? duel.challengerMoraleDelta : duel.answererMoraleDelta
-      const defenderMoraleDelta =
-        duel === null ? 0 : challengerIsAttacker ? duel.answererMoraleDelta : duel.challengerMoraleDelta
-
-      // 单挑可能致人阵亡，此后只在场的部属参与结算。
-      const fighters = members.filter(isServing)
-      const generalNames = fighters.map((member) => member.name).join('、')
-      const lead = fighters.find((member) => member.id === party.commander) ?? fighters[0] ?? commander
-
-      // 士气是战斗属性：双方开战默认满值，单挑按方增减后夹在上限内。
-      const side: BattleSide = {
-        ...partySide(current, party),
-        morale: clampBattleMorale(MORALE_FULL + attackerMoraleDelta),
-      }
-
-      // 出征即耗粮：不论胜败，行军与交战的开销都已付出。
-      const attackerFaction = current.factions.find((item) => item.id === factionId)
-      if (attackerFaction !== undefined) {
-        attackerFaction.grain -= attackGrainCost(side.troops)
-      }
-
-      const defenders = defendersAt(current, target)
-      const garrison = garrisonAt(current, target.id, defenderParty)
-      const defenderSide: BattleSide = {
-        ...garrison.side,
-        morale: clampBattleMorale(MORALE_FULL + defenderMoraleDelta),
-      }
-      const defenderPower = battlePower(defenderSide, { defendingAt: target.type }) * variance(random)
-      const attackerPower = battlePower(side) * variance(random)
-
-      // 开发者模式下由界面指定胜负；否则战力高者胜，守方兵力为零时视为不战而下。
-      const attackerWins =
-        forcedOutcome === 'win' ||
-        (forcedOutcome === null && (defenderPower <= 0 || attackerPower > defenderPower))
-      const undefended = defenderPower <= 0
-
-      /*
-       * 伤亡率在改动兵力之前算出：战报里的伤亡不随后续的撤退、被俘而变，
-       * 剩余兵力也只反映战损，不含败退无路被俘者。
-       * 胜方伤亡随双方战力比缩放：碾压局几乎不流血，势均力敌才损两成；败方固定四成。
-       * 战力取上一步已含随机浮动的实际值。
-       */
-      const winnerLossRate = (winnerPower: number, loserPower: number): number =>
-        WINNER_CASUALTY_RATE * Math.min(1, loserPower / winnerPower)
-      const attackerLossRate = attackerWins
-        ? undefended
-          ? 0
-          : winnerLossRate(attackerPower, defenderPower)
-        : LOSER_CASUALTY_RATE
-      const defenderLossRate = attackerWins
-        ? LOSER_CASUALTY_RATE
-        : winnerLossRate(defenderPower, attackerPower)
-      const losses = (troops: number, rate: number): number => troops - applyLoss(troops, rate)
-      const attackerCasualties = fighters.reduce(
-        (total, member) => total + losses(member.troops, attackerLossRate),
-        0,
-      )
-      const defenderCommander = pickByCommand(garrison.members)
-      const defenderTroops = garrison.members.reduce((total, item) => total + item.troops, 0)
-      const defenderCasualties = garrison.members.reduce(
-        (total, item) => total + losses(item.troops, defenderLossRate),
-        0,
-      )
-      const report: BattleReport = {
-        siteName: target.name,
-        undefended,
-        attackerWins,
-        duel,
-        attacker: {
-          commander: lead.name,
-          officers: fighters.map((member) => member.name),
-          troops: side.troops,
-          power: Math.round(attackerPower),
-          casualties: attackerCasualties,
-          remaining: side.troops - attackerCasualties,
-        },
-        defender: {
-          commander: defenderCommander?.name ?? '',
-          officers: garrison.members.map((item) => item.name),
-          troops: defenderTroops,
-          power: Math.round(defenderPower),
-          casualties: defenderCasualties,
-          remaining: defenderTroops - defenderCasualties,
-        },
-        captives: [],
-      }
-
-      let defenderFates: string[] = []
-      let releasedNotes: string[] = []
-      let damaged: DevelopmentKind[] = []
-      let guardFateNote = ''
-
-      // 出战经验只落在实际接战的双方：胜 +2、败 +3（败仗反而长进更多），供成长累积强化额度。
-      const attackerExp = attackerWins ? WIN_EXP : LOSS_EXP
-      const defenderExp = attackerWins ? LOSS_EXP : WIN_EXP
-      for (const member of fighters) {
-        member.exp = (member.exp ?? 0) + attackerExp
-      }
-      for (const defender of garrison.members) {
-        defender.exp = (defender.exp ?? 0) + defenderExp
-      }
-
-      if (attackerWins) {
-        if (!undefended) {
-          for (const member of fighters) {
-            member.troops = applyLoss(member.troops, attackerLossRate)
-          }
-          for (const defender of garrison.members) {
-            defender.troops = applyLoss(defender.troops, defenderLossRate)
-          }
-        }
-        const previousOwner = target.owner
-        // 野地不入任何势力的版图：胜利只逐走守军，不改归属，也不牵动州归属与开发损耗。
-        if (!isField) {
-          target.owner = factionId
-          // 无主守军失守：凭险自守的地方武装就此了结，按随机流给一句去向，不留俘虏、不迁移。
-          if (previousOwner === null && target.guard !== undefined) {
-            const fate = random.next() < GUARD_ROUT_CHANCE ? '溃散' : '被斩'
-            guardFateNote = `；守军 ${target.guard.name} ${fate}`
-            delete target.guard
-          }
-          // 易主时的战火损耗：前任的开发设施随机降 1–2 项。
-          damaged = damageOnCapture(target, random)
-        }
-        for (const member of fighters) {
-          member.stationedSiteId = target.id
-        }
-        const captured = resolveDefenders(current, defenders, target, factionId, random)
-        defenderFates = captured.fates
-        report.captives = captured.captives
-        if (!isField) {
-          resolveProvinceOwners(current.geography)
-        }
-        // 就此打灭的一方，其营中俘虏一概开释为在野。
-        if (
-          previousOwner !== null &&
-          previousOwner !== factionId &&
-          isFactionDestroyed(current, previousOwner)
-        ) {
-          releasedNotes = releaseCaptives(current, previousOwner)
-        }
-      } else {
-        for (const member of fighters) {
-          member.troops = applyLoss(member.troops, attackerLossRate)
-        }
-        for (const defender of garrison.members) {
-          defender.troops = applyLoss(defender.troops, defenderLossRate)
-        }
-        // 败方受挫：参战者忠诚下降，低到阈值以下者就此离走（各自写一条记录）。
-        for (const member of fighters) {
-          loseLoyalty(member, LOYALTY_LOSS.battleLost)
-          maybeDefect(current, member, '败绩')
-        }
-      }
-
-      for (const member of fighters) {
-        markActed(current, member.id)
-      }
-      current.randomState = random.getState()
-
-      const duelLead = duel === null ? '' : `${duelHeadline(duel)}；`
-      const fateNote = defenderFates.length > 0 ? `；守将 ${defenderFates.join('、')}` : ''
-      const releaseNote = releasedNotes.length > 0 ? `；${releasedNotes.join('、')}` : ''
-      const damageNote =
-        attackerWins && damaged.length > 0
-          ? `；战火波及，${damaged.map((kind) => DEVELOPMENT_LABELS[kind]).join('、')} 各降一级`
-          : ''
-
-      const conquestNote = isField ? `击破 ${target.name} 守军` : `攻占 ${target.name}`
-
-      return {
-        targetId: target.id,
-        outcome: attackerWins
-          ? `${duelLead}${generalNames} ${conquestNote}${fateNote}${guardFateNote}${releaseNote}${damageNote}`
-          : `${duelLead}${generalNames} 进攻 ${target.name} 失利`,
-        battle: report,
-      }
-    },
-  })
+  return Math.min(unit.troops, lost)
 }
 
-/**
- * 占领后的分派驻守：把刚攻下某点的部属一部分留驻新点、一部分回原驻地。
- * 只在进攻得手后由界面调用：不耗行动力、不算已行动（他们本季的行动已在进攻时用掉）。
- * 未列入 returns 的参战者一律留驻新点。返回一句回驻摘要，供界面回显。
- */
-export function assignAfterCapture(
-  state: GameState,
-  siteId: SiteId,
-  returns: readonly { characterId: CharacterId; siteId: SiteId }[],
-  factionId: FactionId = state.playerFaction,
-): string {
-  const notes: string[] = []
-
-  for (const item of returns) {
-    const character = state.characters.find((entry) => entry.id === item.characterId)
-    if (character === undefined || !isServing(character) || character.factionId !== factionId) {
-      continue
-    }
-    if (character.stationedSiteId !== siteId) {
-      continue
-    }
-    const destination = state.geography.sites.find((site) => site.id === item.siteId)
-    if (destination === undefined || destination.owner !== factionId) {
-      continue
-    }
-
-    character.stationedSiteId = destination.id
-    notes.push(`${character.name} 回驻 ${destination.name}`)
-  }
-
-  return notes.join('、')
-}
-
-/** 单挑结果。 */
-export interface DuelResult {
-  /** 对方是否拒绝应战。 */
-  refused: boolean
-  /** 应战时的胜者；拒战或无法进行时为 null。 */
-  winnerId: CharacterId | null
-  /** 单挑致阵亡的败者；无阵亡时为 null。 */
-  fallenId: CharacterId | null
-  outcome: string
-}
-
-/** 单挑的核心判定结果：谁胜谁负、是否致阵亡；士气由调用方按方施加。 */
-interface DuelOutcome {
-  winnerId: CharacterId
-  loserId: CharacterId
-  fatal: boolean
-  outcome: string
-}
-
-/**
- * 单挑的核心判定：按武力加随机定胜负，败者有小概率阵亡。不改士气，改由调用方按方施加。
- */
-function settleDuel(challenger: Character, defender: Character, random: Random): DuelOutcome {
-  const challengerScore = challenger.might + random.next() * DUEL_RANDOM_SPAN
-  const defenderScore = defender.might + random.next() * DUEL_RANDOM_SPAN
-  const winner = challengerScore >= defenderScore ? challenger : defender
-  const loser = winner === challenger ? defender : challenger
-  const fatal = random.next() < DUEL_DEATH_CHANCE
-
-  if (fatal) {
-    retire(loser)
-    return {
-      winnerId: winner.id,
-      loserId: loser.id,
-      fatal,
-      outcome: `${winner.name} 单挑胜，阵斩 ${loser.name}`,
-    }
-  }
-
-  return { winnerId: winner.id, loserId: loser.id, fatal, outcome: `${winner.name} 单挑胜 ${loser.name}` }
-}
-
-/** 单挑结果的一句话，供行动记录与历史展示；更细的演出由界面按 `DuelReport` 组织。 */
-export function duelHeadline(duel: DuelReport): string {
-  if (duel.refused) {
-    return duel.answerer === ''
-      ? `${duel.challenger} 挑战，无人应战`
-      : `${duel.challenger} 挑战，${duel.answerer} 拒战`
-  }
-
-  const verdict =
-    duel.challengerWon === true
-      ? `${duel.challenger} 单挑胜 ${duel.answerer}`
-      : `${duel.challenger} 单挑不敌 ${duel.answerer}`
-
-  return duel.fallen === '' ? verdict : `${verdict}，阵斩 ${duel.fallen}`
-}
-
-/**
- * 单挑结算：对方拒战则作罢；应战则按武力加随机定胜负，败者有小概率阵亡。君主不参与单挑。
- * 士气是战斗属性，不在这里改动——交战双方各自按其增减（见 `resolveDuel`）。
- */
-export function duel(
-  state: GameState,
-  challengerId: CharacterId,
-  defenderId: CharacterId,
-  defenderAccepts: boolean,
-): DuelResult {
-  const challenger = state.characters.find((item) => item.id === challengerId) ?? null
-  const defender = state.characters.find((item) => item.id === defenderId) ?? null
-
-  if (challenger === null || defender === null) {
-    return { refused: false, winnerId: null, fallenId: null, outcome: '单挑无法进行' }
-  }
-
-  if (challenger.isMonarch || defender.isMonarch) {
-    return { refused: false, winnerId: null, fallenId: null, outcome: '君主不参与单挑' }
-  }
-
-  if (!defenderAccepts) {
-    return {
-      refused: true,
-      winnerId: null,
-      fallenId: null,
-      outcome: `${challenger.name} 挑战 ${defender.name}，${defender.name} 拒战`,
-    }
-  }
-
-  const random = createRandom(state.randomState)
-  const result = settleDuel(challenger, defender, random)
-  state.randomState = random.getState()
+/** 战报中的一方。 */
+function sideReport(units: readonly BattleUnit[]): BattleReportSide {
+  const troops = units.reduce((total, unit) => total + unit.troops, 0)
+  const casualties = units.reduce((total, unit) => total + applyBattleLoss(unit), 0)
 
   return {
-    refused: false,
-    winnerId: result.winnerId,
-    fallenId: result.fatal ? result.loserId : null,
-    outcome: result.outcome,
+    commander: units[0]?.name ?? '',
+    officers: units.map((unit) => unit.name),
+    troops,
+    casualties,
+    remaining: troops - casualties,
   }
+}
+
+/** 势力覆灭时名册尽散、俘虏开释；返回去向说明。 */
+function dissolveFaction(state: GameState, factionId: FactionId): string[] {
+  const notes: string[] = []
+  for (const character of state.characters) {
+    if (character.status === 'serving' && character.factionId === factionId) {
+      becomeWild(state, character)
+      notes.push(`${character.name} 流落为在野`)
+    }
+  }
+
+  notes.push(...releaseCaptives(state, factionId))
+
+  return notes
+}
+
+/**
+ * 结算一场已分出结果的战斗：折算战损、定守方去向、易主、记功过并写入历史。
+ * 战斗未打完时先按自动指令推演到底。开发者模式可强制胜负，其余结算照常。
+ */
+export function finishBattle(
+  state: GameState,
+  battle: BattleState,
+  forcedOutcome: ForcedOutcome | null = null,
+): ActionResult {
+  if (!battle.finished) {
+    autoBattle(battle)
+  }
+
+  const target = state.geography.sites.find((item) => item.id === battle.siteId)
+  const attackerFaction = battle.attacker.factionId
+  if (target === undefined || attackerFaction === null) {
+    return { ok: false, reason: '战场已不存在' }
+  }
+
+  const attackerWins =
+    forcedOutcome === 'win' ? true : forcedOutcome === 'lose' ? false : battle.attackerWins
+  const undefended = battle.undefended
+  const random = createRandom(battle.randomState)
+  const attackerUnits = battle.attacker.units
+  const defenderUnits = battle.defender.units
+
+  // 战损按开战兵力与结束战兵的比例折算，先于去向结算；去向不再改写战报里的剩余兵力。
+  for (const unit of [...attackerUnits, ...defenderUnits]) {
+    const character = state.characters.find((item) => item.id === unit.characterId)
+    if (character === undefined) {
+      continue
+    }
+    character.troops = Math.max(0, character.troops - applyBattleLoss(unit))
+  }
+
+  const report: BattleReport = {
+    siteName: target.name,
+    undefended,
+    attackerWins,
+    attacker: sideReport(attackerUnits),
+    defender: sideReport(defenderUnits),
+    captives: [],
+  }
+
+  const attackerNames = attackerUnits.map((unit) => unit.name).join('、')
+  const fates: string[] = []
+  const captives: CaptiveReport[] = []
+  const released: string[] = []
+  const damaged: DevelopmentKind[] = []
+  const notes: string[] = []
+
+  const attackerExp = attackerWins ? WIN_EXP : LOSS_EXP
+  for (const unit of attackerUnits) {
+    const character = state.characters.find((item) => item.id === unit.characterId)
+    if (character !== undefined) {
+      character.exp = (character.exp ?? 0) + attackerExp
+    }
+  }
+  for (const unit of defenderUnits) {
+    const character = state.characters.find((item) => item.id === unit.characterId)
+    if (character !== undefined) {
+      character.exp = (character.exp ?? 0) + (attackerWins ? LOSS_EXP : WIN_EXP)
+    }
+  }
+
+  if (attackerWins) {
+    const defenderFaction = target.owner
+    target.owner = attackerFaction
+
+    // 攻下之地并入参战者的活动范围，往后可在此驻守、征兵与继续出兵。
+    for (const unit of attackerUnits) {
+      const character = state.characters.find((item) => item.id === unit.characterId)
+      if (character !== undefined && !character.scope.includes(target.id)) {
+        character.scope.push(target.id)
+      }
+    }
+
+    // 原守将未及上阵（兵为零）也随城撤出，忠诚下降；上阵者由下面的去向结算处理。
+    const fought = new Set(defenderUnits.map((unit) => unit.characterId))
+    for (const character of state.characters) {
+      if (character.stationedSiteId !== target.id) {
+        continue
+      }
+      character.stationedSiteId = null
+      if (!fought.has(character.id)) {
+        loseLoyalty(character, LOYALTY_LOSS.siteLost)
+        fates.push(maybeDefect(state, character, '失守') ?? `${character.name} 撤出`)
+      }
+    }
+
+    for (const unit of defenderUnits) {
+      const character = state.characters.find((item) => item.id === unit.characterId)
+      if (character === undefined) {
+        continue
+      }
+      const roll = random.next()
+      if (roll < DEFENDER_FLEE_CHANCE) {
+        character.stationedSiteId = null
+        if (unit.stationed) {
+          loseLoyalty(character, LOYALTY_LOSS.siteLost)
+          fates.push(maybeDefect(state, character, '失守') ?? `${character.name} 撤出`)
+        }
+        continue
+      }
+      if (roll < DEFENDER_FLEE_CHANCE + DEFENDER_DIE_CHANCE) {
+        retire(character)
+        fates.push(`${character.name} 战死`)
+        continue
+      }
+      const record = takeCaptive(state, character, attackerFaction)
+      fates.push(`${character.name} 被俘，入${factionName(state, attackerFaction)}营`)
+      captives.push({
+        name: character.name,
+        formerFaction: factionName(state, record.formerFactionId),
+        attitude: attitudeOf(record.will),
+      })
+    }
+
+    damaged.push(...damageOnCapture(target, random))
+    resolveProvinceOwners(state.geography)
+
+    if (defenderFaction !== null && isFactionDestroyed(state, defenderFaction)) {
+      released.push(...dissolveFaction(state, defenderFaction))
+    }
+  } else {
+    for (const unit of attackerUnits) {
+      const character = state.characters.find((item) => item.id === unit.characterId)
+      if (character === undefined) {
+        continue
+      }
+      loseLoyalty(character, LOYALTY_LOSS.battleLost)
+      const note = maybeDefect(state, character, '败绩')
+      if (note !== null) {
+        notes.push(note)
+      }
+    }
+  }
+
+  for (const unit of attackerUnits) {
+    markActed(state, unit.characterId)
+  }
+  for (const unit of defenderUnits) {
+    if (!unit.stationed) {
+      markActed(state, unit.characterId)
+    }
+  }
+
+  report.captives = captives
+  battle.randomState = random.getState()
+  state.randomState = battle.randomState
+
+  const fateNote = fates.length > 0 ? `；守将 ${fates.join('、')}` : ''
+  const releaseNote = released.length > 0 ? `；${released.join('、')}` : ''
+  const damageNote =
+    damaged.length > 0
+      ? `；战火波及，${damaged.map((kind) => DEVELOPMENT_LABELS[kind]).join('、')} 各降一级`
+      : ''
+  const outcome = attackerWins
+    ? undefended
+      ? `${attackerNames} 不战而下，取下 ${target.name}${releaseNote}`
+      : `${attackerNames} 攻占 ${target.name}${fateNote}${releaseNote}${damageNote}`
+    : `${attackerNames} 进攻 ${target.name} 失利${notes.length > 0 ? `；${notes.join('、')}` : ''}`
+
+  const record: ActionRecord = {
+    kind: 'attack',
+    factionId: attackerFaction,
+    date: { ...state.currentDate },
+    targetId: target.id,
+    outcome,
+    battle: report,
+  }
+  state.history.push(record)
+
+  return { ok: true, record }
+}
+
+/**
+ * 占领后指定一人留驻新点：从参战者中选一名仍在仕、仍属攻方的武将，不耗行动力。
+ * 传 null 表示不留驻。
+ */
+export function stationAfterCapture(
+  state: GameState,
+  siteId: SiteId,
+  characterId: CharacterId | null,
+  factionId: FactionId = state.playerFaction,
+): string {
+  if (characterId === null) {
+    return ''
+  }
+  const site = state.geography.sites.find((item) => item.id === siteId)
+  const character = state.characters.find((item) => item.id === characterId)
+  if (site === undefined || site.owner !== factionId) {
+    return ''
+  }
+  if (character === undefined || !isServing(character) || character.factionId !== factionId) {
+    return ''
+  }
+  if (character.stationedSiteId !== null) {
+    return ''
+  }
+
+  for (const officer of state.characters) {
+    if (officer.stationedSiteId === siteId) {
+      officer.stationedSiteId = null
+    }
+  }
+  character.stationedSiteId = siteId
+
+  return `${character.name} 留驻 ${site.name}`
 }

@@ -14,7 +14,7 @@ describe('行动力与寻访流程（无画面）', () => {
     const startTurn = session.getState().currentTurn
 
     let successes = 0
-    while (session.seekTalent('jiangxia').ok) {
+    while (session.seekTalent('gongan').ok) {
       successes += 1
     }
 
@@ -42,8 +42,8 @@ describe('行动力与寻访流程（无画面）', () => {
     const session = createSession(5)
     const before = session.getState().randomState
 
-    session.seekTalent('jiangxia')
-    session.seekTalent('jiangxia')
+    session.seekTalent('gongan')
+    session.seekTalent('gongan')
 
     expect(session.getState().randomState).toBe(before)
   })
@@ -54,7 +54,7 @@ describe('行动力与寻访流程（无画面）', () => {
       const outcomes: string[] = []
 
       for (let i = 0; i < 2; i += 1) {
-        const result = session.seekTalent('jiangxia')
+        const result = session.seekTalent('gongan')
         outcomes.push(result.ok ? result.record.outcome : result.reason)
       }
 
@@ -67,9 +67,9 @@ describe('行动力与寻访流程（无画面）', () => {
   it('整条流程存读档往返一致', () => {
     const store = new LocalSaveStore(new MemoryStorage())
     const session = new GameSession(store, { drawSeed: 2 })
-    session.seekTalent('jiangxia')
+    session.seekTalent('gongan')
     session.endTurn()
-    session.seekTalent('jiangxia')
+    session.seekTalent('gongan')
     session.saveToSlot(2)
 
     const reloaded = new GameSession(store, { drawSeed: 99 })

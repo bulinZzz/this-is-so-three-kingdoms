@@ -25,6 +25,7 @@ function candidate(personality: Personality, affinity: number): Character {
     status: 'wild',
     factionId: null,
     provinceId: 'jing',
+    scope: ['a'],
     might: 50,
     command: 50,
     intellect: 50,
@@ -34,6 +35,7 @@ function candidate(personality: Personality, affinity: number): Character {
     affinities: { liubei: affinity },
     loyalty: 0,
     isMonarch: false,
+    armType: 'infantry',
     stationedSiteId: null,
     troops: 0,
     tier: 'basic',
@@ -80,7 +82,7 @@ describe('招聘成功率', () => {
 })
 
 describe('seekTalent', () => {
-  it('招到后入仕，驻守该点、自带兵力，并扣行动力、写记录', () => {
+  it('招到后入仕、归入名册，并扣行动力、写记录', () => {
     const state = createInitialState({ scenario: seekScenario(candidate('open', 100)) })
 
     const result = seekTalent(state, createRandom(1), 'a')
@@ -95,7 +97,8 @@ describe('seekTalent', () => {
     const recruited = characterOf(state, 'candidate')
     expect(recruited.status).toBe('serving')
     expect(recruited.factionId).toBe('liubei')
-    expect(recruited.stationedSiteId).toBe('a')
+    // 新入仕者直接入名册，不自动驻守。
+    expect(recruited.stationedSiteId).toBeNull()
     // 入仕不带兵：兵力自零起，须自行征兵；带兵上限按统率给。
     expect(recruited.troops).toBe(0)
     // 入仕者的忠诚按其对主家的偏好定初值，不会一入仕就「离心」。
@@ -219,7 +222,7 @@ describe('visit', () => {
     const who = characterOf(state, 'candidate')
     expect(who.affinities.liubei).toBe(10)
     expect(who.status).toBe('serving')
-    expect(who.stationedSiteId).toBe('a')
+    expect(who.stationedSiteId).toBeNull()
     expect(who.loyalty).toBe(joinLoyaltyFor(10))
     expect(state.contactedCandidates.liubei).toEqual([])
     expect(state.actionPoints.liubei).toBe(

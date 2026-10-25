@@ -1,7 +1,7 @@
 import { runAction, type ActionResult } from './actions'
 import { affinityToward, joinLoyaltyFor, recruitmentFactor } from './affinity'
 import { isTierAvailable, provinceControl } from './cardPool'
-import { CHARACTER_LIMIT, countServing, isRecruitable } from './characters'
+import { CHARACTER_LIMIT, countServing, isRecruitable, recruitProvinceOf } from './characters'
 import { TROOPS_LIMIT_PER_COMMAND } from './military'
 import type { Character, CharacterId, FactionId, GameState, Personality, Site, SiteId } from './model'
 import type { Random } from './random'
@@ -59,7 +59,7 @@ function candidatesAt(state: GameState, site: Site, factionId: FactionId): Chara
   return state.characters.filter(
     (character) =>
       isRecruitable(character) &&
-      character.provinceId === site.provinceId &&
+      recruitProvinceOf(character, state.geography) === site.provinceId &&
       isTierAvailable(character.tier, provinceControl(state, site.provinceId, factionId)) &&
       !known.has(character.id),
   )
@@ -98,11 +98,11 @@ export function clearContacts(state: GameState, characterId: CharacterId): void 
   }
 }
 
-/** 某人入仕某势力，驻守给定战略点，兵力从零起，忠诚按其对该势力的偏好定初值。 */
-function join(state: GameState, character: Character, factionId: FactionId, siteId: SiteId): void {
+/** 某人入仕某势力，直接归入名册，兵力从零起，忠诚按其对该势力的偏好定初值。 */
+function join(state: GameState, character: Character, factionId: FactionId): void {
   character.status = 'serving'
   character.factionId = factionId
-  character.stationedSiteId = siteId
+  character.stationedSiteId = null
   character.troops = 0
   character.troopLimit = character.command * TROOPS_LIMIT_PER_COMMAND
   character.loyalty = joinLoyaltyFor(affinityToward(character, factionId))
@@ -134,7 +134,10 @@ export function seekTalent(
       if (site.owner !== factionId) {
         return '此处不是自有战略点'
       }
-      if (countServing(current.characters, factionId) >= CHARACTER_LIMIT) {
+      if (
+        factionId === current.playerFaction &&
+        countServing(current.characters, factionId) >= CHARACTER_LIMIT
+      ) {
         return '麾下已满'
       }
       if (candidates.length === 0) {
@@ -154,7 +157,7 @@ export function seekTalent(
         return { targetId: site.id, outcome: `寻访到 ${picked.name}，但他不愿出仕` }
       }
 
-      join(current, picked, factionId, site.id)
+      join(current, picked, factionId)
       return { targetId: site.id, outcome: `招募 ${picked.name}` }
     },
   })
@@ -192,7 +195,10 @@ export function visit(
       if (site === undefined || site.owner !== factionId) {
         return '会面之处已非自有'
       }
-      if (countServing(current.characters, factionId) >= CHARACTER_LIMIT) {
+      if (
+        factionId === current.playerFaction &&
+        countServing(current.characters, factionId) >= CHARACTER_LIMIT
+      ) {
         return '麾下已满'
       }
       return null
@@ -209,7 +215,7 @@ export function visit(
         return { targetId: character.id, outcome: `拜访 ${character.name}，意愿上升，但仍未应允` }
       }
 
-      join(current, character, factionId, contact.siteId)
+      join(current, character, factionId)
       return { targetId: character.id, outcome: `${character.name} 应允出仕` }
     },
   })

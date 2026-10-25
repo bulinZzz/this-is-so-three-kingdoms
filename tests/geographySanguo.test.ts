@@ -12,6 +12,14 @@ function sitesOwnedBy(owner: string): SiteId[] {
   return GEOGRAPHY_SANGUO.sites.filter((site) => site.owner === owner).map((site) => site.id)
 }
 
+function siteOf(id: SiteId) {
+  const site = GEOGRAPHY_SANGUO.sites.find((item) => item.id === id)
+  if (site === undefined) {
+    throw new Error(`战略点不存在：${id}`)
+  }
+  return site
+}
+
 /** 战略点在制图投影下的坐标，用于复算邻接规则。 */
 function projected(siteId: SiteId): { x: number; y: number } {
   return projectLonLat(SITE_COORDINATES[siteId])
@@ -36,21 +44,24 @@ function projectedDistance(u: SiteId, v: SiteId): number {
 
 /**
  * 几何规则之外的史实强制相邻边，与 tools/buildAdjacency.mjs 的 FORCED_EDGES 保持一致。
- * 零陵与武陵同属荆南，湘江与沅水水道相通。
+ * 这些点对之间隔着一个落在直径圆内的战略点，仅凭几何会误判为不相邻，故按史实补回。
  */
-const FORCED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [['lingling', 'wuling']]
-
-/**
- * 几何上无第三点阻挡、但史实上并无直接通道的点对，与 tools/buildAdjacency.mjs 的 EXCLUDED_EDGES 保持一致。
- * 长安在关中、白帝城在巴东，中隔秦岭与大巴山；临淄与小沛隔兖、徐二州；晋阳与蓟隔冀州；
- * 柳城与临淄隔渤海；龙编与江州隔云贵高原（南中）。
- */
-const EXCLUDED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [
-  ['changan', 'baidicheng'],
-  ['linzi', 'xiaopei'],
-  ['jinyang', 'jicheng'],
-  ['liucheng', 'linzi'],
-  ['longbian', 'jiangzhou'],
+const FORCED_EDGES: ReadonlyArray<readonly [SiteId, SiteId]> = [
+  ['lingling', 'wuling'],
+  ['gongan', 'yiling'],
+  ['gongan', 'changsha'],
+  ['chibi', 'jiangling'],
+  ['chengdu', 'mianzhu'],
+  ['nanzheng', 'yangpingguan'],
+  ['dingjunshan', 'jiamengguan'],
+  ['shouchun', 'guangling'],
+  ['chibi', 'chaisang'],
+  ['chengdu', 'lushui'],
+  ['chencang', 'yangpingguan'],
+  ['changan', 'zhiwugu'],
+  ['tianshui', 'jincheng'],
+  ['chaisang', 'jianye'],
+  ['xudu', 'qiao'],
 ]
 
 const forcedEdgeKeys = new Set(FORCED_EDGES.map(([a, b]) => [a, b].sort().join('|')))
@@ -65,16 +76,14 @@ describe('三国地理数据', () => {
     expect(validateGeography(GEOGRAPHY_SANGUO, FACTION_IDS)).toEqual([])
   })
 
-  it('覆盖十三个州、五十九个战略点，州名不重复', () => {
+  it('覆盖十三个州、六十六个战略点，州名不重复', () => {
     expect(GEOGRAPHY_SANGUO.provinces).toHaveLength(13)
-    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(59)
+    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(66)
     expect(new Set(GEOGRAPHY_SANGUO.provinces.map((province) => province.name)).size).toBe(13)
   })
 
   it('长安隶属司隶', () => {
-    const changan = GEOGRAPHY_SANGUO.sites.find((site) => site.id === 'changan')
-
-    expect(changan?.provinceId).toBe('sili')
+    expect(siteOf('changan').provinceId).toBe('sili')
   })
 
   it('每个战略点都有对应的州', () => {
@@ -91,65 +100,53 @@ describe('三国地理数据', () => {
     expect(types).toEqual(new Set(['metropolis', 'city', 'town', 'pass', 'field']))
   })
 
-  it('野地无人烟：无归属、无人口、不参与行军', () => {
+  it('野地无人烟，但同样有归属、并入行军图', () => {
     const fields = GEOGRAPHY_SANGUO.sites.filter((site) => site.type === 'field')
 
     expect(fields).toHaveLength(8)
     for (const site of fields) {
-      expect(site.owner).toBeNull()
+      expect(site.owner).not.toBeNull()
       expect(site.population).toBe(0)
-      expect(site.neighbors).toEqual([])
+      expect(site.neighbors.length).toBeGreaterThan(0)
     }
   })
 
   it('可占战略点都有人口，为合理的正整数', () => {
     const owned = GEOGRAPHY_SANGUO.sites.filter((site) => site.type !== 'field')
 
-    expect(owned).toHaveLength(51)
+    expect(owned).toHaveLength(58)
     for (const site of owned) {
       expect(Number.isInteger(site.population)).toBe(true)
       expect(site.population).toBeGreaterThan(0)
     }
   })
 
-  it('人口按类型定档：都会多于大城、大城多于小城，三类城市都多于关隘，关隘多于野地', () => {
-    const populationOf = (type: string): number[] =>
-      GEOGRAPHY_SANGUO.sites.filter((site) => site.type === type).map((site) => site.population)
-    const metropolises = populationOf('metropolis')
-    const cities = populationOf('city')
-    const towns = populationOf('town')
-    const passes = populationOf('pass')
-    const fields = populationOf('field')
-
-    expect(Math.min(...metropolises)).toBeGreaterThan(Math.max(...cities))
-    expect(Math.min(...cities)).toBeGreaterThan(Math.max(...towns))
-    expect(Math.min(...towns)).toBeGreaterThan(Math.max(...passes))
-    expect(Math.min(...passes)).toBeGreaterThan(Math.max(...fields))
+  it('人口与类型解耦：同为城，人口可以悬殊', () => {
+    // 三江城虽作大城入图，人烟却只抵一座小县；零陵只是小城，人口六万反过三江城。
+    expect(siteOf('sancheng').type).toBe('city')
+    expect(siteOf('sancheng').population).toBe(30000)
+    expect(siteOf('lingling').type).toBe('town')
+    expect(siteOf('lingling').population).toBe(60000)
   })
 
-  it('刘备开局只据江夏，且江夏有可进军的相邻点', () => {
-    expect(sitesOwnedBy('liubei')).toEqual(['jiangxia'])
-
-    const jiangxia = GEOGRAPHY_SANGUO.sites.find((site) => site.id === 'jiangxia')
-    expect(jiangxia?.neighbors.length).toBeGreaterThan(0)
+  it('刘备开局据公安与江夏，且公安有可进军的相邻点', () => {
+    expect(sitesOwnedBy('liubei')).toEqual(['gongan', 'jiangxia'])
+    expect(siteOf('gongan').neighbors.length).toBeGreaterThan(0)
   })
 
-  it('曹操与袁氏占地最多，孙权次之，仍有未归属之地', () => {
+  it('曹操占地最多，孙权次之，全图再无无主之地', () => {
     const caocao = sitesOwnedBy('caocao')
-    const yuanshi = sitesOwnedBy('yuanshi')
     const sunquan = sitesOwnedBy('sunquan')
-    const liubei = sitesOwnedBy('liubei')
     const unowned = GEOGRAPHY_SANGUO.sites.filter((site) => site.owner === null)
 
-    expect(caocao.length).toBe(16)
-    expect(yuanshi.length).toBe(6)
-    expect(sunquan.length).toBe(7)
-    expect(liubei.length).toBe(1)
-    // 荆南四郡、庐江无归属，八处野地亦无归属，合计十三处。
-    expect(unowned.length).toBe(13)
+    expect(caocao.length).toBe(22)
+    expect(sunquan.length).toBe(8)
+    expect(sitesOwnedBy('liubei')).toHaveLength(2)
+    // 陈仓归马腾后，马腾据槐里、陈仓、街亭、天水、西平关与金城六点。
+    expect(sitesOwnedBy('mateng')).toHaveLength(6)
+    // 城池、关隘与野地皆有所属。
+    expect(unowned).toHaveLength(0)
     expect(caocao.length).toBeGreaterThan(sunquan.length)
-    expect(sunquan.length).toBeGreaterThan(0)
-    expect(unowned.length).toBeGreaterThan(0)
   })
 
   it('州归属与占点多寡一致', () => {
@@ -161,29 +158,28 @@ describe('三国地理数据', () => {
     expect(geography.provinces.map((province) => province.owner)).toEqual(authors)
   })
 
-  it('建安十三年：曹操据豫、兖、徐、荆，袁氏据河北与幽、青、并，孙权据扬州，益、凉、交各归新主', () => {
+  it('建安十三年：曹操据司隶与中原四州，孙权据扬州，益、凉、交各归新主', () => {
     const ownerOf = (provinceId: string) =>
       GEOGRAPHY_SANGUO.provinces.find((province) => province.id === provinceId)?.owner
 
-    for (const provinceId of ['yu', 'yan', 'xu', 'jing']) {
+    for (const provinceId of ['sili', 'yu', 'yan', 'xu', 'ji', 'jing']) {
       expect(ownerOf(provinceId)).toBe('caocao')
     }
-    for (const provinceId of ['qing', 'ji', 'bing', 'you']) {
-      expect(ownerOf(provinceId)).toBe('yuanshi')
-    }
-    // 司隶的战略点以关中为多，州归属随占点多寡入马腾。
-    expect(ownerOf('sili')).toBe('mateng')
+    expect(ownerOf('you')).toBe('gongsunkang')
     expect(ownerOf('yang')).toBe('sunquan')
     expect(ownerOf('yi')).toBe('liuzhang')
-    expect(ownerOf('liang')).toBe('hansui')
+    // 凉州马腾与张鲁各据三点，并列时保留原归属者张鲁。
+    expect(ownerOf('liang')).toBe('zhanglu')
     expect(ownerOf('jiao')).toBe('shixie')
+    // 青、并二州尚未设点，无归属。
+    expect(ownerOf('qing')).toBeNull()
+    expect(ownerOf('bing')).toBeNull()
   })
 
-  it('从江夏出发可以走遍所有可占战略点', () => {
+  it('从公安出发可以走遍全图，野地也在行军图中', () => {
     const sitesById = new Map(GEOGRAPHY_SANGUO.sites.map((site) => [site.id, site]))
-    const occupied = GEOGRAPHY_SANGUO.sites.filter((site) => site.type !== 'field')
-    const visited = new Set<SiteId>(['jiangxia'])
-    const queue: SiteId[] = ['jiangxia']
+    const visited = new Set<SiteId>(['gongan'])
+    const queue: SiteId[] = ['gongan']
 
     while (queue.length > 0) {
       const current = queue.shift() as SiteId
@@ -195,13 +191,11 @@ describe('三国地理数据', () => {
       }
     }
 
-    expect(visited.size).toBe(occupied.length)
+    expect(visited.size).toBe(GEOGRAPHY_SANGUO.sites.length)
   })
 
-  it('邻接按地理推导：相邻两点之间不存在第三个可占战略点（史实强制相邻除外）', () => {
-    const allIds = GEOGRAPHY_SANGUO.sites
-      .filter((site) => site.type !== 'field')
-      .map((site) => site.id)
+  it('邻接按地理推导：相邻两点之间不存在第三个战略点（史实强制相邻除外）', () => {
+    const allIds = GEOGRAPHY_SANGUO.sites.map((site) => site.id)
     let skipped = 0
 
     for (const site of GEOGRAPHY_SANGUO.sites) {
@@ -226,32 +220,29 @@ describe('三国地理数据', () => {
   })
 
   it('史实强制相邻按名字豁免，几何判据本身未被削弱', () => {
-    // 名单中的每条边都必须真实存在于邻接表，避免豁免落空。
     for (const [a, b] of FORCED_EDGES) {
-      const siteA = GEOGRAPHY_SANGUO.sites.find((site) => site.id === a)
-      const siteB = GEOGRAPHY_SANGUO.sites.find((site) => site.id === b)
-
-      expect(siteA?.neighbors).toContain(b)
-      expect(siteB?.neighbors).toContain(a)
+      expect(siteOf(a).neighbors).toContain(b)
+      expect(siteOf(b).neighbors).toContain(a)
     }
 
-    // 判据本身未被放宽：赤壁与柴桑之间，江夏依旧落在直径圆内（赤壁已退出行军图，此判据只作对照）。
-    expect(insideDiameterCircle('jiangxia', 'chibi', 'chaisang')).toBe(true)
-    // 反向对照：同一条直径圆上，江陵确在圆外，判据本身照常给出否定结果。
-    expect(insideDiameterCircle('jiangling', 'chibi', 'chaisang')).toBe(false)
+    // 判据本身未被放宽：南郑与阳平关之间，定军山依旧落在直径圆内。
+    expect(insideDiameterCircle('dingjunshan', 'nanzheng', 'yangpingguan')).toBe(true)
+    // 反向对照：同一判据下，长安与潼关之间确无第三点阻挡。
+    expect(insideDiameterCircle('luoyang', 'changan', 'tongguan')).toBe(false)
   })
 
-  it('史实强制不相邻按名字排除', () => {
-    for (const [a, b] of EXCLUDED_EDGES) {
-      const siteA = GEOGRAPHY_SANGUO.sites.find((site) => site.id === a)
-      const siteB = GEOGRAPHY_SANGUO.sites.find((site) => site.id === b)
-
-      expect(siteA?.neighbors).not.toContain(b)
-      expect(siteB?.neighbors).not.toContain(a)
+  it('史实不相邻的点对已从邻接表中排除', () => {
+    // 关中与汉中、夷陵与荆南、泸水与江州，几何上可直连，史实无通道。
+    for (const [a, b] of [
+      ['changan', 'baidicheng'],
+      ['dingjunshan', 'yangpingguan'],
+      ['yiling', 'wuling'],
+      ['lushui', 'jiangzhou'],
+      ['tongguan', 'xiangyang'],
+    ] as const) {
+      expect(siteOf(a).neighbors).not.toContain(b)
+      expect(siteOf(b).neighbors).not.toContain(a)
     }
-
-    // 该点对本身满足几何规则，只因史实无通道才排除。
-    expect(insideDiameterCircle('hanzhong', 'changan', 'baidicheng')).toBe(false)
   })
 
   it('相邻列表按距离升序排列', () => {
@@ -262,21 +253,13 @@ describe('三国地理数据', () => {
     }
   })
 
-  it('新野与宛相邻', () => {
-    const xinye = GEOGRAPHY_SANGUO.sites.find((site) => site.id === 'xinye')
-    const wancheng = GEOGRAPHY_SANGUO.sites.find((site) => site.id === 'wancheng')
-
-    expect(xinye?.neighbors).toContain('wancheng')
-    expect(wancheng?.neighbors).toContain('xinye')
-  })
-
   it('邻接远少于完全图，绝非两两相连', () => {
     const siteCount = GEOGRAPHY_SANGUO.sites.length
     const edgeCount =
       GEOGRAPHY_SANGUO.sites.reduce((sum, site) => sum + site.neighbors.length, 0) / 2
     const completeGraphEdgeCount = (siteCount * (siteCount - 1)) / 2
 
-    expect(completeGraphEdgeCount).toBe(1711)
+    expect(completeGraphEdgeCount).toBe(2145)
     expect(edgeCount).toBeLessThan(siteCount * 4)
   })
 })

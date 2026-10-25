@@ -1,18 +1,17 @@
 import { ACTION_COSTS } from './actions'
 import {
-  aiAttackChallenger,
-  attack,
-  attackCandidates,
-  battlePower,
-  defenderFactionAt,
-  garrisonAt,
+  autoBattle,
+  autoFormation,
+  canAttackTarget,
+  defenderCandidates,
+  finishBattle,
   isAttackable,
-  partySide,
-  type AttackParty,
-  type DefenseChoice,
+  openAttack,
+  SITE_DEFENSE_BONUS,
+  type BattleState,
 } from './battle'
 import { recruitWillingCaptives } from './captives'
-import { isServing } from './characters'
+import { scopeSitesFor } from './characters'
 import { ALLIANCE_FAVOR, alliance } from './diplomacy'
 import { granaryOf } from './granary'
 import { estimateOf } from './intelligence'
@@ -21,9 +20,10 @@ import {
   harvestGrain,
   hasActedThisTurn,
   isFactionDestroyed,
+  readyOfficers,
   recruit,
   recruitGrainCost,
-  recruitPopulationCap,
+  sitePopulationCap,
   troopLimit,
 } from './military'
 import type {
@@ -36,57 +36,61 @@ import type {
   SiteType,
 } from './model'
 import { createRandom } from './random'
-import { areHostile, favorBetween, relationBetween } from './relations'
+import { favorBetween, relationBetween } from './relations'
 import { seekTalent } from './seekTalent'
 
 /**
  * 其他势力的自主行动。每季按最小行为集出手，顺序为寻访 → 外交 → 征粮 → 进攻 → 征兵：
- * 先补一名新人（新人当季即可参战），再看要不要结盟，粮仓见底则派人征粮，
+ * 先补一名新人，再看要不要结盟，粮仓见底则派人征粮，
  * 然后用有余力的武将进攻，最后把剩下的行动力用于征兵；营中「愿降」的俘虏在出手之初先行归附。
- * 进攻只在无主之地与敌对势力中挑目标——同盟与中立一概不打。
+ * 进攻只打已宣战的势力——全图没有无主战略点，也没有中立可攻的目标。
  * 行为只走规则层既有动作，随机取自随存档落盘的模拟流，固定种子下可复现。
  * 他方守成：不自行向中立势力宣战，点火改由玩家的宣战；对别人只知大概——
  * 进攻所据的对方实力都是估计值（见 intelligence），判断因此不是定数。
  */
 
-/** 进攻前要求我方战力高于守方的倍数；取 1 即「有优势就动手」。 */
+/** 进攻前要求我方投入兵力高于守方估计的倍数；取 1 即「有优势就动手」。 */
 const ATTACK_MARGIN = 1
 /** 战略点的相对价值，用于在多个可胜目标中择优。 */
 const SITE_VALUE: Record<SiteType, number> = { metropolis: 4, city: 3, town: 2, pass: 2, field: 1 }
-/** 一支编成至多三人，与玩家一致。 */
+/** 一支出征编成至多三人。 */
 const PARTY_SIZE = 3
 
 function sitesOf(state: GameState, factionId: FactionId): Site[] {
   return state.geography.sites.filter((site) => site.owner === factionId)
 }
 
-function officersOf(state: GameState, factionId: FactionId): Character[] {
-  return state.characters.filter(
-    (character) => isServing(character) && character.factionId === factionId,
-  )
+/** 就某目标排出出征者：活动范围及于目标、有兵、未行动、未驻守的部属，按名册次序取至多三人。 */
+function attackParty(state: GameState, targetId: string, factionId: FactionId): Character[] {
+  if (!isAttackable(state, targetId, factionId)) {
+    return []
+  }
+
+  return state.characters
+    .filter(
+      (character) =>
+        character.status === 'serving' &&
+        character.factionId === factionId &&
+        character.stationedSiteId === null &&
+        character.troops > 0 &&
+        !character.isMonarch &&
+        !hasActedThisTurn(state, character.id) &&
+        canAttackTarget(state, character, targetId, factionId),
+    )
+    .slice(0, PARTY_SIZE)
 }
 
-/** 就某目标排出编成：取可及的未行动部属中兵力最多的至多三人，统率最高者为主将。 */
-function attackParty(state: GameState, targetId: string, factionId: FactionId): AttackParty | null {
-  const pool = attackCandidates(state, targetId, factionId).filter(
-    (character) => !hasActedThisTurn(state, character.id) && character.troops > 0,
+/** 守方的估计兵力：该点可出战的守将之和，再按据点补正放大。 */
+function defenceEstimate(state: GameState, site: Site): number {
+  if (site.owner === null) {
+    return 0
+  }
+  const troops = defenderCandidates(state, site.id, site.owner).reduce(
+    (total, character) => total + character.troops,
+    0,
   )
-  if (pool.length === 0) {
-    return null
-  }
 
-  const members = [...pool].sort((a, b) => b.troops - a.troops).slice(0, PARTY_SIZE)
-  const commander = members.reduce((best, item) => (item.command > best.command ? item : best))
-  const others = members.filter((item) => item.id !== commander.id)
-  const party: AttackParty = { commander: commander.id }
-  if (others[0] !== undefined) {
-    party.deputy = others[0].id
-  }
-  if (others[1] !== undefined) {
-    party.strategist = others[1].id
-  }
-
-  return party
+  return troops * (1 + SITE_DEFENSE_BONUS[site.type])
 }
 
 /** 在该势力的自有战略点寻访一次；成功则返回真。 */
@@ -107,20 +111,19 @@ function seekOnce(state: GameState, factionId: FactionId): boolean {
   return false
 }
 
-/** 他方来攻我方时交回界面的请求：由玩家决定迎战编成与是否单挑。 */
+/** 他方来攻我方时交回界面的请求：由玩家布阵并指挥这一战。 */
 export interface DefenseRequest {
   /** 来犯的势力。 */
   attackerId: FactionId
   /** 被攻打的我方战略点。 */
   targetSiteId: SiteId
-  /** 来犯的编成。 */
-  party: AttackParty
+  /** 已排好攻方阵形的战斗，守方尚未布阵。 */
+  battle: BattleState
 }
 
 /**
- * 他方行动推进中交回界面的信号：先给出待应战的请求，等决定后给出这一战的战报。
- * 用生成器表达，界面据此逐次推进；无界面时一路按「不单挑」放行。
- * 决定里带的强制胜负（开发者模式）一路透传给这一战，其余结算照常。
+ * 他方行动推进中交回界面的信号：先给出待布阵的来犯，玩家打完后给出这一战的战报。
+ * 用生成器表达，界面据此逐次推进；无界面时一路按自动布阵推演。
  */
 export type FactionTurnSignal =
   | { kind: 'defense'; request: DefenseRequest }
@@ -128,13 +131,12 @@ export type FactionTurnSignal =
 
 /**
  * 进攻一次：在可胜的目标中择价值最高、守备最弱者出手；无目标可打则不作声。
- * 只对敌对势力或无主战略点用兵——同盟与中立都不打。
- * 目标是我方战略点时暂停，先让界面定下迎战编成与是否单挑，再把这一战的结果交回。
+ * 只对已宣战的势力用兵。目标是我方战略点时暂停，先让界面排出守将并打完这一战。
  */
 function* attackOnce(
   state: GameState,
   factionId: FactionId,
-): Generator<FactionTurnSignal, void, DefenseChoice | null> {
+): Generator<FactionTurnSignal, void, BattleState | null> {
   if (state.actionPoints[factionId] < ACTION_COSTS.attack) {
     return
   }
@@ -143,27 +145,23 @@ function* attackOnce(
   const random = createRandom(state.randomState)
   const plans = state.geography.sites
     .filter((site) => isAttackable(state, site.id, factionId))
-    .filter((site) => site.owner === null || areHostile(state, factionId, site.owner))
     .map((site) => {
-      const party = attackParty(state, site.id, factionId)
-      if (party === null) {
+      const members = attackParty(state, site.id, factionId)
+      if (members.length === 0) {
         return null
       }
-      const side = partySide(state, party)
+      const troops = members.reduce((total, member) => total + member.troops, 0)
       return {
         site,
-        party,
-        power: battlePower(side),
-        cost: attackGrainCost(side.troops),
+        members,
+        troops,
+        cost: attackGrainCost(troops),
         // 守军的实力无从确知：按估计值来比，我方也就有判断失误的余地。
-        defence: estimateOf(
-          battlePower(garrisonAt(state, site.id).side, { defendingAt: site.type }),
-          random,
-        ),
+        defence: estimateOf(defenceEstimate(state, site), random),
       }
     })
     .filter((plan): plan is NonNullable<typeof plan> => plan !== null)
-    .filter((plan) => plan.power > plan.defence * ATTACK_MARGIN)
+    .filter((plan) => plan.troops > plan.defence * ATTACK_MARGIN)
     // 出征用粮由前置条件把关；此处先滤掉出不起兵的，免得挑中一个打不成的目标。
     .filter((plan) => plan.cost <= grain)
     .sort((a, b) => {
@@ -176,23 +174,34 @@ function* attackOnce(
     state.randomState = random.getState()
     return
   }
-
-  // 他方也会主动提单挑：武力占优、性格好斗时出手，力量接近时看运气。
-  const challenger = aiAttackChallenger(state, plan.party, plan.site.id, random)
   state.randomState = random.getState()
-  const party = challenger === null ? plan.party : { ...plan.party, challenger }
 
-  // 目标由玩家守御时（含驻在野地上的守军）暂停，先让界面定下迎战编成与是否单挑，再把这一战的结果交回。
-  if (defenderFactionAt(state, plan.site) !== state.playerFaction) {
-    attack(state, party, plan.site.id, factionId)
+  const playerDefends = plan.site.owner === state.playerFaction
+  const opened = openAttack(
+    state,
+    plan.site.id,
+    autoFormation(plan.members),
+    factionId,
+    // 玩家守土时留给他布阵；无人可守则开战即已不战而下。
+    { autoDefender: !playerDefends },
+  )
+  if (!opened.ok) {
     return
   }
 
-  const decision = yield {
-    kind: 'defense',
-    request: { attackerId: factionId, targetSiteId: plan.site.id, party },
+  let battle = opened.battle
+  if (playerDefends && !battle.finished) {
+    const answer = yield {
+      kind: 'defense',
+      request: { attackerId: factionId, targetSiteId: plan.site.id, battle },
+    }
+    battle = answer ?? battle
   }
-  const result = attack(state, party, plan.site.id, factionId, decision, decision?.forcedOutcome ?? null)
+  if (!battle.finished) {
+    autoBattle(battle)
+  }
+
+  const result = finishBattle(state, battle)
   yield {
     kind: 'battle',
     report: result.ok ? result.record.battle ?? null : null,
@@ -218,57 +227,80 @@ function diplomacyOnce(state: GameState, factionId: FactionId): void {
   }
 }
 
-/** 把余下的行动力用于征兵，直到用尽、无人可补、粮尽或驻地丁口已枯。 */
+/** 把余下的行动力用于征兵，直到用尽、无人可补、粮尽或丁口已枯。 */
 function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
   while (state.actionPoints[factionId] >= ACTION_COSTS.recruit) {
     const grain = state.factions.find((faction) => faction.id === factionId)?.grain ?? 0
-    const candidate = officersOf(state, factionId)
+    const candidates = readyOfficers(state, factionId)
       .filter(
         (character) =>
-          !hasActedThisTurn(state, character.id) &&
           character.troops < troopLimit(character) &&
-          grain >= recruitGrainCost(character) &&
-          recruitPopulationCap(state, character) >= 1,
+          grain >= recruitGrainCost(character),
       )
-      .sort((a, b) => b.command - a.command)[0]
+      .sort((a, b) => b.command - a.command)
 
-    if (candidate === undefined || !recruit(state, candidate.id, factionId).ok) {
+    let recruited = false
+    for (const candidate of candidates) {
+      const site = sitesOf(state, factionId)
+        .filter(
+          (item) =>
+            scopeSitesFor(state, candidate).includes(item.id) &&
+            sitePopulationCap(item) >= 1,
+        )
+        .sort((a, b) => b.population - a.population)[0]
+
+      if (site === undefined) {
+        continue
+      }
+      if (recruit(state, site.id, candidate.id, factionId).ok) {
+        recruited = true
+        break
+      }
+    }
+
+    if (!recruited) {
       return
     }
   }
 }
 
-/** 粮仓低于此数，他方即派内政最高的部属自驻地征粮，先把底子垫起来再去征兵。 */
+/** 粮仓低于此数，他方即派内政最高的部属征粮，先把底子垫起来再去征兵。 */
 const AI_GRAIN_RESERVE = 3000
 
-/** 缺粮时征一次粮：派内政最高、驻地尚有存粮的部属出手；粮足或无粮可取则静默。 */
+/** 缺粮时征一次粮：派内政最高、有兵的部属到存粮最多的自有战略点征收。 */
 function harvestOnce(state: GameState, factionId: FactionId): void {
   const grain = state.factions.find((faction) => faction.id === factionId)?.grain ?? 0
   if (grain >= AI_GRAIN_RESERVE || state.actionPoints[factionId] < ACTION_COSTS.harvestGrain) {
     return
   }
 
-  const candidate = officersOf(state, factionId)
-    .filter((character) => !hasActedThisTurn(state, character.id) && character.troops > 0)
-    .filter((character) => {
-      const station = state.geography.sites.find((site) => site.id === character.stationedSiteId)
-
-      return station !== undefined && granaryOf(station) > 0
-    })
+  const sitePool = sitesOf(state, factionId).filter((item) => granaryOf(item) > 0)
+  const candidate = readyOfficers(state, factionId)
+    .filter(
+      (character) =>
+        character.troops > 0 &&
+        sitePool.some((item) => scopeSitesFor(state, character).includes(item.id)),
+    )
     .sort((a, b) => b.politics - a.politics)[0]
+  const site =
+    candidate === undefined
+      ? undefined
+      : sitePool
+          .filter((item) => scopeSitesFor(state, candidate).includes(item.id))
+          .sort((a, b) => granaryOf(b) - granaryOf(a))[0]
 
-  if (candidate === undefined) {
+  if (candidate === undefined || site === undefined) {
     return
   }
 
-  harvestGrain(state, candidate.id, factionId)
+  harvestGrain(state, site.id, candidate.id, factionId)
 }
 
 /** 一个势力的一季行动。 */
 function* runFactionTurn(
   state: GameState,
   factionId: FactionId,
-): Generator<FactionTurnSignal, void, DefenseChoice | null> {
+): Generator<FactionTurnSignal, void, BattleState | null> {
   // 营中已到「愿降」档的俘虏先行归附，本季即可出力。
   recruitWillingCaptives(state, factionId)
   seekOnce(state, factionId)
@@ -280,11 +312,11 @@ function* runFactionTurn(
 
 /**
  * 其他势力依次行动：玩家势力由界面在回合内操作，不在此列，已覆灭者不再出手。
- * 攻打我方时暂停并交回请求，等界面定下迎战编成与是否单挑后再继续。
+ * 攻打我方时暂停并交回请求，等玩家布阵打完后再继续。
  */
 export function* factionTurnStream(
   state: GameState,
-): Generator<FactionTurnSignal, void, DefenseChoice | null> {
+): Generator<FactionTurnSignal, void, BattleState | null> {
   for (const faction of state.factions) {
     if (faction.id === state.playerFaction || isFactionDestroyed(state, faction.id)) {
       continue
@@ -293,11 +325,11 @@ export function* factionTurnStream(
   }
 }
 
-/** 其他势力依次行动，无人接手时按「不单挑」把每一次来犯一并结算。 */
+/** 其他势力依次行动，无人接手时把每一次来犯一并自动推演到底。 */
 export function runFactionTurns(state: GameState): void {
   const stream = factionTurnStream(state)
-
-  while (!stream.next(null).done) {
-    // 每次都按不单挑放行，直到回合的行动跑完。
+  let step = stream.next(null)
+  while (!step.done) {
+    step = stream.next(null)
   }
 }

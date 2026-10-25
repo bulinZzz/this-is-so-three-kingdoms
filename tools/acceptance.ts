@@ -1,13 +1,18 @@
 import { expect, test } from 'vitest'
 import { ACTION_COSTS } from '../src/core/actions'
 import {
-  attack,
+  ARM_STATS,
+  ATTACKER_SELECTION,
+  DEFENDER_SELECTION,
+  SITE_DEFENSE_BONUS,
+  attackBlockReason,
   attackCandidates,
-  battlePower,
-  garrisonAt,
+  autoBattle,
+  autoDeployment,
+  defenderCandidates,
+  finishBattle,
   isAttackable,
-  partySide,
-  type AttackParty,
+  openAttack,
 } from '../src/core/battle'
 import { isRecruitable } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
@@ -25,11 +30,11 @@ import {
   harvestGrain,
   hasActedThisTurn,
   isFactionDestroyed,
-  MAX_TRANSFER_PARTY,
+  readyOfficers,
   recruit,
   recruitGrainCost,
-  stationAdjacentTo,
-  transfer,
+  sitePopulationCap,
+  troopLimit,
 } from '../src/core/military'
 import type { Character, DevelopmentKind, FactionId, GameState, Outcome, Scenario, Season, Site, SiteId, SiteType } from '../src/core/model'
 import { reward, REWARD_MONEY } from '../src/core/personnel'
@@ -44,14 +49,16 @@ import { endTurn } from '../src/core/turn'
  * 供调数值后复跑对照。运行方式见 npm run acceptance。
  *
  * 推演用一个规则驱动的「玩家」代理，策略如下：
- *   寻访（前期攒人）→ 进攻（安全边际内挑价值最高者）→ 征兵（交给统率最高者）
+ *   寻访（前期攒人）→ 进攻（安全边际内挑价值最高者，自名册编成）→ 征兵（人口最多的点上交给统率最高者）
  *   → 拜访（寻访到头后登门争取已认得路的人）→ 经营与外交（每季至多一项：
  *   缺粮则向可开口的弱者索取、忠诚不足六十则赏赐、否则建农田 / 市集 / 民居）
- *   → 征粮（交给内政最高者，自驻地存粮取用）→ 调兵（朝最弱目标集结）。
+ *   → 征粮（余力全交给内政最高者，自存粮最多的点取用）。
  * 兵只从征兵来、粮落在战略点上：兵力完全靠征兵积累，粮要派人去取，两者都由代理逐季操持。
+ * 武将统一归名册，征兵、征粮与出征都从名册选人，与身在何处无关；每人每季至多行动一次。
  * 外交只做索取与宣战：赠礼、停战与结盟无处可施。宣战不限关系——同盟亦可宣战，
  * 与玩家手中的手段一致，但次序上先把非同盟打完，接壤处再无外人时才撕盟。
- * 代理先收拾无主之地，再无主可打便向最弱的一位邻邦宣战，把战火点燃。
+ * 全图每处战略点都有归属，故代理不再有无主之地可打；眼下无可攻打的目标时，
+ * 便向接壤的最弱外邦宣战，接壤处无人可宣时停手。
  * 其他势力由 factionAi 自主行动，走与实机相同的回合收尾流程。
  * 它不代表最优打法，只用来观察数值松紧与局势走向；判断「好不好玩」仍要看实玩。
  */
@@ -76,6 +83,12 @@ const DEMAND_GRAIN_BELOW = 3000
 const REWARD_BELOW = 60
 /** 战略点的相对价值，用于在多个安全目标中择优。 */
 const SITE_VALUE: Record<SiteType, number> = { metropolis: 4, city: 3, town: 2, pass: 2, field: 1 }
+/**
+ * 伤害与减伤公式的兵力系数：战力估算是两队对拼的伤害与减伤之比，
+ * 须把「攻方兵力 ×0.6」与「守方兵力 ×0.15」一并算进去，不能只比兵与兵种。
+ */
+const DAMAGE_COEFFICIENT = 0.6
+const MITIGATION_COEFFICIENT = 0.15
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' }
 /** 结局在汇总里的说法。 */
 const OUTCOME_LABELS: Record<Outcome, string> = {
@@ -91,11 +104,11 @@ const FACTION_MARKS: Record<FactionId, string> = {
   sunquan: '孙',
   liuzhang: '璋',
   mateng: '马',
-  hansui: '韩',
   gongsunkang: '公',
   shixie: '士',
   zhanglu: '张',
-  yuanshi: '袁',
+  jingnan: '荆',
+  nanman: '蛮',
 }
 
 function siteOf(state: GameState, siteId: SiteId): Site {
@@ -106,55 +119,67 @@ function siteOf(state: GameState, siteId: SiteId): Site {
   return site
 }
 
-/** 守方战力（不含随机浮动），直接取接战守军的战力要素，含其据点的防守补正。 */
-function defenderPowerOf(state: GameState, siteId: SiteId): number {
-  return battlePower(garrisonAt(state, siteId).side, { defendingAt: siteOf(state, siteId).type })
+/** 一名武将在一次出征里的预计战力，取伤害公式中与兵力、兵种、武力相关的部分。 */
+function officerAttackPower(character: Character): number {
+  return character.troops * DAMAGE_COEFFICIENT * ARM_STATS[character.armType].attack * (1 + character.might * 0.003)
 }
 
-/** 就该目标排出的最小可用编成：主将取统率最高，兵力不足时依次加副将、军师。 */
-function bestParty(state: GameState, targetId: SiteId, margin: number): AttackParty | null {
+/** 一名守将的预计抗打击能力，取减伤公式中与兵力、兵种、智谋相关的部分。 */
+function officerDefensePower(character: Character): number {
+  return character.troops * MITIGATION_COEFFICIENT * ARM_STATS[character.armType].defense * (1 + character.intellect * 0.003)
+}
+
+/** 守方战力：该点能召来的守将合计，再乘据点的防守补正；与自动布阵取同一批人。 */
+function defenderPowerOf(state: GameState, siteId: SiteId): number {
+  const site = siteOf(state, siteId)
+  if (site.owner === null) {
+    return 0
+  }
+
+  const defenders = defenderCandidates(state, siteId, site.owner).slice(0, DEFENDER_SELECTION + 1)
+
+  return (
+    defenders.reduce((total, character) => total + officerDefensePower(character), 0) *
+    (1 + SITE_DEFENSE_BONUS[site.type])
+  )
+}
+
+/** 一支出征队伍的战力合计。 */
+function partyPowerOf(state: GameState, memberIds: readonly string[]): number {
+  return memberIds.reduce((total, characterId) => {
+    const character = state.characters.find((item) => item.id === characterId)
+    return total + (character === undefined ? 0 : officerAttackPower(character))
+  }, 0)
+}
+
+/**
+ * 就该目标排出的出征编成：从名册里按兵力从高到低取人，战力够了就收手。
+ * 至少要高过守方预计战力 margin 倍；凑不齐则不打。
+ */
+function bestParty(state: GameState, targetId: SiteId, margin: number): string[] | null {
   const pool = attackCandidates(state, targetId).filter(
-    (item) => !hasActedThisTurn(state, item.id) && item.troops > 0,
+    (item) => !hasActedThisTurn(state, item.id),
   )
   if (pool.length === 0) {
     return null
   }
 
-  const byCommand = (a: Character, b: Character): number => b.command - a.command
-  const byIntellect = (a: Character, b: Character): number => b.intellect - a.intellect
-  const sorted = [...pool].sort(byCommand)
-  const commander = sorted[0]
-  const rest = sorted.slice(1)
-  const strategist = [...rest].sort(byIntellect)[0] ?? null
-  const deputy = rest.find((item) => item.id !== strategist?.id) ?? null
-
-  const options: AttackParty[] = [{ commander: commander.id }]
-  if (deputy !== null) options.push({ commander: commander.id, deputy: deputy.id })
-  if (strategist !== null) options.push({ commander: commander.id, strategist: strategist.id })
-  if (deputy !== null && strategist !== null) {
-    options.push({ commander: commander.id, deputy: deputy.id, strategist: strategist.id })
-  }
-
   const defence = defenderPowerOf(state, targetId)
-  for (const party of options) {
-    if (battlePower(partySide(state, party)) > defence * margin) {
-      return party
+  const members: string[] = []
+  let power = 0
+
+  for (const character of pool) {
+    if (members.length >= ATTACKER_SELECTION) {
+      break
+    }
+    members.push(character.id)
+    power += officerAttackPower(character)
+    if (power > defence * margin) {
+      return members
     }
   }
 
   return null
-}
-
-/** 主攻目标：可进攻的敌方战略点中守备最弱者；没有则返回 null。 */
-function pickPrimaryTarget(state: GameState): Site | null {
-  const targets = state.geography.sites.filter((site) => isAttackable(state, site.id))
-  if (targets.length === 0) {
-    return null
-  }
-
-  return targets.reduce((best, site) =>
-    defenderPowerOf(state, site.id) < defenderPowerOf(state, best.id) ? site : best,
-  )
 }
 
 /**
@@ -175,42 +200,6 @@ function visitContact(state: GameState, random: Random): string | null {
 
   const result = visit(state, random, target.id)
   return result.ok ? result.record.outcome : null
-}
-
-/**
- * 从 fromId 朝 toId 走一步的落点：在自有领地范围内按跳数找最近的路。
- * 已在门口（相邻）或没有可走的自有邻地时返回 null。
- */
-function stepToward(state: GameState, fromId: SiteId, toId: SiteId): SiteId | null {
-  const player = state.playerFaction
-  const distance = new Map<SiteId, number>([[toId, 0]])
-  const queue: SiteId[] = [toId]
-
-  while (queue.length > 0) {
-    const current = queue.shift() as SiteId
-    for (const neighborId of siteOf(state, current).neighbors) {
-      const neighbor = siteOf(state, neighborId)
-      if (distance.has(neighborId) || (neighbor.owner !== player && neighborId !== toId)) {
-        continue
-      }
-      distance.set(neighborId, (distance.get(current) ?? 0) + 1)
-      queue.push(neighborId)
-    }
-  }
-
-  const from = siteOf(state, fromId)
-  let best: SiteId | null = null
-  let bestDistance = distance.get(fromId) ?? Number.POSITIVE_INFINITY
-
-  for (const neighborId of from.neighbors) {
-    const distanceToTarget = distance.get(neighborId)
-    if (distanceToTarget !== undefined && distanceToTarget < bestDistance) {
-      bestDistance = distanceToTarget
-      best = neighborId
-    }
-  }
-
-  return best
 }
 
 function servingCount(state: GameState, factionId: FactionId): number {
@@ -317,13 +306,15 @@ interface Playthrough {
 
 /**
  * 就着玩家的自有领地向外看：接壤势力里最弱的一位。非同盟先于同盟——先把外人打完，
- * 接壤处再无外人可打时才轮到同盟，撕盟是最后一步；无接壤者则返回 null。
+ * 接壤处再无外人可打时才轮到同盟，撕盟是最后一步；已宣战者不在列（打他已不必再宣）。
+ * 无接壤者则返回 null。
  */
 function warTargetOf(state: GameState): FactionId | null {
   const player = state.playerFaction
   const own = state.geography.sites.filter((site) => site.owner === player)
   const adjacent = state.factions
     .filter((faction) => faction.id !== player)
+    .filter((faction) => !areHostile(state, player, faction.id))
     .filter((faction) =>
       state.geography.sites.some(
         (site) =>
@@ -337,20 +328,12 @@ function warTargetOf(state: GameState): FactionId | null {
 }
 
 /**
- * 战火由玩家的宣战点燃：开局无战事时，先收拾完无主之地，再无主可打便向一位邻邦宣战。
- * 无主之地随时可打（有守军），故不等同于开战；打尽了才需要点火。
+ * 战火由玩家的宣战点燃：眼下没有可攻打的目标时，向接壤的最弱外邦宣战。
+ * 全图每处战略点都有归属，故没有无主之地可打；接壤处无人可宣时便停手。
  */
 function igniteWar(state: GameState): string | null {
   const player = state.playerFaction
-  if (
-    state.factions.some(
-      (faction) => faction.id !== player && areHostile(state, player, faction.id),
-    )
-  ) {
-    return null
-  }
-
-  if (state.geography.sites.some((site) => site.owner === null && isAttackable(state, site.id))) {
+  if (state.geography.sites.some((site) => isAttackable(state, site.id, player))) {
     return null
   }
 
@@ -385,7 +368,6 @@ function runPlaythrough(scenario: Scenario): Playthrough {
     const before = state.actionPoints[player]
     apBudget += before
     const actions: string[] = []
-    let attacked = 0
 
     // 开局无战事的剧本里先宣战点火，之后各季不再重复。
     const war = igniteWar(state)
@@ -415,14 +397,20 @@ function runPlaythrough(scenario: Scenario): Playthrough {
         .filter((site) => isAttackable(state, site.id))
         .map((site) => {
           const party = bestParty(state, site.id, SAFE_MARGIN)
+          if (party === null || attackBlockReason(state, site.id, party) !== null) {
+            return null
+          }
           return {
             site,
             party,
-            power: party === null ? 0 : battlePower(partySide(state, party)),
+            power: partyPowerOf(state, party),
             defence: defenderPowerOf(state, site.id),
           }
         })
-        .filter((plan): plan is typeof plan & { party: AttackParty } => plan.party !== null)
+        .filter(
+          (plan): plan is { site: Site; party: string[]; power: number; defence: number } =>
+            plan !== null,
+        )
         .sort((a, b) => {
           const value = SITE_VALUE[b.site.type] - SITE_VALUE[a.site.type]
           return value !== 0 ? value : a.defence - b.defence
@@ -433,9 +421,14 @@ function runPlaythrough(scenario: Scenario): Playthrough {
         break
       }
 
-      const result = attack(state, plan.party, plan.site.id)
+      const opened = openAttack(state, plan.site.id, autoDeployment(plan.party))
+      if (!opened.ok) {
+        break
+      }
+      autoBattle(opened.battle)
+      const result = finishBattle(state, opened.battle)
+
       battles += 1
-      attacked += 1
       const captured = siteOf(state, plan.site.id).owner === player
       if (captured) {
         wins += 1
@@ -452,68 +445,25 @@ function runPlaythrough(scenario: Scenario): Playthrough {
       )
     }
 
-    // 打不动就先行军：没在目标门口的闲置部属，朝主攻目标挪一步（只在自有领地内走）。
-    // 排在征兵与征粮之前，免得行动力被后两者吃光、主力永远凑不齐。
-    if (attacked === 0 && state.actionPoints[player] >= ACTION_COSTS.transfer) {
-      const primary = pickPrimaryTarget(state)
-      const affordable = Math.min(
-        MAX_TRANSFER_PARTY,
-        Math.floor(state.actionPoints[player] / ACTION_COSTS.transfer),
-      )
-
-      const heading =
-        primary === null
-          ? []
-          : state.characters
-              .filter(
-                (item) =>
-                  item.status === 'serving' &&
-                  item.factionId === player &&
-                  !hasActedThisTurn(state, item.id) &&
-                  // 已经能直接打到目标的，就地待命，不必再挪。
-                  !stationAdjacentTo(state, item, primary.id),
-              )
-              .flatMap((item) => {
-                const station = item.stationedSiteId
-                if (station === null) {
-                  return []
-                }
-                const step = stepToward(state, station, primary.id)
-                return step === null ? [] : [{ item, step }]
-              })
-              .sort((a, b) => b.item.troops - a.item.troops)
-
-      const destination = heading[0]?.step
-      const movers = heading
-        .filter((entry) => entry.step === destination)
-        .slice(0, affordable)
-        .map((entry) => entry.item)
-
-      if (destination !== undefined && movers.length > 0) {
-        const result = transfer(state, movers.map((item) => item.id), destination)
-        if (result.ok) {
-          actions.push(result.record.outcome)
-        }
-      }
-    }
-
     // 一季至多征兵一次，余下的行动力交给征粮，两种行动都会跑到。
     const grainNow = state.factions.find((item) => item.id === player)?.grain ?? 0
-    const recruiter =
+    const recruitSite =
       state.actionPoints[player] < ACTION_COSTS.recruit
+        ? null
+        : (state.geography.sites
+            .filter((site) => site.owner === player && sitePopulationCap(site) >= 1)
+            .sort((a, b) => b.population - a.population)[0] ?? null)
+    const recruiter =
+      recruitSite === null
         ? undefined
-        : state.characters
+        : readyOfficers(state, player)
             .filter(
-              (item) =>
-                item.status === 'serving' &&
-                item.factionId === player &&
-                !hasActedThisTurn(state, item.id) &&
-                grainNow >= recruitGrainCost(item),
+              (item) => item.troops < troopLimit(item) && grainNow >= recruitGrainCost(item),
             )
             .sort((a, b) => b.command - a.command)[0]
 
-    if (recruiter !== undefined) {
-      const result = recruit(state, recruiter.id)
+    if (recruitSite !== null && recruiter !== undefined) {
+      const result = recruit(state, recruitSite.id, recruiter.id)
       if (result.ok) {
         actions.push(result.record.outcome)
       }
@@ -567,19 +517,17 @@ function runPlaythrough(scenario: Scenario): Playthrough {
 
     // 余下的行动力全交给征粮，直到用尽或无人可派，免得日志里的行动力使用率虚低。
     while (state.actionPoints[player] >= ACTION_COSTS.harvestGrain) {
-      const harvester = state.characters
-        .filter(
-          (item) =>
-            item.status === 'serving' &&
-            item.factionId === player &&
-            !hasActedThisTurn(state, item.id),
-        )
+      const harvester = readyOfficers(state, player)
+        .filter((item) => item.troops > 0)
         .sort((a, b) => b.politics - a.politics)[0]
-      if (harvester === undefined) {
+      const granarySite = state.geography.sites
+        .filter((site) => site.owner === player && granaryOf(site) > 0)
+        .sort((a, b) => granaryOf(b) - granaryOf(a))[0]
+      if (harvester === undefined || granarySite === undefined) {
         break
       }
 
-      const result = harvestGrain(state, harvester.id)
+      const result = harvestGrain(state, granarySite.id, harvester.id)
       if (!result.ok) {
         break
       }

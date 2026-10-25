@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { GEOGRAPHY_ACCEPTANCE } from '../src/core/geographyAcceptance'
 import { GEOGRAPHY_SANGUO } from '../src/core/geographySanguo'
-import { GEOGRAPHY_SANGUO_NEW } from '../src/core/geographySanguoNew'
 import type { SiteId } from '../src/core/model'
 import mapBounds from '../src/game/mapBounds.json'
 import { MAP_VERTICES, PROVINCE_OUTLINES, RIVER_LINES } from '../src/game/mapData'
@@ -114,8 +114,8 @@ function isContiguous(ring: readonly string[], common: ReadonlySet<string>): boo
 }
 
 describe('地图布局', () => {
-  // 两张版图共用同一份坐标表，故一并核对；同一战略点在两张图上只作一处。
-  const allSites = [...new Map([...GEOGRAPHY_SANGUO.sites, ...GEOGRAPHY_SANGUO_NEW.sites].map((site) => [site.id, site])).values()]
+  // 正式版图与验收夹具共用同一份坐标表，故一并核对；同一战略点只作一处。
+  const allSites = [...new Map([...GEOGRAPHY_SANGUO.sites, ...GEOGRAPHY_ACCEPTANCE.sites].map((site) => [site.id, site])).values()]
 
   it('剧本中每个战略点都有地理坐标，且没有多余坐标', () => {
     const expected = allSites.map((site) => site.id).sort()

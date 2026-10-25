@@ -1,25 +1,36 @@
 import { describe, expect, it } from 'vitest'
 import { GameSession } from '../src/app/gameSession'
 import { ACTION_COSTS } from '../src/core/actions'
-import { stationedDefendersAt } from '../src/core/battle'
+import { autoDeployment } from '../src/core/battle'
 import { validateCharacters } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import { troopUpkeep } from '../src/core/economy'
 import { LocalSaveStore } from '../src/core/localSaveStore'
-import { attackGrainCost, factionTroops, RECRUIT_POPULATION_SHARE, recruitPopulationCap } from '../src/core/military'
+import {
+  attackGrainCost,
+  factionTroops,
+  RECRUIT_POPULATION_SHARE,
+  sitePopulationCap,
+} from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
 import { MemoryStorage } from './memoryStorage'
 
 /**
- * 完整循环的无画面验证：寻访 → 征兵 → 进攻 → 占领 → 结束回合，含州归属与卡池联动。
- * 全程只跑规则层与装配层，不启动画面。
+ * 完整循环的无画面验证：寻访 → 征兵 → 进攻 → 占领 → 结束回合，含州归属与卡池联动、
+ * 忠诚与叛离、粮草收支与人口增长。全程只跑规则层与装配层，不启动画面。
  */
 
-/** 预置一份固定世界种子的自动存档，使随机状态也确定。 */
+/** 预置一份固定世界种子的自动存档，使随机状态也确定；关羽补足兵力，一季之内足以攻下荆南的城。 */
 function seededStore(): LocalSaveStore {
   const store = new LocalSaveStore(new MemoryStorage())
-  store.save(AUTO_SAVE_KEY, createInitialState({ seed: 208 }))
+  const state = createInitialState({ seed: 208 })
+  const guanyu = state.characters.find((character) => character.id === 'guanyu')
+  if (guanyu === undefined) {
+    throw new Error('武将不存在：guanyu')
+  }
+  guanyu.troops = 12000
+  store.save(AUTO_SAVE_KEY, state)
 
   return store
 }
@@ -40,26 +51,15 @@ function characterOf(state: GameState, id: string): Character {
   return character
 }
 
-function wild(id: string, name: string, tier: 'basic' | 'second'): Character {
-  return {
-    id,
-    name,
-    status: 'wild',
-    factionId: null,
-    provinceId: 'p',
-    might: 50,
-    command: 50,
-    intellect: 50,
-    politics: 50,
-    age: 40,
-    personality: 'open',
-    affinities: { liubei: 100 },
-    loyalty: 0,
-    isMonarch: false,
-    stationedSiteId: null,
-    troops: 0,
-    tier,
+/** 以自动阵形出征并打完这一战；开战被拒时返回 false。 */
+function attackSite(session: GameSession, targetSiteId: string, memberIds: string[]): boolean {
+  const opened = session.attack(targetSiteId, autoDeployment(memberIds))
+  if (!opened.ok) {
+    return false
   }
+  session.finishAttack(opened.battle)
+
+  return true
 }
 
 /** 一个州三个战略点：玩家占一角，攻下敌战略点即可成为该州归属势力。 */
@@ -73,7 +73,6 @@ function loopScenario(): Scenario {
       { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 10000 },
       { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 10000 },
     ],
-    // 本局验证交战，两家开局即敌对——进攻他方领地须先宣战。
     relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
     geography: {
       provinces: [{ id: 'p', name: '州', owner: 'caocao' }],
@@ -90,6 +89,7 @@ function loopScenario(): Scenario {
         status: 'serving',
         factionId: 'liubei',
         provinceId: 'p',
+        scope: ['a'],
         might: 90,
         command: 90,
         intellect: 60,
@@ -99,7 +99,8 @@ function loopScenario(): Scenario {
         affinities: { liubei: 90 },
         loyalty: 90,
         isMonarch: false,
-        stationedSiteId: 'a',
+        armType: 'infantry',
+        stationedSiteId: null,
         troops: 20000,
         tier: null,
       },
@@ -109,6 +110,7 @@ function loopScenario(): Scenario {
         status: 'serving',
         factionId: 'caocao',
         provinceId: 'p',
+        scope: ['b'],
         might: 60,
         command: 60,
         intellect: 50,
@@ -118,6 +120,7 @@ function loopScenario(): Scenario {
         affinities: { caocao: 90 },
         loyalty: 90,
         isMonarch: false,
+        armType: 'infantry',
         stationedSiteId: 'b',
         troops: 500,
         tier: null,
@@ -125,6 +128,30 @@ function loopScenario(): Scenario {
       wild('basic-1', '基础客', 'basic'),
       wild('second-1', '二级客', 'second'),
     ],
+  }
+}
+
+function wild(id: string, name: string, tier: 'basic' | 'second'): Character {
+  return {
+    id,
+    name,
+    status: 'wild',
+    factionId: null,
+    provinceId: 'p',
+    scope: ['a'],
+    might: 50,
+    command: 50,
+    intellect: 50,
+    politics: 50,
+    age: 40,
+    personality: 'open',
+    affinities: { liubei: 100 },
+    loyalty: 0,
+    isMonarch: false,
+    armType: 'infantry',
+    stationedSiteId: null,
+    troops: 0,
+    tier,
   }
 }
 
@@ -140,20 +167,22 @@ describe('完整循环（无画面）', () => {
     const session = createSession(5)
     const state = session.getState()
 
-    expect(session.seekTalent('jiangxia').ok).toBe(true)
-    expect(session.recruit('guanyu').ok).toBe(true)
+    expect(session.seekTalent('gongan').ok).toBe(true)
+    expect(session.recruit('gongan', 'guanyu').ok).toBe(true)
     // 一季 10 点：寻访与征兵之后，正好剩下一次进攻的行动力。
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_COSTS.attack)
 
     session.endTurn()
 
-    // 长沙是无主大城，与江夏相邻；他方本季也会行动并写入历史，只核对玩家自己的行动序列。
-    expect(session.declareWar('caocao').ok).toBe(true)
-    expect(session.attack({ commander: 'guanyu' }, 'changsha').ok).toBe(true)
+    // 长沙是荆南的大城，与公安相邻；他方本季也会行动并写入历史，只核对玩家自己的行动序列。
+    expect(session.declareWar('jingnan').ok).toBe(true)
+    expect(attackSite(session, 'changsha', ['guanyu'])).toBe(true)
 
     expect(siteOwner(state, 'changsha')).toBe('liubei')
+    // 攻下城池不自动留驻，驻将须在占领后另行指派。
+    expect(characterOf(state, 'guanyu').stationedSiteId).toBeNull()
+    expect(session.stationAfterCapture('changsha', 'guanyu')).toContain('留驻')
     expect(characterOf(state, 'guanyu').stationedSiteId).toBe('changsha')
-    // 他方本季也会行动并写入历史，只核对玩家自己的行动序列。
     expect(
       state.history
         .filter((record) => record.factionId === state.playerFaction)
@@ -165,11 +194,11 @@ describe('完整循环（无画面）', () => {
   it('固定种子下整条循环可复现', () => {
     const run = () => {
       const session = createSession(7)
-      session.seekTalent('jiangxia')
-      session.recruit('guanyu')
+      session.seekTalent('gongan')
+      session.recruit('gongan', 'guanyu')
       session.endTurn()
-      session.declareWar('caocao')
-      session.attack({ commander: 'guanyu' }, 'changsha')
+      session.declareWar('jingnan')
+      attackSite(session, 'changsha', ['guanyu'])
       session.endTurn()
       session.seekTalent('changsha')
 
@@ -182,16 +211,16 @@ describe('完整循环（无画面）', () => {
   it('同一存档重复推演结果一致', () => {
     const store = seededStore()
     const session = new GameSession(store, { drawSeed: 9 })
-    session.seekTalent('jiangxia')
-    session.recruit('guanyu')
+    session.seekTalent('gongan')
+    session.recruit('gongan', 'guanyu')
     session.saveToSlot(1)
 
     const advance = () => {
       const reloaded = new GameSession(store, { drawSeed: 9 })
       expect(reloaded.loadSlot(1)).toBe(true)
       reloaded.endTurn()
-      reloaded.declareWar('caocao')
-      reloaded.attack({ commander: 'guanyu' }, 'changsha')
+      reloaded.declareWar('jingnan')
+      attackSite(reloaded, 'changsha', ['guanyu'])
       reloaded.seekTalent('changsha')
 
       return reloaded.getState()
@@ -212,24 +241,20 @@ describe('州归属与卡池联动（无画面）', () => {
     expect(characterOf(state, 'second-1').status).toBe('wild')
 
     // 攻下乙城，成为该州归属势力。
-    expect(session.attack({ commander: 'attacker' }, 'b').ok).toBe(true)
+    expect(attackSite(session, 'b', ['attacker'])).toBe(true)
     expect(state.geography.provinces.find((province) => province.id === 'p')?.owner).toBe('liubei')
 
     // 二级池随之开放，继续寻访可寻得二级客。
-    session.endTurn()
     expect(session.seekTalent('a').ok).toBe(true)
     expect(characterOf(state, 'second-1').status).toBe('serving')
   })
 })
 
 /**
- * 迭代 7 全链的无画面验证：寻访（含加入意愿）→ 征兵 → 进攻（含单挑与阵亡）→ 占领（含守将被俘）
- * → 劝降 → 结束回合（含忠诚下降与叛离）。两季走完，全程只跑规则层与装配层。
- * 单挑阵亡与被俘都是概率结果，先在固定种子里筛出一个必然走通的分支，再据此断言。
+ * 忠诚与叛离：败仗使参战者忠诚下降，低于阈值者在受挫时弃势力而去、转为在野。
+ * 兵力对比固定，胜负与叛离都不依赖随机。
  */
-
-/** 甲、乙、丙三城同在一州；州二只有玩家的丁城，供一名州二的在野者专属。 */
-function j7Scenario(): Scenario {
+function loyaltyScenario(): Scenario {
   const serving = (
     over: Partial<Character> &
       Pick<Character, 'id' | 'name' | 'factionId' | 'stationedSiteId' | 'troops'>,
@@ -245,299 +270,74 @@ function j7Scenario(): Scenario {
     affinities: {},
     loyalty: 90,
     isMonarch: false,
+    armType: 'infantry',
     tier: null,
+    scope: [over.stationedSiteId ?? 'a'],
     ...over,
   })
 
   return {
-    id: 'iteration7-loop',
-    name: '迭代 7 全链',
+    id: 'loyalty-loop',
+    name: '忠诚全链',
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
       { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 100000 },
       { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 100000 },
     ],
-    // 本局验证交战与俘获，两家开局即敌对——进攻他方领地须先宣战。
     relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
     geography: {
-      provinces: [
-        { id: 'p1', name: '州一', owner: null },
-        { id: 'p2', name: '州二', owner: 'liubei' },
-      ],
+      provinces: [{ id: 'p1', name: '州一', owner: null }],
       sites: [
         { id: 'a', name: '甲城', type: 'city', population: 50000, provinceId: 'p1', owner: 'liubei', neighbors: ['b', 'c'] },
         { id: 'b', name: '乙城', type: 'city', population: 50000, provinceId: 'p1', owner: 'caocao', neighbors: ['a', 'c'] },
         { id: 'c', name: '丙城', type: 'city', population: 50000, provinceId: 'p1', owner: 'caocao', neighbors: ['a', 'b'] },
-        { id: 'd', name: '丁城', type: 'city', population: 50000, provinceId: 'p2', owner: 'liubei', neighbors: ['a'] },
       ],
     },
     characters: [
-      // 我方主力：兵力足以驻守乙城，使曹操不出兵来犯，链才走得直。
-      serving({
-        id: 'veteran',
-        name: '宿将',
-        factionId: 'liubei',
-        stationedSiteId: 'a',
-        troops: 20000,
-        might: 100,
-        command: 90,
-        loyalty: 95,
-        affinities: { liubei: 95 },
-      }),
-      // 留守：宿将出征后由它守住甲城，免得他方趁虚而入打断这条链。
-      serving({
-        id: 'warden',
-        name: '留守',
-        factionId: 'liubei',
-        stationedSiteId: 'a',
-        troops: 15000,
-        command: 90,
-        loyalty: 95,
-        affinities: { liubei: 95 },
-      }),
-      // 我方边缘人：忠诚已低，一旦出战失利便离走。
-      serving({
-        id: 'turncoat',
-        name: '离心将',
-        factionId: 'liubei',
-        stationedSiteId: 'a',
-        troops: 800,
-        might: 30,
-        command: 40,
-        loyalty: 15,
-        affinities: { liubei: 60 },
-      }),
-      // 专供征兵：征兵会占用本季行动，故不与进攻、出击共用一人。
-      serving({
-        id: 'rookie',
-        name: '新兵',
-        factionId: 'liubei',
-        stationedSiteId: 'a',
-        troops: 100,
-        command: 50,
-      }),
-      // 乙城守军：统率最高者出战单挑，另一人若被俘则极愿归附。
-      serving({
-        id: 'duelist',
-        name: '守将甲',
-        factionId: 'caocao',
-        stationedSiteId: 'b',
-        troops: 200,
-        command: 80,
-        affinities: { caocao: 90 },
-      }),
-      serving({
-        id: 'capturable',
-        name: '守将乙',
-        factionId: 'caocao',
-        stationedSiteId: 'b',
-        troops: 100,
-        command: 40,
-        personality: 'open',
-        loyalty: 0,
-        affinities: { liubei: 100 },
-      }),
-      // 丙城守军：兵力压倒，离心将必败；武力低而性情谨慎，不会主动单挑而把离心将打死。
-      serving({
-        id: 'bulwark',
-        name: '坚城守',
-        factionId: 'caocao',
-        stationedSiteId: 'c',
-        troops: 12000,
-        command: 95,
-        might: 10,
-        personality: 'cautious',
-        affinities: { caocao: 90 },
-      }),
-      // 州二的在野者：性格骄矜、对己方无好感，须经拜访才肯出仕。
-      {
-        id: 'aloof',
-        name: '傲士',
-        status: 'wild',
-        factionId: null,
-        provinceId: 'p2',
-        might: 50,
-        command: 50,
-        intellect: 50,
-        politics: 50,
-        age: 30,
-        personality: 'proud',
-        affinities: { liubei: 0 },
-        loyalty: 0,
-        isMonarch: false,
-        stationedSiteId: null,
-        troops: 0,
-        tier: 'second',
-      },
+      serving({ id: 'veteran', name: '宿将', factionId: 'liubei', stationedSiteId: null, troops: 20000, might: 100, command: 90, loyalty: 95, affinities: { liubei: 95 } }),
+      // 忠诚已低，一败即走。
+      serving({ id: 'turncoat', name: '离心将', factionId: 'liubei', stationedSiteId: null, troops: 800, might: 30, command: 40, loyalty: 15, affinities: { liubei: 60 } }),
+      serving({ id: 'duelist', name: '守将甲', factionId: 'caocao', stationedSiteId: 'b', troops: 200, command: 80, affinities: { caocao: 90 } }),
+      // 丙城守军兵力压倒，离心将必败。
+      serving({ id: 'bulwark', name: '坚城守', factionId: 'caocao', stationedSiteId: 'c', troops: 12000, command: 95, affinities: { caocao: 90 } }),
     ],
   }
 }
 
-function createJ7Session(scenarioSeed: number, drawSeed: number): GameSession {
+function createLoyaltySession(seed: number): GameSession {
   const store = new LocalSaveStore(new MemoryStorage())
-  store.save(AUTO_SAVE_KEY, createInitialState({ scenario: j7Scenario(), seed: scenarioSeed }))
+  store.save(AUTO_SAVE_KEY, createInitialState({ scenario: loyaltyScenario(), seed }))
 
-  return new GameSession(store, { drawSeed })
+  return new GameSession(store, { drawSeed: seed })
 }
 
-/**
- * 走完整条链：第一季寻访未果而记下接触、征兵、进攻乙城（单挑致阵亡、守将被俘）；
- * 第二季拜访在野者使其入仕、劝降营中俘虏、派离心将进攻丙城败北而叛离。
- */
-function runJ7Chain(session: GameSession): GameState {
-  const state = session.getState()
-
-  session.seekTalent('d')
-  session.recruit('rookie')
-  session.attack({ commander: 'veteran', challenger: 'veteran' }, 'b')
-  session.endTurn()
-
-  session.visit('aloof')
-  session.persuade('capturable')
-  session.attack({ commander: 'turncoat' }, 'c')
-  session.endTurn()
-
-  return state
-}
-
-interface J7Seeds {
-  scenarioSeed: number
-  drawSeed: number
-}
-
-let cachedJ7Seeds: J7Seeds | null = null
-
-/** 在固定种子里筛出一条必然走通的分支：寻访被拒、单挑致阵亡、守将被俘、拜访得手、离心将叛离。 */
-function j7Seeds(): J7Seeds {
-  if (cachedJ7Seeds !== null) {
-    return cachedJ7Seeds
-  }
-
-  for (let drawSeed = 1; drawSeed <= 40; drawSeed += 1) {
-    for (let scenarioSeed = 1; scenarioSeed <= 60; scenarioSeed += 1) {
-      const session = createJ7Session(scenarioSeed, drawSeed)
-      const state = session.getState()
-
-      // 第一季：寻访被拒（人仍在野）、征兵、进攻乙城——单挑致阵亡、守将被俘、攻方得城。
-      const seek = session.seekTalent('d')
-      const recruit = session.recruit('rookie')
-      const attack = session.attack({ commander: 'veteran', challenger: 'veteran' }, 'b')
-
-      if (!seek.ok || !recruit.ok || !attack.ok) {
-        continue
-      }
-      const report = attack.record.battle
-      if (report?.duel == null || report.duel.fallen === '' || report.captives.length === 0) {
-        continue
-      }
-      if (siteOwner(state, 'b') !== 'liubei' || characterOf(state, 'aloof').status !== 'wild') {
-        continue
-      }
-
-      // 第二季：拜访使在野者入仕、派离心将进攻丙城败北而叛离。
-      session.endTurn()
-      const visit = session.visit('aloof')
-      if (!visit.ok || characterOf(state, 'aloof').status !== 'serving') {
-        continue
-      }
-
-      const loss = session.attack({ commander: 'turncoat' }, 'c')
-      if (!loss.ok || siteOwner(state, 'c') !== 'caocao') {
-        continue
-      }
-      if (characterOf(state, 'turncoat').status !== 'wild') {
-        continue
-      }
-
-      cachedJ7Seeds = { scenarioSeed, drawSeed }
-      return cachedJ7Seeds
-    }
-  }
-
-  throw new Error('未找到满足迭代 7 全链条件的固定种子')
-}
-
-describe('迭代 7 全链（无画面）', () => {
-  it('寻访含意愿、征兵、单挑与阵亡、被俘与劝降、忠诚下降与叛离依次走通', () => {
-    const { scenarioSeed, drawSeed } = j7Seeds()
-    const session = createJ7Session(scenarioSeed, drawSeed)
+describe('忠诚与叛离（无画面）', () => {
+  it('败北使参战者忠诚下降，离心者随即弃势力而去；得胜者不降', () => {
+    const session = createLoyaltySession(208)
     const state = session.getState()
 
-    // 第一季：寻访被拒 → 人仍在野、记入接触名单。
-    expect(session.seekTalent('d').ok).toBe(true)
-    expect(characterOf(state, 'aloof').status).toBe('wild')
-    expect(state.contactedCandidates.liubei).toEqual([{ characterId: 'aloof', siteId: 'd' }])
-
-    // 征兵：兵力补充。
-    const troopsBefore = characterOf(state, 'rookie').troops
-    expect(session.recruit('rookie').ok).toBe(true)
-    expect(characterOf(state, 'rookie').troops).toBeGreaterThan(troopsBefore)
-
-    // 进攻乙城：单挑致阵亡、守将被俘、城池与州归属易手。
-    const attack = session.attack({ commander: 'veteran', challenger: 'veteran' }, 'b')
-    expect(attack.ok).toBe(true)
-    if (!attack.ok || attack.record.battle === undefined) {
-      throw new Error('未取得战报')
-    }
-    expect(attack.record.battle.duel?.fallen).not.toBe('')
-    expect(characterOf(state, 'duelist').status).toBe('retired')
-    expect(attack.record.battle.captives.map((item) => item.name)).toContain('守将乙')
+    expect(attackSite(session, 'b', ['veteran'])).toBe(true)
     expect(siteOwner(state, 'b')).toBe('liubei')
-    expect(state.geography.provinces.find((province) => province.id === 'p1')?.owner).toBe('liubei')
+    expect(characterOf(state, 'veteran').loyalty).toBe(95)
 
-    session.endTurn()
-
-    // 第二季：拜访使在野者入仕，劝降使营中俘虏归附，离心将败北而叛离。
-    expect(session.visit('aloof').ok).toBe(true)
-    expect(characterOf(state, 'aloof').status).toBe('serving')
-
-    const persuade = session.persuade('capturable')
-    expect(persuade.ok).toBe(true)
-    expect(persuade.ok && persuade.record.outcome).toContain('归附')
-    expect(characterOf(state, 'capturable').status).toBe('serving')
-    expect(characterOf(state, 'capturable').factionId).toBe('liubei')
-    expect(state.captives.liubei).toEqual([])
-
-    expect(session.attack({ commander: 'turncoat' }, 'c').ok).toBe(true)
+    expect(attackSite(session, 'c', ['turncoat'])).toBe(true)
+    expect(siteOwner(state, 'c')).toBe('caocao')
     expect(characterOf(state, 'turncoat').status).toBe('wild')
-    expect(characterOf(state, 'turncoat').loyalty).toBe(0)
+    expect(characterOf(state, 'turncoat').factionId).toBeNull()
+    expect(characterOf(state, 'turncoat').troops).toBe(0)
     expect(
       state.history.some((record) => record.kind === 'defect' && record.factionId === 'liubei'),
     ).toBe(true)
-
-    // 结算本季：离心将的败绩与叛离随回合推进留痕。
-    session.endTurn()
-
-    expect(siteOwner(state, 'c')).toBe('caocao')
-    expect(state.currentTurn).toBe(3)
-  })
-
-  it('固定种子下整条链可复现', () => {
-    const { scenarioSeed, drawSeed } = j7Seeds()
-    const run = () => runJ7Chain(createJ7Session(scenarioSeed, drawSeed))
-
-    expect(run()).toEqual(run())
   })
 
   it('退场者不再参与任何名单与结算，人物数据仍自洽', () => {
-    const { scenarioSeed, drawSeed } = j7Seeds()
-    const state = runJ7Chain(createJ7Session(scenarioSeed, drawSeed))
+    const session = createLoyaltySession(208)
+    const state = session.getState()
 
-    // 阵亡的守将已退场，不再出现在战略点守军之中。
-    const fallen = characterOf(state, 'duelist')
-    expect(fallen.status).toBe('retired')
-    expect(stationedDefendersAt(state, 'b')).not.toContain(fallen)
-
-    for (const character of state.characters) {
-      if (character.status !== 'retired') {
-        continue
-      }
-      expect(character.factionId).toBeNull()
-      expect(character.stationedSiteId).toBeNull()
-      expect(character.troops).toBe(0)
-      expect(character.isMonarch).toBe(false)
-    }
+    attackSite(session, 'b', ['veteran'])
+    attackSite(session, 'c', ['turncoat'])
+    session.endTurn()
 
     expect(
       validateCharacters(
@@ -550,12 +350,11 @@ describe('迭代 7 全链（无画面）', () => {
 })
 
 /**
- * 迭代 8 全链的无画面验证：征粮 → 征兵（受丁口与粮食约束）→ 出征（耗粮、交战、占领）
- * → 结束回合（粮收支、人口缓增、缺粮逃散）。全程只跑规则层与装配层。
+ * 粮草收支：征粮 → 征兵受丁口所限 → 出征耗粮 → 结束回合结算军粮与人口。
  */
 
 /** 甲、乙两城相邻；甲城人口 2 万（丁口 400），乙城由曹操一名弱将驻守。 */
-function j8Scenario(): Scenario {
+function economyScenario(): Scenario {
   const serving = (
     over: Partial<Character> &
       Pick<Character, 'id' | 'name' | 'factionId' | 'stationedSiteId' | 'troops'>,
@@ -571,13 +370,15 @@ function j8Scenario(): Scenario {
     affinities: {},
     loyalty: 90,
     isMonarch: false,
+    armType: 'infantry',
     tier: null,
+    scope: [over.stationedSiteId ?? 'a'],
     ...over,
   })
 
   return {
-    id: 'iteration8-loop',
-    name: '迭代 8 全链',
+    id: 'economy-loop',
+    name: '粮草全链',
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
@@ -594,31 +395,19 @@ function j8Scenario(): Scenario {
     },
     characters: [
       // 征粮靠内政、征兵靠统率、出征靠兵力——三件事各是不同的人，一季正好排满。
-      serving({ id: 'farmer', name: '屯田', factionId: 'liubei', stationedSiteId: 'a', troops: 500, command: 40, politics: 80 }),
+      serving({ id: 'farmer', name: '屯田', factionId: 'liubei', stationedSiteId: null, troops: 500, command: 40, politics: 80 }),
       serving({ id: 'recruiter', name: '招兵', factionId: 'liubei', stationedSiteId: 'a', troops: 1000, command: 90, politics: 30 }),
-      serving({ id: 'warrior', name: '战将', factionId: 'liubei', stationedSiteId: 'a', troops: 12000, command: 80, might: 90 }),
+      serving({ id: 'warrior', name: '战将', factionId: 'liubei', stationedSiteId: null, troops: 12000, command: 80, might: 90 }),
       serving({ id: 'defender', name: '守将', factionId: 'caocao', stationedSiteId: 'b', troops: 300, command: 60 }),
     ],
   }
 }
 
-function createJ8Session(seed: number): GameSession {
+function createEconomySession(seed: number): GameSession {
   const store = new LocalSaveStore(new MemoryStorage())
-  store.save(AUTO_SAVE_KEY, createInitialState({ scenario: j8Scenario(), seed }))
+  store.save(AUTO_SAVE_KEY, createInitialState({ scenario: economyScenario(), seed }))
 
   return new GameSession(store, { drawSeed: seed })
-}
-
-/** 走完第一季：征粮 → 征兵 → 出征乙城 → 结束回合。 */
-function runJ8Chain(session: GameSession): GameState {
-  const state = session.getState()
-
-  session.harvestGrain('farmer')
-  session.recruit('recruiter')
-  session.attack({ commander: 'warrior' }, 'b')
-  session.endTurn()
-
-  return state
 }
 
 function siteOf(state: GameState, id: string) {
@@ -637,32 +426,43 @@ function playerGrain(state: GameState): number {
   return faction.grain
 }
 
-describe('迭代 8 全链（无画面）', () => {
+/** 走完第一季：征粮 → 征兵 → 出征乙城 → 结束回合。 */
+function runEconomyChain(session: GameSession): GameState {
+  const state = session.getState()
+
+  session.harvestGrain('a', 'farmer')
+  session.recruit('a', 'recruiter')
+  attackSite(session, 'b', ['warrior'])
+  session.endTurn()
+
+  return state
+}
+
+describe('粮草收支（无画面）', () => {
   it('征粮 → 征兵受丁口所限 → 出征耗粮并占领 → 结束回合结算收支与人口', () => {
-    const session = createJ8Session(208)
+    const session = createEconomySession(208)
     const state = session.getState()
 
     // 征粮：粮食入库，屯田占用本季行动。
     const grainBefore = playerGrain(state)
-    expect(session.harvestGrain('farmer').ok).toBe(true)
+    expect(session.harvestGrain('a', 'farmer').ok).toBe(true)
     expect(playerGrain(state)).toBeGreaterThan(grainBefore)
 
     // 征兵：产量本为统率 × 10，但甲城丁口只有 400，兵力按丁口截断，人口相应减少。
     const recruiter = characterOf(state, 'recruiter')
     const troopsBefore = recruiter.troops
-    const cap = recruitPopulationCap(state, recruiter)
+    const cap = sitePopulationCap(siteOf(state, 'a'))
     expect(cap).toBe(Math.floor(20000 * RECRUIT_POPULATION_SHARE))
-    expect(session.recruit('recruiter').ok).toBe(true)
+    expect(session.recruit('a', 'recruiter').ok).toBe(true)
     expect(recruiter.troops - troopsBefore).toBe(cap)
-    expect(recruiter.troops - troopsBefore).toBeLessThan(recruiter.command * 10)
     expect(siteOf(state, 'a').population).toBe(20000 - cap)
 
     // 出征：按投入兵力耗粮，交战并攻下乙城。
     const beforeAttack = playerGrain(state)
-    const attack = session.attack({ commander: 'warrior' }, 'b')
-    expect(attack.ok).toBe(true)
-    expect(attack.ok && attack.record.battle !== undefined).toBe(true)
-    expect(playerGrain(state)).toBe(beforeAttack - attackGrainCost(12000))
+    const warrior = characterOf(state, 'warrior')
+    const troopsBeforeAttack = warrior.troops
+    expect(attackSite(session, 'b', ['warrior'])).toBe(true)
+    expect(playerGrain(state)).toBe(beforeAttack - attackGrainCost(troopsBeforeAttack))
     expect(siteOwner(state, 'b')).toBe('liubei')
 
     // 结束回合：存粮运回不敷军粮，粮食随之下降；人口缓增。
@@ -678,7 +478,7 @@ describe('迭代 8 全链（无画面）', () => {
   })
 
   it('粮尽时粮仓归零，但部队一兵不减', () => {
-    const session = createJ8Session(208)
+    const session = createEconomySession(208)
     const state = session.getState()
     // 断掉粮源：人口与存粮皆为零，本季既运不回粮，也付不出军粮。
     for (const site of state.geography.sites) {
@@ -703,8 +503,8 @@ describe('迭代 8 全链（无画面）', () => {
   })
 
   it('固定种子下整条链可复现', () => {
-    const first = runJ8Chain(createJ8Session(208))
-    const second = runJ8Chain(createJ8Session(208))
+    const first = runEconomyChain(createEconomySession(208))
+    const second = runEconomyChain(createEconomySession(208))
 
     expect(first.history).toEqual(second.history)
     expect(first.geography.sites.map((site) => site.population)).toEqual(
