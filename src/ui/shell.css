@@ -392,6 +392,17 @@
   font-size: 13px;
 }
 
+.order__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.order__head .order__target {
+  flex: 1;
+}
+
 .order__target {
   margin: 0;
   font-size: 14px;
@@ -410,8 +421,15 @@
   display: none;
 }
 
-.order__submit {
+/* 编成底部的两个出口：放弃在左、提交在右，放弃不吃行动力也不扣粮。 */
+.order__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
   margin-top: 4px;
+}
+
+.order__submit {
   padding: 8px 12px;
   border: 1px solid #6b5c42;
   border-radius: 6px;
@@ -434,6 +452,26 @@
 
 .order__submit:disabled:hover {
   background: #2a2219;
+}
+
+.order__abandon {
+  padding: 8px 12px;
+  border: 1px solid #4a3f31;
+  border-radius: 6px;
+  background: transparent;
+  color: #9a8b70;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.order__abandon:hover {
+  color: #e8d9b5;
+  border-color: #6b5c42;
+}
+
+.order__abandon[hidden] {
+  display: none;
 }
 
 .battle-plan__body {
@@ -733,6 +771,21 @@
   height: 100%;
   background: #8a7448;
   transition: width 0.3s ease;
+}
+
+.battle-slot__pace {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: #241f18;
+  overflow: hidden;
+}
+
+.battle-slot__pace-fill {
+  display: block;
+  height: 100%;
+  background: #c9a15a;
+  transition: width 2s linear;
 }
 
 .battle-slot__state {
@@ -1611,7 +1664,41 @@
 
 /* 战斗演出的结果要并列攻守双方，同样宽一些。 */
 .battle-plan {
-  width: min(520px, 100% - 32px);
+  width: min(760px, 100% - 32px);
+}
+
+.battle-plan .saves__head {
+  justify-content: flex-start;
+}
+
+.battle-plan__meta {
+  margin-left: auto;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #9a8b70;
+}
+
+.battle-plan__fight {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 16px;
+  align-items: start;
+}
+
+.battle-plan__main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.battle-plan__log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 14px;
+  border-left: 1px solid #2a241c;
+  min-width: 0;
 }
 
 /* 行动记录的行常带兵力与伤亡数字，给到更宽的一档。 */

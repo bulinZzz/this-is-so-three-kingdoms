@@ -5,11 +5,10 @@ import {
   ATTACKER_SELECTION,
   attackCandidates,
   autoDeployment,
+  autoFormation,
   BATTLE_ACTIONS,
-  battleOutlook,
   currentActor,
   defendScope,
-  defenseOutlook,
   defenderCandidates,
   deployDefenders,
   finishBattle,
@@ -18,7 +17,6 @@ import {
   resolveAction,
   setUnitSlot,
   SITE_DEFENSE_BONUS,
-  stationAfterCapture,
   stationedAt,
   targetsFor,
   type BattleState,
@@ -177,6 +175,13 @@ function opened(
   if (!result.ok) {
     throw new Error(result.reason)
   }
+
+  // 多数用例以攻方的一击为起点；先钉住攻方首队，其后仍按行动条推进。
+  const first = result.battle.attacker.units[0]
+  if (first !== undefined && !result.battle.finished) {
+    result.battle.activeUnitId = first.characterId
+  }
+
   return result.battle
 }
 
@@ -192,9 +197,9 @@ function advance(battle: BattleState, kinds: readonly ('attack' | 'defend')[] = 
 }
 
 describe('兵种与据点补正', () => {
-  it('骑兵最快、弓箭手其次、步兵最慢；骑兵攻高防薄，弓手攻低防低且能及远', () => {
-    expect(ARM_STATS.cavalry.mobility).toBeGreaterThan(ARM_STATS.archer.mobility)
-    expect(ARM_STATS.archer.mobility).toBeGreaterThan(ARM_STATS.infantry.mobility)
+  it('骑兵最快、步兵次之、弓箭手最慢；骑兵攻高防薄，弓手攻低防低且能及远', () => {
+    expect(ARM_STATS.cavalry.mobility).toBeGreaterThan(ARM_STATS.infantry.mobility)
+    expect(ARM_STATS.infantry.mobility).toBeGreaterThan(ARM_STATS.archer.mobility)
     expect(ARM_STATS.cavalry.attack).toBeGreaterThan(ARM_STATS.infantry.attack)
     expect(ARM_STATS.cavalry.defense).toBeLessThan(ARM_STATS.infantry.defense)
     expect(ARM_STATS.archer.attack).toBeLessThan(ARM_STATS.infantry.attack)
@@ -263,6 +268,23 @@ describe('布阵', () => {
       { characterId: 'c', slot: 2 },
       { characterId: 'd', slot: 3 },
       { characterId: 'e', slot: 4 },
+    ])
+  })
+
+  it('自动阵形按兵种分排：近战在前，弓手在后', () => {
+    expect(
+      autoFormation([
+        { id: 'a', armType: 'cavalry' },
+        { id: 'b', armType: 'archer' },
+      ]),
+    ).toEqual([
+      { characterId: 'a', slot: 0 },
+      { characterId: 'b', slot: 3 },
+    ])
+
+    // 全是弓手时，至少挪一队到前排，否则开不了战。
+    expect(autoFormation([{ id: 'a', armType: 'archer' }])).toEqual([
+      { characterId: 'a', slot: 0 },
     ])
   })
 
@@ -440,6 +462,66 @@ describe('开战', () => {
   })
 })
 
+describe('行动条', () => {
+  it('骑兵的进度先满，先于步兵出手', () => {
+    const state = scene({
+      attackerTroops: 5000,
+      defenderTroops: 5000,
+      extraAttackers: [{ id: 'a2', troops: 5000, armType: 'cavalry' }],
+    })
+    characterOf(state, 'attacker').armType = 'infantry'
+    const battle = opened(state, 'b', ['attacker', 'a2'], { autoDefender: false })
+    deployDefenders(battle, state, autoDeployment(['defender']))
+
+    // 骑兵 13 与步兵 10 的差距大于一成扰动，先后不因随机翻转。
+    expect(currentActor(battle)?.characterId).toBe('a2')
+  })
+
+  it('二十五次行动里，骑兵出手多于同场步兵', () => {
+    const state = scene({
+      attackerTroops: 50000,
+      defenderTroops: 50000,
+      extraAttackers: [{ id: 'a2', troops: 50000, armType: 'cavalry' }],
+    })
+    characterOf(state, 'attacker').armType = 'infantry'
+    const battle = opened(state, 'b', ['attacker', 'a2'], { autoDefender: false })
+    deployDefenders(battle, state, autoDeployment(['defender']))
+
+    const counts = new Map<string, number>()
+    while (!battle.finished) {
+      const actor = currentActor(battle)
+      if (actor === null) {
+        break
+      }
+      counts.set(actor.characterId, (counts.get(actor.characterId) ?? 0) + 1)
+      // 全员防御，无人退场，行动次数必被二十五次上限截断。
+      resolveAction(battle, { characterId: actor.characterId, kind: 'defend' })
+    }
+
+    expect(battle.actionsUsed).toBe(BATTLE_ACTIONS)
+    expect(counts.get('a2') ?? 0).toBeGreaterThan(counts.get('attacker') ?? 0)
+  })
+
+  it('固定种子下行动顺序可复现', () => {
+    const order = (): string[] => {
+      const state = scene({ attackerTroops: 5000, defenderTroops: 5000, seed: 42 })
+      const battle = opened(state, 'b', ['attacker'])
+      const acted: string[] = []
+      while (!battle.finished) {
+        const actor = currentActor(battle)
+        if (actor === null) {
+          break
+        }
+        acted.push(actor.characterId)
+        resolveAction(battle, { characterId: actor.characterId, kind: 'defend' })
+      }
+      return acted
+    }
+
+    expect(order()).toEqual(order())
+  })
+})
+
 describe('交锋', () => {
   it('二十五次行动用尽而守方仍在，守方守住、攻方撤退', () => {
     const state = scene({ attackerTroops: 10000, defenderTroops: 10000 })
@@ -479,6 +561,7 @@ describe('交锋', () => {
     })
     const meleeBattle = opened(melee, 'b', ['attacker'], { autoDefender: false })
     deployDefenders(meleeBattle, melee, autoDeployment(['defender', 'd3', 'd4', 'd5', 'd2']))
+    meleeBattle.activeUnitId = 'attacker'
 
     // 守方前三队在前排；守将d2 在后排，近战够不着。
     const meleeActor = currentActor(meleeBattle)
@@ -507,6 +590,7 @@ describe('交锋', () => {
     characterOf(ranged, 'attacker').armType = 'archer'
     const archerBattle = opened(ranged, 'b', ['attacker'], { autoDefender: false })
     deployDefenders(archerBattle, ranged, autoDeployment(['defender', 'd3', 'd4', 'd5', 'd2']))
+    archerBattle.activeUnitId = 'attacker'
 
     const archerActor = currentActor(archerBattle)
     if (archerActor === null) {
@@ -533,7 +617,7 @@ describe('交锋', () => {
     if (guardedUnit === undefined) {
       throw new Error('缺少守方')
     }
-    guardedUnit.defendingRound = guardedBattle.round
+    guardedUnit.defending = true
     resolveAction(guardedBattle, { characterId: 'attacker', kind: 'attack', targetId: 'defender' })
     const guardedLeft = guardedBattle.defender.units[0]?.battleTroops ?? 0
 
@@ -599,6 +683,7 @@ describe('交锋', () => {
     }
     const battle = result.battle
     deployDefenders(battle, state, autoDeployment(['defender']))
+    battle.activeUnitId = 'a2'
 
     // 骑兵机动最高，先行动；但它在后排，前排还有步兵挡着。
     const horse = currentActor(battle)
@@ -633,6 +718,7 @@ describe('交锋', () => {
       throw new Error(archerResult.reason)
     }
     deployDefenders(archerResult.battle, archer, autoDeployment(['defender']))
+    archerResult.battle.activeUnitId = 'a2'
     const bow = currentActor(archerResult.battle)
     if (bow === null) {
       throw new Error('缺少行动者')
@@ -713,7 +799,7 @@ describe('战后结算', () => {
   it('守方参战者按七成半撤回、一成战死、一成半被俘定去向', () => {
     const statuses = new Set<string>()
 
-    for (let seed = 1; seed <= 20; seed += 1) {
+    for (let seed = 1; seed <= 60; seed += 1) {
       const state = scene({ attackerTroops: 40000, defenderTroops: 1000, seed })
       const battle = opened(state, 'b', ['attacker'])
       finishBattle(state, battle)
@@ -813,59 +899,6 @@ describe('战后结算', () => {
     expect(result.ok).toBe(true)
     expect(siteOf(state, 'b').owner).toBe('liubei')
     expect(characterOf(state, 'attacker').troops).toBeLessThan(1000)
-  })
-})
-
-describe('占领后的留驻', () => {
-  function captured(): GameState {
-    const state = scene({
-      attackerTroops: 40000,
-      defenderTroops: 1000,
-      extraAttackers: [{ id: 'a2', troops: 40000 }],
-    })
-    const battle = opened(state, 'b', ['attacker', 'a2'])
-    finishBattle(state, battle)
-
-    return state
-  }
-
-  it('可从参战者中指定一人留驻新点，不耗行动力', () => {
-    const state = captured()
-    const apBefore = state.actionPoints.liubei
-
-    expect(stationAfterCapture(state, 'b', 'a2')).toBe('攻将a2 留驻 乙')
-    expect(characterOf(state, 'a2').stationedSiteId).toBe('b')
-    expect(state.actionPoints.liubei).toBe(apBefore)
-  })
-
-  it('留驻不设时返回空摘要；改派时原驻将卸任', () => {
-    const state = captured()
-
-    expect(stationAfterCapture(state, 'b', null)).toBe('')
-    expect(characterOf(state, 'a2').stationedSiteId).toBeNull()
-
-    stationAfterCapture(state, 'b', 'a2')
-    stationAfterCapture(state, 'b', 'attacker')
-
-    expect(characterOf(state, 'a2').stationedSiteId).toBeNull()
-    expect(characterOf(state, 'attacker').stationedSiteId).toBe('b')
-  })
-})
-
-describe('前景判断', () => {
-  it('攻方兵力占绝对优势为大优，兵力悬殊为大为不利', () => {
-    const strong = scene({ attackerTroops: 20000, defenderTroops: 5000 })
-    expect(battleOutlook(strong, 'b', ['attacker'])).toBe('我军大优')
-
-    const weak = scene({ attackerTroops: 1000, defenderTroops: 5000 })
-    expect(battleOutlook(weak, 'b', ['attacker'])).toBe('我军大劣')
-    expect(defenseOutlook(weak, 'b', ['attacker'])).toBe('我军大优')
-  })
-
-  it('守方无人可守时为不战而下', () => {
-    const state = scene({ attackerTroops: 5000, defenderTroops: 0 })
-    expect(battleOutlook(state, 'b', ['attacker'])).toBe('不战而下')
-    expect(defenseOutlook(state, 'b', ['attacker'])).toBe('守军无将')
   })
 })
 

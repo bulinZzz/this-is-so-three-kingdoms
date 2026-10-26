@@ -275,8 +275,6 @@ export type ActionRecordKind = ActionKind | 'defect' | 'event'
 
 /** 战报中一方的要点。 */
 export interface BattleReportSide {
-  /** 主将姓名；守方无将时为空串。 */
-  commander: string
   /** 参战武将姓名，按上场次序排列；无将时为空。 */
   officers: string[]
   /** 投入兵力，即开战时的战兵总数。 */

@@ -32,14 +32,17 @@ import { createRandom, type Random } from './random'
 import { areHostile } from './relations'
 
 /**
- * 战斗：双方各排六个阵位（前三后三），开战后按机动依次行动，双方合计二十五次为限。
- * 每次行动由玩家或规则层为当前行动的一队下指令，行动当场结算，便于界面逐次演出。
+ * 战斗：双方各排六个阵位（前三后三），开战后各自沿行动条累积，先满者先行，
+ * 双方合计二十五次为限。每次行动由玩家或规则层为当前行动的一队下指令，
+ * 行动当场结算，便于界面逐次演出。
  * 规则见《战斗系统》。本模块只管一场战斗的推演与结算，不依赖画面；
  * 随机源随战斗状态携带，结束后写回对局，固定种子下同一场战斗可复现。
  */
 
 /** 双方合计的行动次数上限。 */
 export const BATTLE_ACTIONS = 25
+/** 行动条满值；一队累计到此值即行动一次，余量留到下一次。 */
+export const ACTION_THRESHOLD = 100
 /** 士气满值与下限。 */
 export const MORALE_FULL = 100
 export const MORALE_FLOOR = 40
@@ -58,11 +61,13 @@ const ARCHER_DAMAGE_SCALE = 0.7
 /** 伤害与减伤的兵力系数；二十五次行动的节奏下，一击须有明显分量。 */
 const DAMAGE_TROOP_FACTOR = 0.6
 const REDUCTION_TROOP_FACTOR = 0.15
-/** 武力对伤害、智谋对减伤的点数系数。 */
+/** 武力对伤害、统率对减伤的点数系数。 */
 const MIGHT_SCALE = 0.003
-const INTELLECT_SCALE = 0.003
+const COMMAND_DEFENSE_SCALE = 0.003
 /** 伤害与减伤各自的随机幅度。 */
 const DAMAGE_VARIANCE = 0.1
+/** 每次行动后重掷的速度扰动幅度：行动条上多一分错落，又不至于抹平兵种差异。 */
+const PACE_VARIANCE = 0.1
 /** 战损折算：按战损比例扣减七成。 */
 const CASUALTY_CONVERSION = 0.7
 /** 守方败退后的去向：撤回、战死、被俘。 */
@@ -73,7 +78,7 @@ export const DEFENDER_SELECTION = 5
 /** 攻方上阵人数。 */
 export const ATTACKER_SELECTION = 5
 
-/** 兵种参数：机动决定行动顺序，攻防决定伤害与减伤，射程决定可打的排。 */
+/** 兵种参数：机动决定行动条增速，攻防决定伤害与减伤，射程决定可打的排。 */
 export interface ArmStats {
   label: string
   mobility: number
@@ -83,9 +88,9 @@ export interface ArmStats {
 }
 
 export const ARM_STATS: Record<ArmType, ArmStats> = {
-  infantry: { label: '步兵', mobility: 8, attack: 1, defense: 1, ranged: false },
-  archer: { label: '弓箭手', mobility: 10, attack: 0.85, defense: 0.8, ranged: true },
-  cavalry: { label: '骑兵', mobility: 12, attack: 1.3, defense: 0.6, ranged: false },
+  infantry: { label: '步兵', mobility: 10, attack: 1, defense: 1, ranged: false },
+  archer: { label: '弓箭手', mobility: 9, attack: 0.85, defense: 0.8, ranged: true },
+  cavalry: { label: '骑兵', mobility: 13, attack: 1.3, defense: 0.6, ranged: false },
 }
 
 /** 战略点的防守补正：守方全员整场享有。 */
@@ -124,13 +129,18 @@ export interface BattleUnit {
   /** 当前战兵；扣至零即退场。 */
   battleTroops: number
   might: number
+  command: number
   intellect: number
   /** 阵位：0–2 为前排，3–5 为后排。 */
   slot: number
   /** 是否为该点的驻将：驻将不占自选名额、战后不因防守转为已行动。 */
   stationed: boolean
-  /** 防御生效的轮次；与本轮相同则受击减伤。 */
-  defendingRound: number | null
+  /** 行动条进度：满 ACTION_THRESHOLD 即可行动，行动后扣去满值、余量留待下次。 */
+  progress: number
+  /** 本次行动后的速度扰动系数：每次行动重掷，令行动条不至于整齐划一。 */
+  pace: number
+  /** 是否处于防御姿态：持续到自己下次行动。 */
+  defending: boolean
   exited: boolean
 }
 
@@ -148,14 +158,14 @@ export interface BattleState {
   siteType: SiteType
   attacker: BattleSideState
   defender: BattleSideState
-  /** 当前轮次，从 1 起；每队依次行动一次为一轮。 */
-  round: number
   /** 双方已行动的次数。 */
   actionsUsed: number
   /** 行动次数上限。 */
   actionLimit: number
-  /** 本轮尚未行动的单位，队首即当前行动者。 */
-  queue: CharacterId[]
+  /** 上次推进行动条所用的 tick 数；界面据此按同一节奏把条子走完。 */
+  advanceTicks: number
+  /** 行动条上当前该出手的一队；由进度推得，随每次行动重新排定。 */
+  activeUnitId: CharacterId | null
   finished: boolean
   /** 守方是否无人可守，不战而下。 */
   undefended: boolean
@@ -184,8 +194,7 @@ export interface BattleActionEvent {
   targetTroops: number | null
   /** 本次行动后退场的队伍。 */
   exited: { characterId: CharacterId; name: string; side: BattleSide }[]
-  /** 行动所属的轮次与累计次数。 */
-  round: number
+  /** 累计行动次数。 */
   actionsUsed: number
   finished: boolean
   attackerWins: boolean
@@ -261,17 +270,38 @@ export function autoDeployment(ids: readonly CharacterId[]): BattleDeployment[] 
 }
 
 /**
- * 按兵种排出默认阵形：近战先上前排，弓箭手排到后排；同类仍按传入次序。
- * 后排的近战被自家前排挡住，自动布阵不能把人白白晾在后排。
+ * 按兵种排默认阵形：近战填前排、弓箭手填后排；一侧坐满后溢到另一侧。
+ * 全是弓手时也至少挪一队到前排，否则开不了战。
  */
 export function autoFormation(
   characters: readonly { id: CharacterId; armType: ArmType }[],
 ): BattleDeployment[] {
-  const ordered = [...characters].sort(
-    (a, b) => Number(a.armType === 'archer') - Number(b.armType === 'archer'),
-  )
+  const front = [0, 1, 2]
+  const back = [3, 4, 5]
+  const deployments: BattleDeployment[] = []
 
-  return autoDeployment(ordered.map((character) => character.id))
+  const place = (character: { id: CharacterId }, slot: number | undefined): void => {
+    if (slot !== undefined) {
+      deployments.push({ characterId: character.id, slot })
+    }
+  }
+
+  for (const character of characters) {
+    if (character.armType !== 'archer') {
+      place(character, front.shift() ?? back.shift())
+    }
+  }
+  for (const character of characters) {
+    if (character.armType === 'archer') {
+      place(character, back.shift() ?? front.shift())
+    }
+  }
+
+  if (deployments.length > 0 && !deployments.some((item) => item.slot < FRONT_SIZE)) {
+    deployments[0]!.slot = 0
+  }
+
+  return deployments
 }
 
 /**
@@ -286,7 +316,7 @@ export function setUnitSlot(
   if (battle.finished) {
     return '战斗已结束'
   }
-  if (battle.actionsUsed > 0 || battle.round > 1) {
+  if (battle.actionsUsed > 0) {
     return '开战后不能再变阵'
   }
   if (!Number.isInteger(slot) || slot < 0 || slot >= SLOT_COUNT) {
@@ -373,10 +403,13 @@ function makeUnit(
     troops: character.troops,
     battleTroops: character.troops,
     might: character.might,
+    command: character.command,
     intellect: character.intellect,
     slot,
     stationed,
-    defendingRound: null,
+    progress: 0,
+    pace: 1,
+    defending: false,
     exited: false,
   }
 }
@@ -590,16 +623,17 @@ export function openAttack(
     siteType: target.type,
     attacker: { factionId, morale: MORALE_FULL, units },
     defender: { factionId: defenderFaction, morale: MORALE_FULL, units: [] },
-    round: 1,
     actionsUsed: 0,
     actionLimit: BATTLE_ACTIONS,
-    queue: [],
+    advanceTicks: 0,
+    activeUnitId: null,
     finished: false,
     undefended: false,
     attackerWins: false,
     randomState: state.randomState,
     forcedOutcome: null,
   }
+  seedPace(battle, units)
 
   if (options.autoDefender !== false && defenderFaction !== null) {
     deployDefenders(battle, state, autoFormation(autoDefenders(state, target.id, defenderFaction)))
@@ -613,6 +647,27 @@ export function openAttack(
   }
 
   return { ok: true, battle }
+}
+
+/**
+ * 取消一场尚未开打的进攻：退回已扣的行动力与粮草，战斗作废。
+ * 只在摆阵阶段可用；已经开打则不能反悔。
+ */
+export function cancelAttack(state: GameState, battle: BattleState): boolean {
+  const factionId = battle.attacker.factionId
+  if (battle.finished || battle.actionsUsed > 0 || factionId === null) {
+    return false
+  }
+  const faction = state.factions.find((item) => item.id === factionId)
+  if (faction === undefined) {
+    return false
+  }
+
+  const troops = battle.attacker.units.reduce((total, unit) => total + unit.troops, 0)
+  state.actionPoints[factionId] = (state.actionPoints[factionId] ?? 0) + ACTION_COSTS.attack
+  faction.grain += attackGrainCost(troops)
+
+  return true
 }
 
 /**
@@ -661,7 +716,8 @@ export function deployDefenders(
     return '守将不合法'
   }
   battle.defender.units = units
-  battle.queue = []
+  seedPace(battle, units)
+  refreshActor(battle)
 
   return null
 }
@@ -751,7 +807,6 @@ function damageOf(
   defender: BattleUnit,
   defenderSide: BattleSideState,
   siteBonus: number,
-  round: number,
   random: Random,
 ): number {
   let damage =
@@ -769,7 +824,7 @@ function damageOf(
     defender.battleTroops *
     REDUCTION_TROOP_FACTOR *
     ARM_STATS[defender.armType].defense *
-    (1 + defender.intellect * INTELLECT_SCALE) *
+    (1 + defender.command * COMMAND_DEFENSE_SCALE) *
     moraleFactor(defenderSide.morale) *
     variance(random)
 
@@ -778,7 +833,7 @@ function damageOf(
   }
 
   let actual = damage - reduction
-  if (defender.defendingRound === round) {
+  if (defender.defending) {
     actual *= DEFEND_DAMAGE_SCALE
   }
   if (defender.side === 'defender') {
@@ -799,54 +854,96 @@ export function defendScope(battle: BattleState, unit: BattleUnit): BattleUnit[]
   return aliveUnits(battle[unit.side]).filter((item) => rowOfSlot(item.slot) === row)
 }
 
-/** 按机动排出本轮的先后；同值时攻方先行，再按阵位先后。 */
-function buildQueue(battle: BattleState): CharacterId[] {
-  return [
-    ...battle.attacker.units.map((unit, index) => ({ unit, index })),
-    ...battle.defender.units.map((unit, index) => ({ unit, index: index + 100 })),
-  ]
-    .filter((item) => alive(item.unit))
-    .sort((a, b) => {
-      const mobility = ARM_STATS[b.unit.armType].mobility - ARM_STATS[a.unit.armType].mobility
-      if (mobility !== 0) {
-        return mobility
-      }
-      if (a.unit.side !== b.unit.side) {
-        return a.unit.side === 'attacker' ? -1 : 1
-      }
-      return a.index - b.index
-    })
-    .map((item) => item.unit.characterId)
-}
-
-/** 第一轮的行动队列在开战前惰性排定；之后每轮由上一轮结束时续上。 */
-function prepareQueue(battle: BattleState): void {
-  if (battle.queue.length === 0 && battle.actionsUsed === 0) {
-    battle.queue = buildQueue(battle)
+/** 为一批刚上阵的队伍掷下第一次速度扰动。 */
+function seedPace(battle: BattleState, units: readonly BattleUnit[]): void {
+  const random = createRandom(battle.randomState)
+  for (const unit of units) {
+    unit.pace = 1 - PACE_VARIANCE + random.next() * 2 * PACE_VARIANCE
   }
+  battle.randomState = random.getState()
 }
 
-/** 把队列头部已退场的队伍清掉，使队首就是当前行动者。 */
-function pruneQueue(battle: BattleState): void {
-  while (battle.queue.length > 0) {
-    const unit = findUnit(battle, battle.queue[0]!)
-    if (unit !== undefined && alive(unit)) {
-      return
+/** 一队本次的实际速度：兵种机动乘上自己的扰动。 */
+function paceOf(unit: BattleUnit): number {
+  return ARM_STATS[unit.armType].mobility * unit.pace
+}
+
+/** 行动条已满的队伍里挑当前出手者：进度高者先行，同进度攻方在前，再按阵位。 */
+function pickReady(units: readonly BattleUnit[]): BattleUnit | null {
+  let best: BattleUnit | null = null
+
+  for (const unit of units) {
+    if (unit.progress + 1e-9 < ACTION_THRESHOLD) {
+      continue
     }
-    battle.queue.shift()
+    if (best === null || unit.progress > best.progress + 1e-9) {
+      best = unit
+      continue
+    }
+    if (Math.abs(unit.progress - best.progress) > 1e-9) {
+      continue
+    }
+    if (unit.side !== best.side) {
+      if (unit.side === 'attacker') {
+        best = unit
+      }
+      continue
+    }
+    if (unit.slot < best.slot) {
+      best = unit
+    }
   }
+
+  return best
 }
 
-/** 当前该行动的一队；战斗已结束或队列不可用时为 null。 */
-export function currentActor(battle: BattleState): BattleUnit | null {
-  if (battle.finished) {
+/** 推进行动条直到有一队满值，返回该队；无人可动时为 null。 */
+function nextActor(battle: BattleState): BattleUnit | null {
+  const units = [...aliveUnits(battle.attacker), ...aliveUnits(battle.defender)]
+  if (units.length === 0) {
+    battle.advanceTicks = 0
     return null
   }
-  prepareQueue(battle)
-  pruneQueue(battle)
-  const id = battle.queue[0]
 
-  return id === undefined ? null : (findUnit(battle, id) ?? null)
+  const ready = pickReady(units)
+  if (ready !== null) {
+    battle.advanceTicks = 0
+    return ready
+  }
+
+  let ticks = Number.POSITIVE_INFINITY
+  for (const unit of units) {
+    const pace = paceOf(unit)
+    if (pace > 0) {
+      ticks = Math.min(ticks, (ACTION_THRESHOLD - unit.progress) / pace)
+    }
+  }
+  if (!Number.isFinite(ticks)) {
+    battle.advanceTicks = 0
+    return null
+  }
+
+  for (const unit of units) {
+    unit.progress += paceOf(unit) * ticks
+  }
+  battle.advanceTicks = ticks
+
+  return pickReady(units)
+}
+
+/** 排定下一位行动者；战斗已结束或无人可动时清空。 */
+function refreshActor(battle: BattleState): void {
+  const actor = battle.finished ? null : nextActor(battle)
+  battle.activeUnitId = actor?.characterId ?? null
+}
+
+/** 当前该行动的一队；尚未排定或战斗结束时为 null。 */
+export function currentActor(battle: BattleState): BattleUnit | null {
+  if (battle.finished || battle.activeUnitId === null) {
+    return null
+  }
+
+  return findUnit(battle, battle.activeUnitId) ?? null
 }
 
 /** 他方为当前行动的一队下指令：残队转守，其余就近攻击。 */
@@ -902,11 +999,13 @@ export function resolveAction(
   const exitedBefore = [...battle.attacker.units, ...battle.defender.units]
     .filter((unit) => unit.exited)
     .map((unit) => unit.characterId)
-  const actingRound = battle.round
 
   let target: BattleUnit | null = null
   let damage = 0
   let selfLoss = 0
+
+  // 轮到自己时，上一回留下的防御姿态到此为止。
+  actor.defending = false
 
   if (order.kind === 'attack') {
     const targets = targetsFor(battle, actor)
@@ -922,7 +1021,6 @@ export function resolveAction(
         target,
         otherSide,
         SITE_DEFENSE_BONUS[battle.siteType],
-        actingRound,
         random,
       )
       if (damage > 0) {
@@ -941,18 +1039,19 @@ export function resolveAction(
     }
   } else {
     for (const unit of defendScope(battle, actor)) {
-      unit.defendingRound = actingRound
+      unit.defending = true
     }
   }
 
-  battle.queue.shift()
+  // 行动条扣去满值，余量留到下一次；自己的速度扰动也在此重掷。
+  actor.progress = Math.max(0, actor.progress - ACTION_THRESHOLD)
+  actor.pace = 1 - PACE_VARIANCE + random.next() * 2 * PACE_VARIANCE
   battle.actionsUsed += 1
   battle.randomState = random.getState()
-  pruneQueue(battle)
   evaluateEnd(battle)
-  if (!battle.finished && battle.queue.length === 0) {
-    battle.round += 1
-    battle.queue = buildQueue(battle)
+  battle.activeUnitId = null
+  if (!battle.finished) {
+    refreshActor(battle)
   }
 
   const exited = [...battle.attacker.units, ...battle.defender.units]
@@ -971,7 +1070,6 @@ export function resolveAction(
     actorTroops: actor.battleTroops,
     targetTroops: target?.battleTroops ?? null,
     exited,
-    round: actingRound,
     actionsUsed: battle.actionsUsed,
     finished: battle.finished,
     attackerWins: battle.attackerWins,
@@ -990,75 +1088,20 @@ export function autoAction(battle: BattleState): BattleActionEvent | null {
 
 /** 按同一套规则自动推演到底，供玩家不参与的战斗与界面跳过时使用。 */
 export function autoBattle(battle: BattleState): void {
+  // 守方始终无人布阵，按不战而下处理；轮到玩家排兵时不在此列。
+  if (!battle.finished && battle.defender.units.length === 0) {
+    battle.undefended = true
+    battle.attackerWins = true
+    battle.finished = true
+    battle.activeUnitId = null
+    return
+  }
+
   while (!battle.finished) {
     if (autoAction(battle) === null) {
       return
     }
   }
-}
-
-/** 一场战斗的交战前景，供界面作定性判断：不给精确数值。 */
-export type BattleOutlook = '不战而下' | '我军大优' | '我军占优' | '势均力敌' | '我军不利' | '我军大劣'
-
-const OUTLOOK_FLOORS: readonly { min: number; outlook: BattleOutlook }[] = [
-  { min: 2, outlook: '我军大优' },
-  { min: 1.25, outlook: '我军占优' },
-  { min: 0.8, outlook: '势均力敌' },
-  { min: 0.5, outlook: '我军不利' },
-  { min: 0, outlook: '我军大劣' },
-]
-
-/** 就一次进攻看交战前景：双方兵力按据点补正折算后比较。 */
-export function battleOutlook(
-  state: GameState,
-  targetSiteId: SiteId,
-  memberIds: readonly CharacterId[],
-  defenderIds?: readonly CharacterId[],
-): BattleOutlook {
-  const target = state.geography.sites.find((item) => item.id === targetSiteId)
-  if (target === undefined) {
-    return '我军大劣'
-  }
-  const defenders =
-    defenderIds === undefined && target.owner !== null
-      ? autoDefenders(state, target.id, target.owner).map((item) => item.id)
-      : (defenderIds ?? [])
-  const defenderTroops = defenders.reduce((total, id) => {
-    const character = state.characters.find((item) => item.id === id)
-    return total + (character?.troops ?? 0)
-  }, 0)
-  if (defenderTroops <= 0) {
-    return '不战而下'
-  }
-  const attackerTroops = memberIds.reduce((total, id) => {
-    const character = state.characters.find((item) => item.id === id)
-    return total + (character?.troops ?? 0)
-  }, 0)
-  const ratio = attackerTroops / (defenderTroops * (1 + SITE_DEFENSE_BONUS[target.type]))
-
-  return OUTLOOK_FLOORS.find((band) => ratio >= band.min)?.outlook ?? '我军大劣'
-}
-
-/** 守方视角的交战前景。 */
-export type DefenseOutlook = '守军无将' | '敌军大优' | '敌军占优' | '势均力敌' | '我军占优' | '我军大优'
-
-const DEFENSE_LABELS: Record<BattleOutlook, DefenseOutlook> = {
-  不战而下: '守军无将',
-  我军大优: '敌军大优',
-  我军占优: '敌军占优',
-  势均力敌: '势均力敌',
-  我军不利: '我军占优',
-  我军大劣: '我军大优',
-}
-
-/** 就一次来犯看我方（守方）的前景：把攻方视角的判断翻到守方一侧来说。 */
-export function defenseOutlook(
-  state: GameState,
-  targetSiteId: SiteId,
-  attackerIds: readonly CharacterId[],
-  defenderIds?: readonly CharacterId[],
-): DefenseOutlook {
-  return DEFENSE_LABELS[battleOutlook(state, targetSiteId, attackerIds, defenderIds)]
 }
 
 /** 退场：脱离势力与驻地，兵力归零。 */
@@ -1086,7 +1129,6 @@ function sideReport(units: readonly BattleUnit[]): BattleReportSide {
   const casualties = units.reduce((total, unit) => total + applyBattleLoss(unit), 0)
 
   return {
-    commander: units[0]?.name ?? '',
     officers: units.map((unit) => unit.name),
     troops,
     casualties,
@@ -1285,37 +1327,3 @@ export function finishBattle(
   return { ok: true, record }
 }
 
-/**
- * 占领后指定一人留驻新点：从参战者中选一名仍在仕、仍属攻方的武将，不耗行动力。
- * 传 null 表示不留驻。
- */
-export function stationAfterCapture(
-  state: GameState,
-  siteId: SiteId,
-  characterId: CharacterId | null,
-  factionId: FactionId = state.playerFaction,
-): string {
-  if (characterId === null) {
-    return ''
-  }
-  const site = state.geography.sites.find((item) => item.id === siteId)
-  const character = state.characters.find((item) => item.id === characterId)
-  if (site === undefined || site.owner !== factionId) {
-    return ''
-  }
-  if (character === undefined || !isServing(character) || character.factionId !== factionId) {
-    return ''
-  }
-  if (character.stationedSiteId !== null) {
-    return ''
-  }
-
-  for (const officer of state.characters) {
-    if (officer.stationedSiteId === siteId) {
-      officer.stationedSiteId = null
-    }
-  }
-  character.stationedSiteId = siteId
-
-  return `${character.name} 留驻 ${site.name}`
-}

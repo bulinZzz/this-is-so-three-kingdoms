@@ -1,12 +1,11 @@
 import type { ActionResult } from '../core/actions'
 import {
   autoAction,
-  autoBattle,
+  cancelAttack as runCancelAttack,
   deployDefenders,
   finishBattle,
   openAttack,
   resolveAction,
-  stationAfterCapture as runStationAfterCapture,
   type BattleActionEvent,
   type BattleDeployment,
   type BattleOpenResult,
@@ -229,7 +228,7 @@ export class GameSession {
     return event
   }
 
-  /** 由规则层替当前行动的一队下令，结算一次行动；他方行动与「交给部将」共用。 */
+  /** 由规则层替当前行动的一队下令，结算一次行动；他方行动与自动战斗共用。 */
   battleAutoAction(battle: BattleState): BattleActionEvent | null {
     const event = autoAction(battle)
     if (event !== null) {
@@ -239,15 +238,19 @@ export class GameSession {
     return event
   }
 
-  /** 余下的战斗一路推演到底。 */
-  battleAutoBattle(battle: BattleState): void {
-    autoBattle(battle)
-    this.notify()
-  }
-
   /** 我方进攻打完：折算战损、定去向、易主并写入历史；成功后通知界面。 */
   finishAttack(battle: BattleState, forcedOutcome: ForcedOutcome | null = null): ActionResult {
     return this.apply(finishBattle(this.state, battle, forcedOutcome))
+  }
+
+  /** 取消尚未开打的进攻：退回行动力与粮草，通知界面。 */
+  cancelAttack(battle: BattleState): boolean {
+    const refunded = runCancelAttack(this.state, battle)
+    if (refunded) {
+      this.notify()
+    }
+
+    return refunded
   }
 
   /** 我方守土：排定守方阵形；不合规时返回原因。 */
@@ -256,14 +259,6 @@ export class GameSession {
     this.notify()
 
     return problem
-  }
-
-  /** 占领后指定一人留驻新点，不耗行动力；随后通知界面。 */
-  stationAfterCapture(siteId: SiteId, characterId: CharacterId | null): string {
-    const summary = runStationAfterCapture(this.state, siteId, characterId)
-    this.notify()
-
-    return summary
   }
 
   /** 劝降营中的一名俘虏：花行动力使其意愿上升，到「愿降」档再劝一次即归附；成功后通知界面。 */

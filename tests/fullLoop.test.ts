@@ -179,10 +179,8 @@ describe('完整循环（无画面）', () => {
     expect(attackSite(session, 'changsha', ['guanyu'])).toBe(true)
 
     expect(siteOwner(state, 'changsha')).toBe('liubei')
-    // 攻下城池不自动留驻，驻将须在占领后另行指派。
+    // 攻下城池不会把参战者留在新点，驻将须在占领后另行指派。
     expect(characterOf(state, 'guanyu').stationedSiteId).toBeNull()
-    expect(session.stationAfterCapture('changsha', 'guanyu')).toContain('留驻')
-    expect(characterOf(state, 'guanyu').stationedSiteId).toBe('changsha')
     expect(
       state.history
         .filter((record) => record.factionId === state.playerFaction)
