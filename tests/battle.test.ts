@@ -7,18 +7,21 @@ import {
   autoDeployment,
   autoFormation,
   BATTLE_ACTIONS,
+  canSortie,
   currentActor,
-  defendScope,
   defenderCandidates,
   deployDefenders,
   finishBattle,
   isAttackable,
   openAttack,
+  ordersFor,
   resolveAction,
   setUnitSlot,
   SITE_DEFENSE_BONUS,
   stationedAt,
   targetsFor,
+  WAIT_PROGRESS,
+  SORTIE_PROGRESS,
   type BattleState,
 } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
@@ -477,7 +480,7 @@ describe('行动条', () => {
     expect(currentActor(battle)?.characterId).toBe('a2')
   })
 
-  it('二十五次行动里，骑兵出手多于同场步兵', () => {
+  it('同一场交锋里，骑兵出手多于同场步兵', () => {
     const state = scene({
       attackerTroops: 50000,
       defenderTroops: 50000,
@@ -488,17 +491,17 @@ describe('行动条', () => {
     deployDefenders(battle, state, autoDeployment(['defender']))
 
     const counts = new Map<string, number>()
-    while (!battle.finished) {
+    // 骑兵待机、步兵防御，无人受伤；只比行动条上谁出手更频。
+    for (let step = 0; step < 30; step += 1) {
       const actor = currentActor(battle)
-      if (actor === null) {
+      if (actor === null || battle.finished) {
         break
       }
       counts.set(actor.characterId, (counts.get(actor.characterId) ?? 0) + 1)
-      // 全员防御，无人退场，行动次数必被二十五次上限截断。
-      resolveAction(battle, { characterId: actor.characterId, kind: 'defend' })
+      const kind = actor.armType === 'cavalry' ? 'wait' : 'defend'
+      resolveAction(battle, { characterId: actor.characterId, kind })
     }
 
-    expect(battle.actionsUsed).toBe(BATTLE_ACTIONS)
     expect(counts.get('a2') ?? 0).toBeGreaterThan(counts.get('attacker') ?? 0)
   })
 
@@ -605,10 +608,14 @@ describe('交锋', () => {
     expect(rangedBack?.exited).toBe(true)
   })
 
-  it('防御不自损；受击时减伤，步兵可护住自己所在的一排', () => {
+  it('步兵防御只护自己：受击减伤，并替同排友军代伤', () => {
     const plain = scene({ attackerTroops: 20000, defenderTroops: 30000 })
     const plainBattle = opened(plain, 'b', ['attacker'])
-    resolveAction(plainBattle, { characterId: 'attacker', kind: 'attack', targetId: 'defender' })
+    const plainEvent = resolveAction(plainBattle, {
+      characterId: 'attacker',
+      kind: 'attack',
+      targetId: 'defender',
+    })
     const plainLeft = plainBattle.defender.units[0]?.battleTroops ?? 0
 
     const guarded = scene({ attackerTroops: 20000, defenderTroops: 30000 })
@@ -618,18 +625,50 @@ describe('交锋', () => {
       throw new Error('缺少守方')
     }
     guardedUnit.defending = true
-    resolveAction(guardedBattle, { characterId: 'attacker', kind: 'attack', targetId: 'defender' })
+    const guardedEvent = resolveAction(guardedBattle, {
+      characterId: 'attacker',
+      kind: 'attack',
+      targetId: 'defender',
+    })
     const guardedLeft = guardedBattle.defender.units[0]?.battleTroops ?? 0
 
     expect(guardedLeft).toBeGreaterThan(plainLeft)
+    // 打在防御中的步兵身上，自损减半。
+    expect(guardedEvent?.selfLoss).toBe(Math.round((plainEvent?.selfLoss ?? 0) / 2))
 
-    // 步兵防御时覆盖同排；后排的队不在其列。
+    // 前排另一名步兵防御时，攻击同排友军会由他承担。
+    const state = scene({
+      attackerTroops: 20000,
+      defenderTroops: 30000,
+      extraDefenders: [{ id: 'd2', troops: 30000 }],
+    })
+    const battle = opened(state, 'b', ['attacker'])
+    const guard = battle.defender.units.find((unit) => unit.characterId === 'd2')
+    const ally = battle.defender.units.find((unit) => unit.characterId === 'defender')
+    if (guard === undefined || ally === undefined) {
+      throw new Error('缺少守方')
+    }
+    guard.defending = true
+    const allyBefore = ally.battleTroops
+    const guardBefore = guard.battleTroops
+
+    const event = resolveAction(battle, {
+      characterId: 'attacker',
+      kind: 'attack',
+      targetId: 'defender',
+    })
+
+    expect(event?.targetName).toBe('守将d2')
+    expect(event?.intendedTargetName).toBe('守将')
+    expect(ally.battleTroops).toBe(allyBefore)
+    expect(guard.battleTroops).toBeLessThan(guardBefore)
+  })
+
+  it('步兵防御只把自己置为防御姿态，不再整排减伤', () => {
     const state = scene({
       extraDefenders: [
         { id: 'd2', troops: 3000 },
         { id: 'd3', troops: 3000 },
-        { id: 'd4', troops: 3000 },
-        { id: 'd5', troops: 3000 },
       ],
     })
     const battle = opened(state, 'b', ['attacker'])
@@ -637,15 +676,20 @@ describe('交锋', () => {
     if (front === undefined) {
       throw new Error('缺少前排')
     }
-    expect(defendScope(battle, front).map((unit) => unit.slot).sort()).toEqual([0, 1, 2])
 
-    const actor = currentActor(battle)
-    if (actor === null) {
-      throw new Error('缺少行动者')
+    battle.activeUnitId = front.characterId
+    const beforeAction = front.battleTroops
+    const event = resolveAction(battle, { characterId: front.characterId, kind: 'defend' })
+
+    expect(event?.kind).toBe('defend')
+    expect(front.defending).toBe(true)
+    expect(front.battleTroops).toBe(beforeAction)
+    expect(battle.actionsUsed).toBe(1)
+    for (const unit of battle.defender.units) {
+      if (unit.characterId !== front.characterId) {
+        expect(unit.defending).toBe(false)
+      }
     }
-    const beforeAction = actor.battleTroops
-    resolveAction(battle, { characterId: actor.characterId, kind: 'defend' })
-    expect(actor.battleTroops).toBe(beforeAction)
   })
 
   it('据点补正对守方全员生效：守城比守野地少损', () => {
@@ -662,7 +706,7 @@ describe('交锋', () => {
     )
   })
 
-  it('后排近战被本阵前排挡住，弓手仍可从后排出手', () => {
+  it('后排骑兵须先出击；弓手在后排可直接射击且无自损', () => {
     const state = scene({
       attackerTroops: 5000,
       defenderTroops: 5000,
@@ -685,20 +729,36 @@ describe('交锋', () => {
     deployDefenders(battle, state, autoDeployment(['defender']))
     battle.activeUnitId = 'a2'
 
-    // 骑兵机动最高，先行动；但它在后排，前排还有步兵挡着。
     const horse = currentActor(battle)
     if (horse === null) {
       throw new Error('缺少行动者')
     }
     expect(horse.characterId).toBe('a2')
+    // 正前方有存活友军时，既不能攻击，也不能出击。
+    expect(ordersFor(battle, horse)).toEqual(['wait'])
+    expect(canSortie(battle, horse)).toBe(false)
     expect(targetsFor(battle, horse)).toEqual([])
+    expect(resolveAction(battle, { characterId: 'a2', kind: 'attack' })).toBeNull()
+    expect(resolveAction(battle, { characterId: 'a2', kind: 'sortie' })).toBeNull()
 
-    const before = horse.battleTroops
-    const event = resolveAction(battle, { characterId: 'a2', kind: 'attack' })
-    expect(event?.damage).toBe(0)
-    expect(horse.battleTroops).toBe(before)
+    // 前排被击溃后可以出击：移入正前方，不占行动次数，条子落到三成。
+    const front = battle.attacker.units.find((unit) => unit.characterId === 'attacker')
+    if (front === undefined) {
+      throw new Error('缺少前排')
+    }
+    front.battleTroops = 0
+    front.exited = true
+    expect(ordersFor(battle, horse)).toEqual(['sortie', 'wait'])
 
-    // 换成弓手，便可在后排直接射向前排。
+    horse.progress = 100
+    const sortie = resolveAction(battle, { characterId: 'a2', kind: 'sortie' })
+    expect(sortie?.kind).toBe('sortie')
+    expect(horse.slot).toBe(0)
+    expect(front.slot).toBe(3)
+    expect(sortie?.actorProgress).toBe(SORTIE_PROGRESS)
+    expect(battle.actionsUsed).toBe(0)
+
+    // 换成弓手，便可在后排直接射向前排，且不承担反伤。
     const archer = scene({
       attackerTroops: 5000,
       defenderTroops: 5000,
@@ -723,20 +783,136 @@ describe('交锋', () => {
     if (bow === null) {
       throw new Error('缺少行动者')
     }
+    expect(ordersFor(archerResult.battle, bow)).toEqual(['attack', 'wait'])
     expect(targetsFor(archerResult.battle, bow).map((unit) => unit.name)).toEqual(['守将'])
 
-    // 自家前排空了，后排的近战才顶上。
-    const front = battle.attacker.units.find((unit) => unit.characterId === 'attacker')
-    if (front === undefined) {
+    const before = bow.battleTroops
+    const shot = resolveAction(archerResult.battle, {
+      characterId: 'a2',
+      kind: 'attack',
+      targetId: 'defender',
+    })
+    expect(shot?.damage).toBeGreaterThan(0)
+    expect(shot?.selfLoss).toBe(0)
+    expect(bow.battleTroops).toBe(before)
+    expect(archerResult.battle.actionsUsed).toBe(1)
+  })
+
+  it('兵种指令随兵种与站位而定', () => {
+    const state = scene({
+      extraAttackers: [
+        { id: 'cav', troops: 5000, armType: 'cavalry' },
+        { id: 'bow', troops: 5000, armType: 'archer' },
+        { id: 'rear-cav', troops: 5000, armType: 'cavalry' },
+        { id: 'rear-inf', troops: 5000, armType: 'infantry' },
+      ],
+    })
+    const battle = opened(state, 'b', ['attacker', 'cav', 'bow', 'rear-cav', 'rear-inf'], {
+      autoDefender: false,
+    })
+    deployDefenders(battle, state, autoDeployment(['defender']))
+
+    const unitOf = (id: string) => {
+      const unit = battle.attacker.units.find((item) => item.characterId === id)
+      if (unit === undefined) {
+        throw new Error(`缺少队伍：${id}`)
+      }
+      return unit
+    }
+
+    expect(ordersFor(battle, unitOf('attacker'))).toEqual(['attack', 'defend', 'wait'])
+    expect(ordersFor(battle, unitOf('cav'))).toEqual(['attack', 'wait'])
+    expect(ordersFor(battle, unitOf('bow'))).toEqual(['attack', 'wait'])
+    expect(ordersFor(battle, unitOf('rear-inf'))).toEqual(['defend', 'wait'])
+    // 后排骑兵正前方是存活友军，只能待机。
+    expect(unitOf('rear-cav').slot).toBeGreaterThanOrEqual(3)
+    expect(ordersFor(battle, unitOf('rear-cav'))).toEqual(['wait'])
+
+    // 正前方的友军被击溃后，后排骑兵可出击。
+    const aheadSlot = unitOf('rear-cav').slot - 3
+    const ahead = battle.attacker.units.find((unit) => unit.slot === aheadSlot)
+    if (ahead === undefined) {
       throw new Error('缺少前排')
     }
-    front.battleTroops = 0
-    front.exited = true
-    const horseAgain = battle.attacker.units.find((unit) => unit.characterId === 'a2')
-    if (horseAgain === undefined) {
+    ahead.battleTroops = 0
+    ahead.exited = true
+    expect(ordersFor(battle, unitOf('rear-cav'))).toEqual(['sortie', 'wait'])
+  })
+
+  it('待机不占行动次数，行动条回落到六成', () => {
+    const state = scene()
+    const battle = opened(state, 'b', ['attacker'])
+    const actor = currentActor(battle)
+    if (actor === null) {
+      throw new Error('缺少行动者')
+    }
+
+    actor.progress = 100
+    const event = resolveAction(battle, { characterId: actor.characterId, kind: 'wait' })
+
+    expect(event?.kind).toBe('wait')
+    expect(event?.actorProgress).toBe(WAIT_PROGRESS)
+    expect(event?.actionsUsed).toBe(0)
+    expect(battle.actionsUsed).toBe(0)
+  })
+
+  it('双方都只剩后排步兵时，谁也够不着谁，守方守住', () => {
+    const state = scene({
+      extraAttackers: [{ id: 'rear', troops: 5000 }],
+      extraDefenders: [{ id: 'd2', troops: 5000 }],
+    })
+    const battle = opened(state, 'b', ['attacker', 'rear'], { autoDefender: false })
+    const attackerRear = battle.attacker.units.find((unit) => unit.characterId === 'rear')
+    if (attackerRear === undefined) {
       throw new Error('缺少后排')
     }
-    expect(targetsFor(battle, horseAgain).map((unit) => unit.name)).toEqual(['守将'])
+    attackerRear.slot = 3
+    deployDefenders(battle, state, [
+      { characterId: 'defender', slot: 0 },
+      { characterId: 'd2', slot: 3 },
+    ])
+
+    const attackerFront = battle.attacker.units.find((unit) => unit.slot === 0)
+    const defenderFront = battle.defender.units.find((unit) => unit.slot === 0)
+    if (attackerFront === undefined || defenderFront === undefined) {
+      throw new Error('缺少前排')
+    }
+    attackerFront.battleTroops = 0
+    attackerFront.exited = true
+    defenderFront.battleTroops = 0
+    defenderFront.exited = true
+
+    const rear = battle.attacker.units.find((unit) => unit.characterId === 'rear')
+    if (rear === undefined) {
+      throw new Error('缺少后排')
+    }
+    battle.activeUnitId = rear.characterId
+    resolveAction(battle, { characterId: rear.characterId, kind: 'wait' })
+
+    expect(battle.finished).toBe(true)
+    expect(battle.attackerWins).toBe(false)
+    expect(battle.actionsUsed).toBe(0)
+  })
+
+  it('活动范围只约束他方：玩家候选不受清单限制，他方仍受限', () => {
+    const state = scene({
+      extraAttackers: [{ id: 'a2', troops: 5000 }],
+      extraDefenders: [
+        { id: 'd2', troops: 5000 },
+        { id: 'd3', troops: 5000 },
+      ],
+    })
+
+    // 玩家：a2 的清单只有 a，仍可从 a 出征 b，也可守 a。
+    expect(attackCandidates(state, 'b').map((item) => item.id)).toContain('a2')
+    characterOf(state, 'a2').scope = ['b']
+    expect(defenderCandidates(state, 'a', 'liubei').map((item) => item.id)).toContain('a2')
+
+    // 他方：d3 的清单不含 b，不能作为 b 的守将。
+    characterOf(state, 'd3').scope = ['a']
+    const defenders = defenderCandidates(state, 'b', 'caocao').map((item) => item.id)
+    expect(defenders).toContain('d2')
+    expect(defenders).not.toContain('d3')
   })
 
   it('一次行动产出可供演出的战果：出手者、目标、伤害与剩余战兵', () => {

@@ -43,6 +43,10 @@ import { areHostile } from './relations'
 export const BATTLE_ACTIONS = 25
 /** 行动条满值；一队累计到此值即行动一次，余量留到下一次。 */
 export const ACTION_THRESHOLD = 100
+/** 待机后的行动条进度：不耗行动次数，条子回落到此值。 */
+export const WAIT_PROGRESS = 60
+/** 出击后的行动条进度。 */
+export const SORTIE_PROGRESS = 30
 /** 士气满值与下限。 */
 export const MORALE_FULL = 100
 export const MORALE_FLOOR = 40
@@ -52,8 +56,10 @@ export const BACK_SIZE = 3
 export const SLOT_COUNT = FRONT_SIZE + BACK_SIZE
 /** 一队退场时本方的士气损失。 */
 const MORALE_LOSS_PER_EXIT = 5
-/** 主动攻击的自损比例。 */
+/** 主动攻击的自损比例；弓兵不在此列。 */
 const ATTACK_SELF_LOSS = 0.05
+/** 攻击防御中的步兵时，攻击方自损的缩放；初值取半，随实测调整。 */
+const DEFEND_SELF_LOSS_SCALE = 0.5
 /** 防御指令的减伤。 */
 const DEFEND_DAMAGE_SCALE = 0.7
 /** 弓箭手对伤害的倍率。 */
@@ -85,12 +91,14 @@ export interface ArmStats {
   attack: number
   defense: number
   ranged: boolean
+  /** 出手时的自损系数：近战会受到反伤，弓兵隔空放箭，不在此列。 */
+  counterLoss: number
 }
 
 export const ARM_STATS: Record<ArmType, ArmStats> = {
-  infantry: { label: '步兵', mobility: 10, attack: 1, defense: 1, ranged: false },
-  archer: { label: '弓箭手', mobility: 9, attack: 0.85, defense: 0.8, ranged: true },
-  cavalry: { label: '骑兵', mobility: 13, attack: 1.3, defense: 0.6, ranged: false },
+  infantry: { label: '步兵', mobility: 10, attack: 1, defense: 1, ranged: false, counterLoss: 1 },
+  archer: { label: '弓箭手', mobility: 9, attack: 0.85, defense: 0.8, ranged: true, counterLoss: 0 },
+  cavalry: { label: '骑兵', mobility: 13, attack: 1.3, defense: 0.6, ranged: false, counterLoss: 1 },
 }
 
 /** 战略点的防守补正：守方全员整场享有。 */
@@ -108,8 +116,8 @@ export type ForcedOutcome = 'win' | 'lose'
 /** 一队在战场的哪一侧。 */
 export type BattleSide = 'attacker' | 'defender'
 
-/** 一队本次行动的指令：攻击或防御。 */
-export type BattleOrderKind = 'attack' | 'defend'
+/** 一队本次行动的指令：攻击、防御、待机或出击。 */
+export type BattleOrderKind = 'attack' | 'defend' | 'wait' | 'sortie'
 
 export interface BattleOrder {
   characterId: CharacterId
@@ -185,13 +193,20 @@ export interface BattleActionEvent {
   kind: BattleOrderKind
   targetId: CharacterId | null
   targetName: string | null
+  /** 被同排防御者代伤时原本锁定的目标；无代伤为 null。 */
+  intendedTargetName: string | null
   /** 对目标造成的战兵损失。 */
   damage: number
   /** 主动攻击的自损。 */
   selfLoss: number
   /** 行动后的剩余战兵。 */
   actorTroops: number
+  /** 本次行动结算后、行动条继续推进之前，出手者所处的进度。 */
+  actorProgress: number
   targetTroops: number | null
+  /** 出击前后的阵位；非出击为 null。 */
+  fromSlot: number | null
+  toSlot: number | null
   /** 本次行动后退场的队伍。 */
   exited: { characterId: CharacterId; name: string; side: BattleSide }[]
   /** 累计行动次数。 */
@@ -256,7 +271,7 @@ export function defenderCandidates(
     (character) =>
       character.troops > 0 &&
       character.stationedSiteId === null &&
-      scopeSitesFor(state, character).includes(siteId),
+      (factionId === state.playerFaction || scopeSitesFor(state, character).includes(siteId)),
   )
 
   return [...stationedUnit, ...others]
@@ -453,8 +468,8 @@ export function isAttackable(
 }
 
 /**
- * 该武将能否出兵攻打目标：其活动范围内须有一处本方所有、且与目标相邻的城池。
- * 目标本身也可在范围内；跨州作战须先取下一处落脚点，再把它并入参战者的范围。
+ * 该武将能否从活动范围出兵攻打目标：其范围内须有一处本方所有、且与目标相邻的城池。
+ * 只用于他方势力；玩家麾下不受活动范围限制（见 `attackBlockReason`）。
  */
 export function canAttackTarget(
   state: GameState,
@@ -526,7 +541,10 @@ export function attackBlockReason(
     if (character.troops <= 0) {
       return `${character.name} 没有兵力`
     }
-    if (!canAttackTarget(state, character, targetSiteId, factionId)) {
+    if (
+      factionId !== state.playerFaction &&
+      !canAttackTarget(state, character, targetSiteId, factionId)
+    ) {
       return `${character.name} 的活动范围不及目标`
     }
     if (hasActedThisTurn(state, character.id)) {
@@ -550,7 +568,8 @@ export function attackBlockReason(
 }
 
 /**
- * 进攻某战略点的候选部属：名册中未驻守、有兵、活动范围及于目标的武将。
+ * 进攻某战略点的候选部属：名册中未驻守、有兵的武将。
+ * 玩家麾下不受活动范围限制；他方仍按各自的活动范围取人。
  * 已行动的也在列，由界面标为不可选。缺省按玩家势力取候选。
  */
 export function attackCandidates(
@@ -568,11 +587,12 @@ export function attackCandidates(
       character.factionId === factionId &&
       character.stationedSiteId === null &&
       character.troops > 0 &&
-      canAttackTarget(state, character, targetSiteId, factionId),
+      (factionId === state.playerFaction ||
+        canAttackTarget(state, character, targetSiteId, factionId)),
   )
 }
 
-/** 自动挑选守将：该点驻将与活动范围含此城的自选守将，按名册次序取至多六队。 */
+/** 自动挑选守将：该点驻将与其余名册中可守的武将，按名册次序取至多六队。 */
 function autoDefenders(state: GameState, siteId: SiteId, factionId: FactionId): Character[] {
   return defenderCandidates(state, siteId, factionId).slice(0, DEFENDER_SELECTION + 1)
 }
@@ -765,16 +785,15 @@ function findUnit(battle: BattleState, characterId: CharacterId): BattleUnit | u
 }
 
 /**
- * 一队可攻击的目标：近战只及敌方前排，弓箭手可及任意。
- * 近战站在自家后排、而自家前排尚有人时，被本阵挡住，够不着敌军；
- * 自家前排已空，后排的近战才成为阵线最前。敌方前排已空时，近战也及于后排。
+ * 一队可攻击的目标：近战只及敌方前排，弓箭手可及任意；敌方前排已空时，近战也及于后排。
+ * 后排的近战够不着敌军，骑兵须先出击、步兵只能防御或待机。
  */
 export function targetsFor(battle: BattleState, unit: BattleUnit): BattleUnit[] {
   const enemies = enemyUnits(battle, unit.side)
   if (ARM_STATS[unit.armType].ranged) {
     return enemies
   }
-  if (blockedByOwnFront(battle, unit)) {
+  if (rowOfSlot(unit.slot) === 1) {
     return []
   }
 
@@ -783,13 +802,57 @@ export function targetsFor(battle: BattleState, unit: BattleUnit): BattleUnit[] 
   return front.length > 0 ? front : enemies
 }
 
-/** 近战在后排且自家前排仍有队伍时，被本阵挡住。 */
-function blockedByOwnFront(battle: BattleState, unit: BattleUnit): boolean {
-  if (ARM_STATS[unit.armType].ranged || rowOfSlot(unit.slot) === 0) {
+/** 骑兵在后排且正前方无人或只剩溃兵时，才可以出击。 */
+export function canSortie(battle: BattleState, unit: BattleUnit): boolean {
+  if (unit.armType !== 'cavalry' || rowOfSlot(unit.slot) === 0) {
     return false
   }
 
-  return aliveUnits(battle[unit.side]).some((item) => rowOfSlot(item.slot) === 0)
+  const ahead = battle[unit.side].units.find((item) => item.slot === unit.slot - FRONT_SIZE)
+
+  return ahead === undefined || !alive(ahead)
+}
+
+/**
+ * 一队此刻可选的指令：由兵种与所在排决定。
+ * 骑兵前排可攻击、后排只能出击或待机；步兵前排可攻击与防御、后排只能防御或待机；
+ * 弓箭手在哪一排都可攻击。待机人人可选。
+ */
+export function ordersFor(battle: BattleState, unit: BattleUnit): BattleOrderKind[] {
+  if (unit.exited) {
+    return []
+  }
+
+  const front = rowOfSlot(unit.slot) === 0
+  if (unit.armType === 'archer') {
+    return ['attack', 'wait']
+  }
+  if (unit.armType === 'cavalry') {
+    return front ? ['attack', 'wait'] : canSortie(battle, unit) ? ['sortie', 'wait'] : ['wait']
+  }
+
+  return front ? ['attack', 'defend', 'wait'] : ['defend', 'wait']
+}
+
+/** 同排的防御步兵中随机取一名，替被锁定的友军承担这一击。 */
+function guardFor(
+  battle: BattleState,
+  target: BattleUnit,
+  random: Random,
+): BattleUnit | null {
+  const row = rowOfSlot(target.slot)
+  const guards = aliveUnits(battle[target.side]).filter(
+    (unit) =>
+      unit.armType === 'infantry' &&
+      unit.defending &&
+      rowOfSlot(unit.slot) === row &&
+      unit.characterId !== target.characterId,
+  )
+  if (guards.length === 0) {
+    return null
+  }
+
+  return guards[Math.min(guards.length - 1, Math.floor(random.next() * guards.length))] ?? null
 }
 
 /** 自动指定目标：取射程内兵力最少的一队。 */
@@ -841,17 +904,6 @@ function damageOf(
   }
 
   return Math.max(0, Math.round(actual))
-}
-
-/** 防御动作覆盖的己方队伍：步兵守一排，其余兵种只守自己。 */
-export function defendScope(battle: BattleState, unit: BattleUnit): BattleUnit[] {
-  if (unit.armType !== 'infantry') {
-    return [unit]
-  }
-
-  const row = rowOfSlot(unit.slot)
-
-  return aliveUnits(battle[unit.side]).filter((item) => rowOfSlot(item.slot) === row)
 }
 
 /** 为一批刚上阵的队伍掷下第一次速度扰动。 */
@@ -946,17 +998,34 @@ export function currentActor(battle: BattleState): BattleUnit | null {
   return findUnit(battle, battle.activeUnitId) ?? null
 }
 
-/** 他方为当前行动的一队下指令：残队转守，其余就近攻击。 */
+/** 他方为当前行动的一队下指令：能打则打，残队转守，后骑无路则待机。 */
 export function autoOrderFor(battle: BattleState, unit: BattleUnit): BattleOrder {
-  if (unit.battleTroops < unit.troops * 0.2) {
+  const orders = ordersFor(battle, unit)
+  if (orders.includes('attack')) {
+    const target = autoTarget(unit, targetsFor(battle, unit))
+    if (target !== null) {
+      const low = unit.battleTroops < unit.troops * 0.2
+      if (!(low && orders.includes('defend'))) {
+        return { characterId: unit.characterId, kind: 'attack', targetId: target.characterId }
+      }
+    }
+  }
+  if (orders.includes('defend')) {
     return { characterId: unit.characterId, kind: 'defend' }
   }
+  if (orders.includes('sortie')) {
+    return { characterId: unit.characterId, kind: 'sortie' }
+  }
 
-  const target = autoTarget(unit, targetsFor(battle, unit))
+  return { characterId: unit.characterId, kind: 'wait' }
+}
 
-  return target === null
-    ? { characterId: unit.characterId, kind: 'defend' }
-    : { characterId: unit.characterId, kind: 'attack', targetId: target.characterId }
+/** 双方是否还有队伍能造成伤害；两队只剩后排步兵时，谁也打不到谁。 */
+function hasAnyAttacker(battle: BattleState): boolean {
+  return [...aliveUnits(battle.attacker), ...aliveUnits(battle.defender)].some((unit) => {
+    const orders = ordersFor(battle, unit)
+    return orders.includes('attack') || orders.includes('sortie')
+  })
 }
 
 /** 检查战斗是否已分出结果；次数用尽而守方仍在则守方守住。 */
@@ -970,6 +1039,12 @@ function evaluateEnd(battle: BattleState): void {
     return
   }
   if (!attackersAlive) {
+    battle.attackerWins = false
+    battle.finished = true
+    return
+  }
+  // 双方都只剩够不着敌军的队伍时，再等也不会有人倒下，按守方守住收场。
+  if (!hasAnyAttacker(battle)) {
     battle.attackerWins = false
     battle.finished = true
     return
@@ -992,6 +1067,9 @@ export function resolveAction(
   if (actor === null || order.characterId !== actor.characterId) {
     return null
   }
+  if (!ordersFor(battle, actor).includes(order.kind)) {
+    return null
+  }
 
   const random = createRandom(battle.randomState)
   const ownSide = battle[actor.side]
@@ -1001,20 +1079,27 @@ export function resolveAction(
     .map((unit) => unit.characterId)
 
   let target: BattleUnit | null = null
+  let intendedTargetName: string | null = null
   let damage = 0
   let selfLoss = 0
+  let fromSlot: number | null = null
+  let toSlot: number | null = null
 
   // 轮到自己时，上一回留下的防御姿态到此为止。
   actor.defending = false
 
   if (order.kind === 'attack') {
     const targets = targetsFor(battle, actor)
-    target =
+    const intended =
       (order.targetId === undefined
         ? undefined
         : targets.find((item) => item.characterId === order.targetId)) ??
       autoTarget(actor, targets)
-    if (target !== null) {
+
+    if (intended !== null) {
+      const guard = guardFor(battle, intended, random)
+      target = guard ?? intended
+      intendedTargetName = guard === null ? null : intended.name
       damage = damageOf(
         actor,
         ownSide,
@@ -1030,23 +1115,42 @@ export function resolveAction(
         }
       }
 
-      // 真正出手才有折损；被本阵挡住、够不着敌军时不损。
-      selfLoss = Math.min(actor.battleTroops, Math.round(actor.battleTroops * ATTACK_SELF_LOSS))
+      // 近战出手才有折损；打在防御中的步兵身上，反伤也随之减轻。
+      const counterLoss =
+        ATTACK_SELF_LOSS *
+        ARM_STATS[actor.armType].counterLoss *
+        (target.defending ? DEFEND_SELF_LOSS_SCALE : 1)
+      selfLoss = Math.min(actor.battleTroops, Math.round(actor.battleTroops * counterLoss))
       actor.battleTroops = Math.max(0, actor.battleTroops - selfLoss)
       if (actor.battleTroops <= 0) {
         exitUnit(actor, ownSide)
       }
     }
-  } else {
-    for (const unit of defendScope(battle, actor)) {
-      unit.defending = true
+  } else if (order.kind === 'defend') {
+    actor.defending = true
+  } else if (order.kind === 'sortie') {
+    const aheadSlot = actor.slot - FRONT_SIZE
+    const ahead = ownSide.units.find((unit) => unit.slot === aheadSlot)
+    if (ahead !== undefined) {
+      ahead.slot = actor.slot
     }
+    fromSlot = actor.slot
+    actor.slot = aheadSlot
+    toSlot = aheadSlot
   }
 
-  // 行动条扣去满值，余量留到下一次；自己的速度扰动也在此重掷。
-  actor.progress = Math.max(0, actor.progress - ACTION_THRESHOLD)
+  // 待机与出击不占行动次数，只把条子回落到指定进度；攻击与防御扣满值、计一次行动。
+  if (order.kind === 'wait') {
+    actor.progress = WAIT_PROGRESS
+  } else if (order.kind === 'sortie') {
+    actor.progress = SORTIE_PROGRESS
+  } else {
+    actor.progress = Math.max(0, actor.progress - ACTION_THRESHOLD)
+    battle.actionsUsed += 1
+  }
+
   actor.pace = 1 - PACE_VARIANCE + random.next() * 2 * PACE_VARIANCE
-  battle.actionsUsed += 1
+  const actorProgress = actor.progress
   battle.randomState = random.getState()
   evaluateEnd(battle)
   battle.activeUnitId = null
@@ -1065,10 +1169,14 @@ export function resolveAction(
     kind: order.kind,
     targetId: target?.characterId ?? null,
     targetName: target?.name ?? null,
+    intendedTargetName,
     damage,
     selfLoss,
     actorTroops: actor.battleTroops,
+    actorProgress,
     targetTroops: target?.battleTroops ?? null,
+    fromSlot,
+    toSlot,
     exited,
     actionsUsed: battle.actionsUsed,
     finished: battle.finished,
@@ -1220,7 +1328,7 @@ export function finishBattle(
     const defenderFaction = target.owner
     target.owner = attackerFaction
 
-    // 攻下之地并入参战者的活动范围，往后可在此驻守、征兵与继续出兵。
+    // 攻下之地并入参战者的活动范围，往后他方在此驻守、征兵与继续出兵仍有迹可循。
     for (const unit of attackerUnits) {
       const character = state.characters.find((item) => item.id === unit.characterId)
       if (character !== undefined && !character.scope.includes(target.id)) {

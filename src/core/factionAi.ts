@@ -190,7 +190,8 @@ function* attackOnce(
   }
 
   let battle = opened.battle
-  if (playerDefends && !battle.finished) {
+  // 玩家守土时一律交回界面：即使无人可守、开战即已不战而下，也让界面把失守呈现出来。
+  if (playerDefends) {
     const answer = yield {
       kind: 'defense',
       request: { attackerId: factionId, targetSiteId: plan.site.id, battle },

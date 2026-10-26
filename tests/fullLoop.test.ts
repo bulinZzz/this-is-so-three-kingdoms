@@ -259,6 +259,7 @@ function loyaltyScenario(): Scenario {
   ): Character => ({
     status: 'serving',
     provinceId: 'p1',
+    scope: [over.stationedSiteId ?? 'a'],
     might: 50,
     command: 50,
     intellect: 50,
@@ -270,7 +271,6 @@ function loyaltyScenario(): Scenario {
     isMonarch: false,
     armType: 'infantry',
     tier: null,
-    scope: [over.stationedSiteId ?? 'a'],
     ...over,
   })
 
@@ -359,6 +359,7 @@ function economyScenario(): Scenario {
   ): Character => ({
     status: 'serving',
     provinceId: 'p1',
+    scope: [over.stationedSiteId ?? 'a'],
     might: 50,
     command: 50,
     intellect: 50,
@@ -370,7 +371,6 @@ function economyScenario(): Scenario {
     isMonarch: false,
     armType: 'infantry',
     tier: null,
-    scope: [over.stationedSiteId ?? 'a'],
     ...over,
   })
 

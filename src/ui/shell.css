@@ -793,7 +793,13 @@
   color: #c8b081;
 }
 
-/* 按钮就落在目标或自己身上：攻击在敌军，防御在自己。 */
+/* 按钮就落在目标或自己身上：攻击在敌军，防御、出击与待机在自己。 */
+.battle-slot__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
 .battle-slot__action {
   align-self: flex-start;
   padding: 2px 8px;
@@ -817,6 +823,15 @@
 
 .battle-slot__action--attack:hover {
   background: #4a2620;
+}
+
+.battle-slot__action--sortie {
+  border-color: #5f6f42;
+  color: #d4dfb0;
+}
+
+.battle-slot__action--sortie:hover {
+  background: #2e3520;
 }
 
 .captives__list {

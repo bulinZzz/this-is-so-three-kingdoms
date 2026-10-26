@@ -402,6 +402,29 @@ describe('GameSession 结局挂钩', () => {
     expect(store.load(AUTO_SAVE_KEY)?.outcome).toBe('ongoing')
   })
 
+  it('无人可守的来犯也交回防守信号，界面得以呈现失守', () => {
+    const { session } = besiegedSession()
+    const state = session.getState()
+    const zhugeliang = state.characters.find((character) => character.id === 'zhugeliang')
+    if (zhugeliang === undefined) {
+      throw new Error('武将不存在：zhugeliang')
+    }
+    // 驻将无兵、余下无人可派，开战即不战而下。
+    zhugeliang.troops = 0
+
+    const first = session.endTurnStaged()
+    expect(first?.kind).toBe('defense')
+    if (first === null || first.kind !== 'defense') {
+      return
+    }
+    expect(first.request.battle.finished).toBe(true)
+    expect(first.request.battle.undefended).toBe(true)
+
+    const second = session.finishDefense(first.request.battle)
+    expect(second?.kind).toBe('battle')
+    expect(state.geography.sites.find((site) => site.id === 'xiangyang')?.owner).toBe('caocao')
+  })
+
   it('被进攻时也可强制这一战的胜负，我方守胜即攻方败', () => {
     const { session } = besiegedSession()
     const state = session.getState()

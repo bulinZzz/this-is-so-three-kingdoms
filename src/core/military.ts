@@ -152,7 +152,11 @@ export function recruit(
       if (blocked !== null) {
         return blocked
       }
-      if (character !== null && !scopeSitesFor(current, character).includes(siteId)) {
+      if (
+        factionId !== current.playerFaction &&
+        character !== null &&
+        !scopeSitesFor(current, character).includes(siteId)
+      ) {
         return `${character.name} 的活动范围不含此处`
       }
       if (character !== null && hasActedThisTurn(current, character.id)) {
@@ -237,7 +241,11 @@ export function assignStation(
         if (blocked !== null) {
           return blocked
         }
-        if (character !== null && !character.scope.includes(siteId)) {
+        if (
+          factionId !== current.playerFaction &&
+          character !== null &&
+          !character.scope.includes(siteId)
+        ) {
           return `${character.name} 的活动范围不含此处`
         }
       }
@@ -304,7 +312,11 @@ export function harvestGrain(
       if (blocked !== null) {
         return blocked
       }
-      if (character !== null && !scopeSitesFor(current, character).includes(siteId)) {
+      if (
+        factionId !== current.playerFaction &&
+        character !== null &&
+        !scopeSitesFor(current, character).includes(siteId)
+      ) {
         return `${character.name} 的活动范围不含此处`
       }
       if (character !== null && hasActedThisTurn(current, character.id)) {

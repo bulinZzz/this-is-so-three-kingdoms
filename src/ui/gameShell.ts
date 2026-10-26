@@ -33,6 +33,7 @@ import {
   DEFENDER_SELECTION,
   defenderCandidates,
   isAttackable,
+  ordersFor,
   rowOfSlot,
   setUnitSlot,
   stationedAt,
@@ -819,7 +820,7 @@ function renderSiteInfoDialog(
         button.disabled =
           site.owner !== state.playerFaction ||
           !canAfford(state, state.playerFaction, isRecruit ? 'recruit' : 'harvestGrain') ||
-          harvestCandidates(state, site.id).length === 0 ||
+          harvestCandidates(state).length === 0 ||
           (isRecruit ? sitePopulationCap(site) < 1 : granaryOf(site) < 1)
         detail.append(button)
       }
@@ -902,14 +903,13 @@ function attackDisabledReason(state: GameState, character: Character): string | 
   return character.troops > 0 ? null : '无兵力'
 }
 
-/** 征兵、征粮可选的人：名册中本季未行动、且活动范围含该城的武将。 */
-function harvestCandidates(state: GameState, siteId?: string): Character[] {
+/** 征兵、征粮可选的人：名册中本季未行动的在仕武将。 */
+function harvestCandidates(state: GameState): Character[] {
   return state.characters.filter(
     (character) =>
       isServing(character) &&
       character.factionId === state.playerFaction &&
-      !hasActedThisTurn(state, character.id) &&
-      (siteId === undefined || scopeSitesFor(state, character).includes(siteId)),
+      !hasActedThisTurn(state, character.id),
   )
 }
 
@@ -1105,7 +1105,7 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
 
   if (request.kind === 'harvest' || request.kind === 'recruit') {
     const renderCandidates = (): void => {
-      const candidates = harvestCandidates(state, request.siteId ?? siteSelect.value).sort(
+      const candidates = harvestCandidates(state).sort(
         (a, b) => b.politics - a.politics,
       )
       list.replaceChildren(
@@ -1122,14 +1122,11 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
     return
   }
 
-  // 任命驻将：单选项里先放「不设驻将」，其余为活动范围含此城的在册武将。
+  // 任命驻将：单选项里先放「不设驻将」，其余为本方名册中的在仕武将。
   const members = state.characters
     .filter(
       (character) =>
-        isServing(character) &&
-        character.factionId === state.playerFaction &&
-        (request.siteId === undefined ||
-          scopeSitesFor(state, character).includes(request.siteId)),
+        isServing(character) && character.factionId === state.playerFaction,
     )
     .sort((a, b) => b.troops - a.troops)
   const current = stationedAt(state, request.siteId ?? '')
@@ -1265,9 +1262,14 @@ function paceDurationFor(battle: BattleState, auto = false): number {
   return auto ? Math.max(PACE_MIN_MS / 2, base / 2) : base
 }
 
+/** 待机与出击没有交手，不触发受击的顿挫动画。 */
+function isQuietAction(kind: BattleActionEvent['kind']): boolean {
+  return kind === 'wait' || kind === 'sortie'
+}
+
 /**
  * 一个阵位：武将、兵种与战兵条；空位也留一格，便于换阵。
- * 攻击按钮落在可打的目标身上，防御按钮落在当前行动者自己身上。
+ * 攻击按钮落在可打的目标身上，防御、出击与待机落在当前行动者自己身上。
  */
 function createBattleSlot(
   battle: BattleState,
@@ -1310,7 +1312,7 @@ function createBattleSlot(
   if (options.actor?.characterId === unit.characterId) {
     element.classList.add('battle-slot--acting')
   }
-  if (options.lastAction?.actorId === unit.characterId) {
+  if (options.lastAction?.actorId === unit.characterId && !isQuietAction(options.lastAction.kind)) {
     element.classList.add('battle-slot--struck')
   }
   if (options.lastAction?.targetId === unit.characterId) {
@@ -1395,12 +1397,31 @@ function createBattleSlot(
   }
 
   if (options.playable && options.actor?.characterId === unit.characterId) {
-    const defend = document.createElement('button')
-    defend.type = 'button'
-    defend.className = 'battle-slot__action battle-slot__action--defend'
-    defend.dataset.action = 'stage-defend'
-    defend.textContent = '防御'
-    element.append(defend)
+    const orders = ordersFor(battle, unit)
+    const actions = document.createElement('div')
+    actions.className = 'battle-slot__actions'
+
+    const addAction = (action: string, label: string): void => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.className = `battle-slot__action battle-slot__action--${action}`
+      button.dataset.action = `stage-${action}`
+      button.textContent = label
+      actions.append(button)
+    }
+
+    if (orders.includes('defend')) {
+      addAction('defend', '防御')
+    }
+    if (orders.includes('sortie')) {
+      addAction('sortie', '出击')
+    }
+    if (orders.includes('wait')) {
+      addAction('wait', '待机')
+    }
+    if (actions.childElementCount > 0) {
+      element.append(actions)
+    }
   }
 
   if (options.draggable) {
@@ -1480,9 +1501,15 @@ function createBattleField(
   return field
 }
 
-/** 战况记录：右侧栏保留最近八条，交手时连同自损一起记。 */
+/** 战况记录：右侧栏保留最近八条，交手时连同自损与代伤一起记。 */
 function battleLogLines(stage: BattleStage): HTMLElement[] {
   return stage.log.slice(-8).map((event) => {
+    if (event.kind === 'wait') {
+      return stageLine(`${event.actorName} 待机`, 'note')
+    }
+    if (event.kind === 'sortie') {
+      return stageLine(`${event.actorName} 出击，移入前排`, 'note')
+    }
     if (event.kind === 'defend') {
       return stageLine(`${event.actorName} 防御`, 'note')
     }
@@ -1490,13 +1517,17 @@ function battleLogLines(stage: BattleStage): HTMLElement[] {
       return stageLine(`${event.actorName} 扑空`, 'note')
     }
 
+    const guard =
+      event.intendedTargetName === null
+        ? ''
+        : `，${event.targetName} 代 ${event.intendedTargetName} 受击`
     const selfLoss = event.selfLoss > 0 ? `，自损 ${event.selfLoss}` : ''
     if (event.damage === 0) {
-      return stageLine(`${event.actorName} 攻 ${event.targetName}，未能破防${selfLoss}`, 'note')
+      return stageLine(`${event.actorName} 攻 ${event.targetName}${guard}，未能破防${selfLoss}`, 'note')
     }
 
     return stageLine(
-      `${event.actorName} 攻 ${event.targetName}，歼敌 ${event.damage}${selfLoss}`,
+      `${event.actorName} 攻 ${event.targetName}${guard}，歼敌 ${event.damage}${selfLoss}`,
       'note',
     )
   })
@@ -1506,17 +1537,19 @@ function battleLogLines(stage: BattleStage): HTMLElement[] {
 function battleProcessText(report: BattleReport, mode: 'attack' | 'defense'): string[] {
   const ours = mode === 'attack' ? report.attacker : report.defender
   const theirs = mode === 'attack' ? report.defender : report.attacker
-  const attackerName = report.attacker.officers[0] ?? '攻方'
-  const defenderName = report.defender.officers[0] ?? '守方'
   const clash = report.undefended
     ? mode === 'attack'
-      ? `守军无将，${attackerName} 兵不血刃，直取 ${report.siteName}。`
-      : `城中无将，${attackerName} 长驱直入。`
+      ? `守军无将，我军兵不血刃，直取 ${report.siteName}。`
+      : '城中无将，敌军长驱直入。'
     : mode === 'attack'
-      ? `两军交锋，${attackerName} 挥军直进，与 ${defenderName} 战于城下。`
-      : `两军交锋，${attackerName} 挥军来犯，${defenderName} 据城迎战。`
+      ? '我军挥师直进，与敌军战于城下。'
+      : '敌军挥师来犯，我军据城迎战。'
 
-  return [clash, `一场鏖战，我方伤亡 ${ours.casualties}，敌方伤亡 ${theirs.casualties}。`]
+  const outcome = report.undefended
+    ? '未遇抵抗，双方均无伤亡。'
+    : `一场鏖战，我方伤亡 ${ours.casualties}，敌方伤亡 ${theirs.casualties}。`
+
+  return [clash, outcome]
 }
 
 /** 势力名；查不到时退回标识。 */
@@ -3393,12 +3426,13 @@ export function mountGameShell(
       submitBattleOrder({ characterId: actor.characterId, kind: 'attack', targetId })
       return
     }
-    if (action === 'stage-defend') {
+    if (action === 'stage-defend' || action === 'stage-wait' || action === 'stage-sortie') {
       const actor = currentActor(battleStage.battle)
       if (actor === null) {
         return
       }
-      submitBattleOrder({ characterId: actor.characterId, kind: 'defend' })
+      const kind = action === 'stage-defend' ? 'defend' : action === 'stage-wait' ? 'wait' : 'sortie'
+      submitBattleOrder({ characterId: actor.characterId, kind })
       return
     }
     if (action === 'stage-auto') {

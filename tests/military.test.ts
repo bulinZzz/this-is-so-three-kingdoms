@@ -252,6 +252,27 @@ describe('驻将', () => {
     expect(state.actionPoints.caocao).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.station)
   })
 
+  it('驻将不再受活动范围限制：名册中任一武将可任到本方任一据点', () => {
+    const state = createInitialState({ seed: 208 })
+    state.playerFaction = 'caocao'
+
+    // 夏侯惇原守襄阳，长安不在他过去的城池清单里。
+    const result = assignStation(state, 'changan', 'xiahoudun')
+
+    expect(result.ok).toBe(true)
+    expect(characterOf(state, 'xiahoudun').stationedSiteId).toBe('changan')
+  })
+
+  it('他方驻将仍受活动范围限制', () => {
+    const state = createInitialState({ seed: 208 })
+    state.playerFaction = 'liubei'
+
+    // 以曹操的身份任命：长安不在夏侯惇的清单内。
+    const result = assignStation(state, 'changan', 'xiahoudun', 'caocao')
+
+    expect(result).toEqual({ ok: false, reason: '夏侯惇 的活动范围不含此处' })
+  })
+
   it('撤下驻将；无驻将时再撤则拒绝', () => {
     const state = createInitialState({ seed: 208 })
     state.playerFaction = 'caocao'

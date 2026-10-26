@@ -255,9 +255,6 @@ export function validateCharacters(
         } else if (siteOwner.get(station) !== character.factionId) {
           problems.push(`武将 ${character.id} 的驻地 ${station} 不属于其势力`)
         }
-        if (!character.scope.includes(station)) {
-          problems.push(`武将 ${character.id} 的驻地 ${station} 不在其活动范围内`)
-        }
 
         stationCounts.set(station, (stationCounts.get(station) ?? 0) + 1)
       }
