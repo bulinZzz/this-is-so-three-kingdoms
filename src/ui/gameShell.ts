@@ -146,12 +146,13 @@ const SHELL_HTML = `
                 <thead>
                   <tr>
                     <th>姓名</th>
-                    <th>驻地</th>
+                    <th>兵种</th>
                     <th>兵力</th>
                     <th>武</th>
                     <th>统</th>
                     <th>智</th>
                     <th>政</th>
+                    <th>驻地</th>
                     <th>操作</th>
                   </tr>
                 </thead>
@@ -166,14 +167,14 @@ const SHELL_HTML = `
                 <thead>
                   <tr>
                     <th>姓名</th>
-                    <th>所在州</th>
+                    <th>兵种</th>
                     <th>兵力</th>
                     <th>武</th>
                     <th>统</th>
                     <th>智</th>
                     <th>政</th>
                     <th>状态</th>
-                    <th>君主</th>
+                    <th>势力</th>
                   </tr>
                 </thead>
                 <tbody class="roster__all"></tbody>
@@ -205,7 +206,7 @@ const SHELL_HTML = `
             <span class="domestic__value domestic__troops"></span>
           </div>
           <div class="domestic__row">
-            <span class="domestic__label">粮食</span>
+            <span class="domestic__label">国库粮</span>
             <span class="domestic__value domestic__grain"></span>
           </div>
           <div class="domestic__row">
@@ -217,14 +218,14 @@ const SHELL_HTML = `
             <span class="domestic__value domestic__population"></span>
           </div>
           <div class="domestic__row">
-            <span class="domestic__label">存量</span>
+            <span class="domestic__label">各点存粮</span>
             <span class="domestic__value domestic__granary"></span>
           </div>
         </section>
         <section class="domestic__section">
           <h3 class="domestic__heading">每季收支</h3>
           <div class="domestic__row">
-            <span class="domestic__label">粮食</span>
+            <span class="domestic__label">国库粮</span>
             <span class="domestic__value domestic__grain-flow"></span>
           </div>
           <div class="domestic__row">
@@ -232,6 +233,7 @@ const SHELL_HTML = `
             <span class="domestic__value domestic__money-flow"></span>
           </div>
         </section>
+        <p class="domestic__note">各点存粮每季运六成入国库，军粮从国库扣除；余下留在点上待征。</p>
         <p class="domestic__status" role="status"></p>
       </div>
     </dialog>
@@ -1799,7 +1801,7 @@ function createListItem(className: string, text: string): HTMLLIElement {
 }
 
 /** 武将表的列数，供空表与跨列单元格使用。 */
-const ROSTER_COLUMNS = 8
+const ROSTER_COLUMNS = 9
 
 /** 表格中的单元格。 */
 function createTextCell(text: string, className = ''): HTMLTableCellElement {
@@ -1857,7 +1859,7 @@ function createDoneAction(): HTMLButtonElement {
   return button
 }
 
-/** 渲染麾下武将为表格行：即战所需的兵力、四项能力、忠诚与当季操作；姓名可点开详情。返回人数。 */
+/** 渲染麾下武将为表格行：姓名、兵种、兵力、四项能力、驻地与当季操作；姓名可点开详情。返回人数。 */
 function renderOfficers(list: Element, state: GameState, showCosts: boolean): number {
   const officers = state.characters.filter(
     (character) => isServing(character) && character.factionId === state.playerFaction,
@@ -1885,16 +1887,17 @@ function renderOfficers(list: Element, state: GameState, showCosts: boolean): nu
 
       row.append(
         createOfficerNameCell(officer),
-        createTextCell(
-          officer.stationedSiteId === null
-            ? '-'
-            : (siteNames.get(officer.stationedSiteId) ?? '—'),
-        ),
+        createTextCell(ARM_STATS[officer.armType].label),
         createTextCell(`${officer.troops}/${troopLimit(officer)}`),
         createTextCell(String(officer.might)),
         createTextCell(String(officer.command)),
         createTextCell(String(officer.intellect)),
         createTextCell(String(officer.politics)),
+        createTextCell(
+          officer.stationedSiteId === null
+            ? '-'
+            : (siteNames.get(officer.stationedSiteId) ?? '—'),
+        ),
         createOpsCell(officer, acted, showCosts),
       )
 
@@ -2048,18 +2051,9 @@ const CHARACTER_STATUS_LABELS: Record<CharacterStatus, string> = {
   retired: '退场',
 }
 
-/** 开发者模式：列出全部武将的所在州、兵力、能力与忠诚，并标出状态与所属君主。返回人数。 */
+/** 开发者模式：列出全部武将的兵种、兵力、能力与状态，末尾标出所属势力；被俘者取被俘前的原属。返回人数。 */
 function renderAllCharacters(list: Element, state: GameState): number {
-  const provinceNames = new Map(
-    state.geography.provinces.map((province) => [province.id, province.name]),
-  )
   const factionNames = new Map(state.factions.map((faction) => [faction.id, faction.name]))
-  const monarchNames = new Map<FactionId, string>()
-  for (const character of state.characters) {
-    if (character.isMonarch && isServing(character) && character.factionId !== null) {
-      monarchNames.set(character.factionId, character.name)
-    }
-  }
   // 被俘者已无势力，来历记在营中的记录里。
   const formerFactions = new Map<CharacterId, FactionId>()
   for (const records of Object.values(state.captives)) {
@@ -2077,24 +2071,20 @@ function renderAllCharacters(list: Element, state: GameState): number {
         row.className = 'roster__row--acted'
       }
 
-      // 君主列写「他属于谁的麾下」：在仕者取现属，被俘者取被俘前的原属，其余留空。
-      // 旧主已覆灭时其君主多半不在册，退回势力名。
+      // 在仕者取现属，被俘者取被俘前的原属，其余留空。
       const ownerId = character.factionId ?? formerFactions.get(character.id) ?? null
-      const monarch =
-        ownerId === null
-          ? '—'
-          : (monarchNames.get(ownerId) ?? factionNames.get(ownerId) ?? '—')
+      const faction = ownerId === null ? '—' : (factionNames.get(ownerId) ?? ownerId)
 
       row.append(
         createTextCell(character.name),
-        createTextCell(provinceNames.get(character.provinceId) ?? character.provinceId),
+        createTextCell(ARM_STATS[character.armType].label),
         createTextCell(`${character.troops}/${troopLimit(character)}`),
         createTextCell(String(character.might)),
         createTextCell(String(character.command)),
         createTextCell(String(character.intellect)),
         createTextCell(String(character.politics)),
         createTextCell(CHARACTER_STATUS_LABELS[character.status]),
-        createTextCell(monarch, monarch === '—' ? 'roster__muted' : ''),
+        createTextCell(faction, faction === '—' ? 'roster__muted' : ''),
       )
 
       return row

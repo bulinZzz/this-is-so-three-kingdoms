@@ -267,6 +267,14 @@
   display: none;
 }
 
+/* 说明国库粮与各点存粮的关系，避免把「存粮减少」误读成收支为负。 */
+.domestic__note {
+  margin: 0;
+  color: #9a8b70;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 /* 战略点面板自上而下：名称与归属、类别与人口、驻守、行动。 */
 .site-panel__head {
   display: flex;
@@ -1312,36 +1320,35 @@
   font-size: 13px;
 }
 
-/* 两张表前七列相同，故共用列宽，便于上下对照；末列各自定。 */
+/* 两张表的列宽一致，便于上下对照；末两列语义不同，宽度仍相同。 */
 .roster__table th:nth-child(1) {
   width: 13%;
 }
 
 .roster__table th:nth-child(2) {
-  width: 13%;
+  width: 8%;
 }
 
 /* 兵力是「当前/上限」，五位数并排也要放得下，故给得比其余数值列宽。 */
 .roster__table th:nth-child(3) {
-  width: 16%;
+  width: 15%;
 }
 
 .roster__table th:nth-child(4),
 .roster__table th:nth-child(5),
 .roster__table th:nth-child(6),
 .roster__table th:nth-child(7) {
-  width: 9%;
+  width: 8%;
 }
 
-/* 麾下：「操作」放征兵与遣散两枚按钮，按按钮实际宽度收窄，不再挤占其余各列。 */
+/* 麾下：第 8 列驻地；全部武将：第 8 列状态。 */
 .roster__table th:nth-child(8) {
-  width: 22%;
+  width: 12%;
 }
 
-/* 全部武将：末两列是状态与所属君主，第 8 列不再是操作。 */
-.roster__table--all th:nth-child(8),
-.roster__table--all th:nth-child(9) {
-  width: 11%;
+/* 麾下：第 9 列操作；全部武将：第 9 列势力。 */
+.roster__table th:nth-child(9) {
+  width: 20%;
 }
 
 .roster__table th {
