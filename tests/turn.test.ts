@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
-import { granaryIncome, troopUpkeep } from '../src/core/economy'
-import { TROOPS_LIMIT_GROWTH_PER_COMMAND, troopLimit } from '../src/core/military'
+import { DESERTION_SHARE, granaryIncome, troopUpkeep } from '../src/core/economy'
+import { factionTroops, TROOPS_LIMIT_GROWTH_PER_COMMAND, troopLimit } from '../src/core/military'
 import { advanceTurn, resolveFactionOrder } from '../src/core/turn'
 
 describe('advanceTurn', () => {
@@ -163,7 +163,7 @@ describe('advanceTurn', () => {
     }
   })
 
-  it('缺粮不减员：粮仓归零，部队一兵不动', () => {
+  it('粮尽逃兵：粮仓归零，每季减员一成并散入各点人口', () => {
     const state = createInitialState({ seed: 208 })
     // 断掉粮源：本季既运不回粮，也付不出军粮。
     for (const site of state.geography.sites) {
@@ -175,20 +175,19 @@ describe('advanceTurn', () => {
       throw new Error('势力不存在：liubei')
     }
     faction.grain = 0
-    const before = new Map(
-      state.characters
-        .filter((character) => character.factionId === 'liubei')
-        .map((character) => [character.id, character.troops]),
-    )
+    const troopsBefore = factionTroops(state, 'liubei')
 
     advanceTurn(state)
 
     expect(faction.grain).toBe(0)
-    for (const character of state.characters) {
-      if (character.factionId === 'liubei') {
-        expect(character.troops).toBe(before.get(character.id) ?? 0)
-      }
-    }
+    expect(factionTroops(state, 'liubei')).toBe(
+      troopsBefore - Math.ceil(troopsBefore * DESERTION_SHARE),
+    )
+    expect(
+      state.geography.sites
+        .filter((site) => site.owner === 'liubei')
+        .reduce((sum, site) => sum + site.population, 0),
+    ).toBeGreaterThanOrEqual(Math.ceil(troopsBefore * DESERTION_SHARE))
   })
 
   it('结束回合保留行动历史', () => {

@@ -26,14 +26,15 @@ import {
 } from '../src/core/development'
 import { declareWar, demand } from '../src/core/diplomacy'
 import {
+  attackGrainCost,
   factionTroops,
   harvestGrain,
   hasActedThisTurn,
   isFactionDestroyed,
   readyOfficers,
+  RECRUIT_TROOPS_PER_COMMAND,
   recruit,
   recruitGrainCost,
-  sitePopulationCap,
   troopLimit,
 } from '../src/core/military'
 import type { Character, DevelopmentKind, FactionId, GameState, Outcome, Scenario, Season, Site, SiteId, SiteType } from '../src/core/model'
@@ -49,16 +50,19 @@ import { endTurn } from '../src/core/turn'
  * 供调数值后复跑对照。运行方式见 npm run acceptance。
  *
  * 推演用一个规则驱动的「玩家」代理，策略如下：
- *   寻访（前期攒人）→ 进攻（安全边际内挑价值最高者，自名册编成）→ 征兵（人口最多的点上交给统率最高者）
+ *   先发育：寻访与登门把人收满三十，征兵按边际战力分给不同的人、一季至多三次；
+ *   建设与征粮各占一档，粮够两万便不再征粮，把行动力留给扩军。
+ *   实力足够后，向接壤势力中兵力最弱的一位宣战，一次只打一家，打完再接下一家；
+ *   进攻（安全边际内挑价值最高者，自名册编成）→ 征兵（人口最多的点上补边际战力最高的人）
  *   → 拜访（寻访到头后登门争取已认得路的人）→ 经营与外交（每季至多一项：
  *   缺粮则向可开口的弱者索取、忠诚不足六十则赏赐、否则建农田 / 市集 / 民居）
- *   → 征粮（余力全交给内政最高者，自存粮最多的点取用）。
+ *   → 征粮（粮未满两万时，余力交给内政最高者，自存粮最多的点取用）。
  * 兵只从征兵来、粮落在战略点上：兵力完全靠征兵积累，粮要派人去取，两者都由代理逐季操持。
  * 武将统一归名册，征兵、征粮与出征都从名册选人，与身在何处无关；每人每季至多行动一次。
  * 外交只做索取与宣战：赠礼、停战与结盟无处可施。宣战不限关系——同盟亦可宣战，
  * 与玩家手中的手段一致，但次序上先把非同盟打完，接壤处再无外人时才撕盟。
  * 全图每处战略点都有归属，故代理不再有无主之地可打；眼下无可攻打的目标时，
- * 便向接壤的最弱外邦宣战，接壤处无人可宣时停手。
+ * 先继续经营，实力足够再向接壤的最弱外邦宣战，接壤处无人可宣时停手。
  * 其他势力由 factionAi 自主行动，走与实机相同的回合收尾流程。
  * 它不代表最优打法，只用来观察数值松紧与局势走向；判断「好不好玩」仍要看实玩。
  */
@@ -74,21 +78,30 @@ const DRAW_SEED = 5
 const SEASONS = 60
 /**
  * 进攻前要求我方战力高于守方的倍数。
- * 取 1 即「有优势就动手」：更保守的线会让代理在坚城前永远不敢开战，一路攒到上限也打不完。
+ * 攻守战力按同一口径（兵力 × 兵种攻防 × 属性加成）估算，留五成余量即可；
+ * 先前把攻方系数 0.6 与守方系数 0.15 一并算入，读数虚高，才出现「优势兵力惨败」。
  */
-const SAFE_MARGIN = 1
+const SAFE_MARGIN = 1.5
+/** 发育期：开战前至少经过的季数。 */
+const WAR_MIN_SEASONS = 6
+/** 宣战门槛：全军兵力低于此数时，代理只经营，不主动开战。 */
+const WAR_MIN_TROOPS = 20000
+/** 发育目标：以开局兵力为基准，至少攒到它的这个倍数再谈开战。 */
+const ARMY_GROWTH_RATIO = 1.3
+/** 余粮超过此数时，即便已达发育目标也继续扩军——打不动下一处时靠体量慢慢压过去。 */
+const ARMY_SURPLUS_GRAIN = 8000
+/** 推演代理的名册上限，与游戏的玩家上限一致。 */
+const ROSTER_LIMIT = 30
+/** 一季至多征兵几次；每次都要换一名还有带兵空间的武将。 */
+const RECRUITS_PER_SEASON = 3
+/** 国库粮食达到此数后不再征粮，把行动力留给征兵与建设。 */
+const HARVEST_STOP_GRAIN = 20000
 /** 粮食低于此数时，代理先向外索取（对象见 demandTargetOf）。 */
 const DEMAND_GRAIN_BELOW = 3000
 /** 忠诚不足此数（新附者多在五十上下）就先赏一回，把人拉过这条安心线。 */
 const REWARD_BELOW = 60
 /** 战略点的相对价值，用于在多个安全目标中择优。 */
 const SITE_VALUE: Record<SiteType, number> = { metropolis: 4, city: 3, town: 2, pass: 2, field: 1 }
-/**
- * 伤害与减伤公式的兵力系数：战力估算是两队对拼的伤害与减伤之比，
- * 须把「攻方兵力 ×0.6」与「守方兵力 ×0.15」一并算进去，不能只比兵与兵种。
- */
-const DAMAGE_COEFFICIENT = 0.6
-const MITIGATION_COEFFICIENT = 0.15
 const SEASON_LABELS: Record<Season, string> = { spring: '春', summer: '夏', autumn: '秋', winter: '冬' }
 /** 结局在汇总里的说法。 */
 const OUTCOME_LABELS: Record<Outcome, string> = {
@@ -121,12 +134,20 @@ function siteOf(state: GameState, siteId: SiteId): Site {
 
 /** 一名武将在一次出征里的预计战力，取伤害公式中与兵力、兵种、武力相关的部分。 */
 function officerAttackPower(character: Character): number {
-  return character.troops * DAMAGE_COEFFICIENT * ARM_STATS[character.armType].attack * (1 + character.might * 0.003)
+  return character.troops * ARM_STATS[character.armType].attack * (1 + character.might * 0.003)
 }
 
-/** 一名守将的预计抗打击能力，取减伤公式中与兵力、兵种、智谋相关的部分。 */
+/** 一名武将再征一次兵能带来的边际战力：先填实际能补上的兵，再按兵种与武力折算。 */
+function recruitMarginalPower(character: Character): number {
+  const headroom = troopLimit(character) - character.troops
+  const gain = Math.min(headroom, character.command * RECRUIT_TROOPS_PER_COMMAND)
+
+  return gain * ARM_STATS[character.armType].attack * (1 + character.might * 0.003)
+}
+
+/** 一名守将的预计抗打击能力，取减伤公式中与兵力、兵种、统率相关的部分。 */
 function officerDefensePower(character: Character): number {
-  return character.troops * MITIGATION_COEFFICIENT * ARM_STATS[character.armType].defense * (1 + character.intellect * 0.003)
+  return character.troops * ARM_STATS[character.armType].defense * (1 + character.command * 0.003)
 }
 
 /** 守方战力：该点能召来的守将合计，再乘据点的防守补正；与自动布阵取同一批人。 */
@@ -153,33 +174,22 @@ function partyPowerOf(state: GameState, memberIds: readonly string[]): number {
 }
 
 /**
- * 就该目标排出的出征编成：从名册里按兵力从高到低取人，战力够了就收手。
- * 至少要高过守方预计战力 margin 倍；凑不齐则不打。
+ * 就该目标排出的出征编成：按战力从高到低取至多五人，合起来须明显强过守方预计战力。
+ * 只派一两个人会被人多的一方围掉，故不按「够了就收手」取人。
  */
 function bestParty(state: GameState, targetId: SiteId, margin: number): string[] | null {
-  const pool = attackCandidates(state, targetId).filter(
-    (item) => !hasActedThisTurn(state, item.id),
-  )
+  const pool = attackCandidates(state, targetId)
+    .filter((item) => !hasActedThisTurn(state, item.id))
+    .sort((a, b) => officerAttackPower(b) - officerAttackPower(a))
   if (pool.length === 0) {
     return null
   }
 
+  const members = pool.slice(0, ATTACKER_SELECTION)
   const defence = defenderPowerOf(state, targetId)
-  const members: string[] = []
-  let power = 0
+  const power = members.reduce((total, character) => total + officerAttackPower(character), 0)
 
-  for (const character of pool) {
-    if (members.length >= ATTACKER_SELECTION) {
-      break
-    }
-    members.push(character.id)
-    power += officerAttackPower(character)
-    if (power > defence * margin) {
-      return members
-    }
-  }
-
-  return null
+  return power > defence * margin ? members.map((character) => character.id) : null
 }
 
 /**
@@ -305,6 +315,68 @@ interface Playthrough {
 }
 
 /**
+ * 就某目标点排一支出征队伍，不要求已经宣战——用于在开战前判断打不打得动。
+ * 取人与战力口径与 `bestParty` 相同：名册中未驻守、有兵、本季未行动的武将。
+ */
+function warPartyOf(state: GameState, targetId: SiteId, margin: number): string[] | null {
+  const player = state.playerFaction
+  const pool = state.characters
+    .filter(
+      (character) =>
+        character.status === 'serving' &&
+        character.factionId === player &&
+        character.stationedSiteId === null &&
+        character.troops > 0 &&
+        !hasActedThisTurn(state, character.id),
+    )
+    .sort((a, b) => officerAttackPower(b) - officerAttackPower(a))
+  if (pool.length === 0) {
+    return null
+  }
+
+  const members = pool.slice(0, ATTACKER_SELECTION)
+  const defence = defenderPowerOf(state, targetId)
+  const power = members.reduce((total, character) => total + officerAttackPower(character), 0)
+
+  return power > defence * margin ? members.map((character) => character.id) : null
+}
+
+/**
+ * 是否到了向该势力开战的时候：经过发育期、兵力达到发育目标，
+ * 且至少能对一处接壤据点排出一支有胜算的队伍、付得起出征粮草。
+ */
+function readyForWar(state: GameState, targetId: FactionId, armyTarget: number): boolean {
+  const player = state.playerFaction
+  if (state.currentTurn < WAR_MIN_SEASONS) {
+    return false
+  }
+
+  if (factionTroops(state, player) < armyTarget) {
+    return false
+  }
+
+  const own = state.geography.sites.filter((site) => site.owner === player)
+  const grain = state.factions.find((item) => item.id === player)?.grain ?? 0
+
+  return state.geography.sites
+    .filter(
+      (site) =>
+        site.owner === targetId && own.some((base) => base.neighbors.includes(site.id)),
+    )
+    .some((site) => {
+      const party = warPartyOf(state, site.id, SAFE_MARGIN)
+      if (party === null) {
+        return false
+      }
+      const need = party.reduce((total, characterId) => {
+        const character = state.characters.find((item) => item.id === characterId)
+        return total + (character?.troops ?? 0)
+      }, 0)
+      return grain >= attackGrainCost(need)
+    })
+}
+
+/**
  * 就着玩家的自有领地向外看：接壤势力里最弱的一位。非同盟先于同盟——先把外人打完，
  * 接壤处再无外人可打时才轮到同盟，撕盟是最后一步；已宣战者不在列（打他已不必再宣）。
  * 无接壤者则返回 null。
@@ -327,18 +399,39 @@ function warTargetOf(state: GameState): FactionId | null {
   return (outsider ?? adjacent[0])?.id ?? null
 }
 
+/** 接壤处是否仍有活着的敌对势力——有则先把这一家打完，暂不另启战端。 */
+function hasAdjacentHostile(state: GameState): boolean {
+  const player = state.playerFaction
+  const own = state.geography.sites.filter((site) => site.owner === player)
+
+  return state.factions.some(
+    (faction) =>
+      faction.id !== player &&
+      !isFactionDestroyed(state, faction.id) &&
+      areHostile(state, player, faction.id) &&
+      state.geography.sites.some(
+        (site) =>
+          site.owner === faction.id && own.some((base) => base.neighbors.includes(site.id)),
+      ),
+  )
+}
+
 /**
- * 战火由玩家的宣战点燃：眼下没有可攻打的目标时，向接壤的最弱外邦宣战。
- * 全图每处战略点都有归属，故没有无主之地可打；接壤处无人可宣时便停手。
+ * 战火由玩家的宣战点燃：先经营，实力足够后向接壤的最弱外邦宣战。
+ * 一次只打一家——接壤处还有活着的敌对势力时不再另启战端；
+ * 全图每处战略点都有归属，故没有无主之地可打，接壤处无人可宣时便继续经营。
  */
-function igniteWar(state: GameState): string | null {
+function igniteWar(state: GameState, armyTarget: number): string | null {
   const player = state.playerFaction
   if (state.geography.sites.some((site) => isAttackable(state, site.id, player))) {
     return null
   }
+  if (hasAdjacentHostile(state)) {
+    return null
+  }
 
   const target = warTargetOf(state)
-  if (target === null) {
+  if (target === null || !readyForWar(state, target, armyTarget)) {
     return null
   }
 
@@ -350,6 +443,11 @@ function igniteWar(state: GameState): string | null {
 function runPlaythrough(scenario: Scenario): Playthrough {
   const state = createInitialState({ scenario, seed: SEED })
   const drawRandom = createRandom(DRAW_SEED)
+  /** 开战前的兵力目标：不低于最低门槛，也不低于开局兵力的一又三成。 */
+  const armyTarget = Math.max(
+    WAR_MIN_TROOPS,
+    Math.round(factionTroops(state, state.playerFaction) * ARMY_GROWTH_RATIO),
+  )
   const lines: string[] = []
   let battles = 0
   let wins = 0
@@ -370,7 +468,7 @@ function runPlaythrough(scenario: Scenario): Playthrough {
     const actions: string[] = []
 
     // 开局无战事的剧本里先宣战点火，之后各季不再重复。
-    const war = igniteWar(state)
+    const war = igniteWar(state, armyTarget)
     if (war !== null) {
       actions.push(war)
     }
@@ -378,7 +476,7 @@ function runPlaythrough(scenario: Scenario): Playthrough {
     if (
       !seekExhausted &&
       state.actionPoints[player] >= ACTION_COSTS.seekTalent &&
-      servingCount(state, player) < 8
+      servingCount(state, player) < ROSTER_LIMIT
     ) {
       const result = seekTalent(state, drawRandom, 'jiangxia')
       if (result.ok) {
@@ -388,8 +486,17 @@ function runPlaythrough(scenario: Scenario): Playthrough {
       }
     }
 
+    // 实力未到先发育：打不动、粮不够或兵力未压过对手时，这一季不出兵。
+    const warReady = state.factions.some(
+      (faction) =>
+        faction.id !== player &&
+        !isFactionDestroyed(state, faction.id) &&
+        areHostile(state, player, faction.id) &&
+        readyForWar(state, faction.id, armyTarget),
+    )
+
     for (let round = 0; round < 3; round += 1) {
-      if (state.actionPoints[player] < ACTION_COSTS.attack) {
+      if (!warReady || state.actionPoints[player] < ACTION_COSTS.attack) {
         break
       }
 
@@ -445,32 +552,51 @@ function runPlaythrough(scenario: Scenario): Playthrough {
       )
     }
 
-    // 一季至多征兵一次，余下的行动力交给征粮，两种行动都会跑到。
+    // 征兵：按剩余带兵空间轮流补人，一季至多三次；先为当季建设与征粮留出行动力。
     const grainNow = state.factions.find((item) => item.id === player)?.grain ?? 0
-    const recruitSite =
-      state.actionPoints[player] < ACTION_COSTS.recruit
-        ? null
-        : (state.geography.sites
-            .filter((site) => site.owner === player && sitePopulationCap(site) >= 1)
-            .sort((a, b) => b.population - a.population)[0] ?? null)
-    const recruiter =
-      recruitSite === null
-        ? undefined
-        : readyOfficers(state, player)
-            .filter(
-              (item) => item.troops < troopLimit(item) && grainNow >= recruitGrainCost(item),
-            )
-            .sort((a, b) => b.command - a.command)[0]
+    const canBuild = DEVELOPMENT_KINDS.some((kind) => developmentSiteOf(state, kind) !== null)
+    const reserved =
+      (canBuild ? ACTION_COSTS.build : 0) +
+      (grainNow < HARVEST_STOP_GRAIN ? ACTION_COSTS.harvestGrain : 0)
+    const recruitBudget = Math.min(
+      RECRUITS_PER_SEASON,
+      Math.max(
+        0,
+        Math.floor((state.actionPoints[player] - reserved) / ACTION_COSTS.recruit),
+      ),
+    )
 
-    if (recruitSite !== null && recruiter !== undefined) {
-      const result = recruit(state, recruitSite.id, recruiter.id)
-      if (result.ok) {
-        actions.push(result.record.outcome)
+    for (let round = 0; round < recruitBudget; round += 1) {
+      const grain = state.factions.find((item) => item.id === player)?.grain ?? 0
+      if (factionTroops(state, player) >= armyTarget && grain <= ARMY_SURPLUS_GRAIN) {
+        break
       }
+
+      const recruitSite = state.geography.sites
+        .filter((site) => site.owner === player && site.population >= 1)
+        .sort((a, b) => b.population - a.population)[0]
+      const recruiter =
+        recruitSite === undefined
+          ? undefined
+          : readyOfficers(state, player)
+              .filter(
+                (item) => item.troops < troopLimit(item) && grain >= recruitGrainCost(item),
+              )
+              .sort((a, b) => recruitMarginalPower(b) - recruitMarginalPower(a))[0]
+
+      if (recruitSite === undefined || recruiter === undefined) {
+        break
+      }
+
+      const result = recruit(state, recruitSite.id, recruiter.id)
+      if (!result.ok) {
+        break
+      }
+      actions.push(result.record.outcome)
     }
 
     // 招人未尽时的余力用来登门：寻访到头后，仍可拜访已认得路的人，直到人满或行动力不足。
-    if (servingCount(state, player) < 8 && state.actionPoints[player] >= ACTION_COSTS.visit) {
+    if (servingCount(state, player) < ROSTER_LIMIT && state.actionPoints[player] >= ACTION_COSTS.visit) {
       const visited = visitContact(state, drawRandom)
       if (visited !== null) {
         actions.push(visited)
@@ -515,8 +641,13 @@ function runPlaythrough(scenario: Scenario): Playthrough {
       }
     }
 
-    // 余下的行动力全交给征粮，直到用尽或无人可派，免得日志里的行动力使用率虚低。
+    // 余下的行动力交给征粮，直到用尽、无人可派或国库已够用；粮够了便把行动力留给下次征兵与建设。
     while (state.actionPoints[player] >= ACTION_COSTS.harvestGrain) {
+      const grainLeft = state.factions.find((item) => item.id === player)?.grain ?? 0
+      if (grainLeft >= HARVEST_STOP_GRAIN) {
+        break
+      }
+
       const harvester = readyOfficers(state, player)
         .filter((item) => item.troops > 0)
         .sort((a, b) => b.politics - a.politics)[0]

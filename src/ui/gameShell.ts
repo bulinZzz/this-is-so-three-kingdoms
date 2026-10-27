@@ -70,7 +70,6 @@ import {
   factionTroops,
   hasActedThisTurn,
   isFactionDestroyed,
-  sitePopulationCap,
   troopLimit,
 } from '../core/military'
 import { favorBetween, relationBetween } from '../core/relations'
@@ -758,7 +757,7 @@ function renderSitePanel(
 }
 
 /**
- * 战略点窗口：列出类型、归属、人口与丁口，并给出一处建设入口——
+ * 战略点窗口：列出类型、归属、人口与存粮，并给出一处建设入口——
  * 只有自家领地能进入，故建设区总是可用。
  */
 function renderSiteInfoDialog(
@@ -785,7 +784,6 @@ function renderSiteInfoDialog(
     ['归属', ownerName],
     ['驻将', station === null ? '无' : `${station.name}（兵 ${station.troops}）`],
     ['人口', String(site.population)],
-    ['丁口', String(sitePopulationCap(site))],
     ['存粮', String(granaryOf(site))],
   ]
 
@@ -800,11 +798,11 @@ function renderSiteInfoDialog(
       const detail = document.createElement('dd')
       detail.textContent = value
 
-      // 征兵、征粮的入口就放在丁口与存粮右侧，点开即进入选将。
-      if (label === '丁口' || label === '存粮') {
-        const isRecruit = label === '丁口'
+      // 征兵、征粮的入口就放在人口与存粮右侧，点开即进入选将。
+      if (label === '人口' || label === '存粮') {
+        const isRecruit = label === '人口'
         detail.classList.add('site-info__fact')
-        detail.title = isRecruit ? '丁口为每次征兵的上限，取该点人口的 2%' : ''
+        detail.title = isRecruit ? '征得的兵数由执行武将的统率决定，并从该点人口中扣除' : ''
 
         const button = document.createElement('button')
         button.type = 'button'
@@ -821,7 +819,7 @@ function renderSiteInfoDialog(
           site.owner !== state.playerFaction ||
           !canAfford(state, state.playerFaction, isRecruit ? 'recruit' : 'harvestGrain') ||
           harvestCandidates(state).length === 0 ||
-          (isRecruit ? sitePopulationCap(site) < 1 : granaryOf(site) < 1)
+          (isRecruit ? site.population < 1 : granaryOf(site) < 1)
         detail.append(button)
       }
 
@@ -2494,7 +2492,8 @@ function renderDisbandDialog(
     slider.value = String(character.troops)
   }
 
-  requireElement<HTMLElement>(dialog, '.disband__label').textContent = `保留 ${slider.value}`
+  requireElement<HTMLElement>(dialog, '.disband__label').textContent =
+    `保留 ${slider.value} · 其余散入各郡人口`
   requireElement<HTMLElement>(dialog, '.disband__status').textContent = message
 }
 
@@ -3614,7 +3613,7 @@ export function mountGameShell(
   /** 遣散弹窗：滑杆即时显示保留的兵力，确认后奏效。 */
   disbandSlider.addEventListener('input', () => {
     requireElement<HTMLElement>(disbandDialog, '.disband__label').textContent =
-      `保留 ${disbandSlider.value}`
+      `保留 ${disbandSlider.value} · 其余散入各郡人口`
   })
 
   disbandConfirmButton.addEventListener('click', () => {

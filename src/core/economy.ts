@@ -4,7 +4,7 @@ import {
   populationCap,
 } from './development'
 import { granaryCap, granaryGrowth, granaryOf, GRANARY_SHIP_RATIO } from './granary'
-import { factionTroops } from './military'
+import { factionTroops, removeTroops, resettleTroops } from './military'
 import type { FactionId, GameState, Site } from './model'
 
 /** 每点人口每季的税收，金钱的基础收入；市集建设在此之上加成（见 `siteMoneyYield`）。 */
@@ -12,6 +12,9 @@ export const MONEY_PER_POPULATION = 0.002
 
 /** 每名士兵每季消耗的粮食。维持军队本身是一项长期负担，但真正的开销在征兵与出征。 */
 export const GRAIN_UPKEEP_PER_TROOP = 0.01
+
+/** 粮仓见底后，每季逃逸的兵力比例；逃兵散入本方各战略点人口，兵员流失因此是渐进的。 */
+export const DESERTION_SHARE = 0.1
 
 /** 人口每季的自然增长比例：各战略点按同一比例缓增，取整入账。 */
 export const POPULATION_GROWTH_PER_SEASON = 0.005
@@ -83,7 +86,8 @@ export function grainBalance(state: GameState, factionId: FactionId): number {
 
 /**
  * 结算各势力本季的粮食：先令各点存粮增加，再按保有量运回一部分入库，扣除军粮。
- * 收不抵支时粮仓见底，不做减员——欠粮只体现在征兵与出征做不了，减负靠主动遣散。
+ * 粮仓不足以支付军粮时归零，并按比例遣散逃兵——逃兵散入本方各战略点人口，
+ * 兵员流失是渐进的，直到人口产粮重新养得起现有部队。
  */
 export function settleGrain(state: GameState): void {
   growGranary(state)
@@ -91,7 +95,28 @@ export function settleGrain(state: GameState): void {
   for (const faction of state.factions) {
     const income = shipGranary(state, faction.id)
     const upkeep = troopUpkeep(state, faction.id)
-    faction.grain = Math.max(0, faction.grain + income - upkeep)
+    const available = faction.grain + income
+
+    if (available >= upkeep) {
+      faction.grain = available - upkeep
+      continue
+    }
+
+    faction.grain = 0
+    const deserters = Math.ceil(factionTroops(state, faction.id) * DESERTION_SHARE)
+    const removed = removeTroops(state, faction.id, deserters)
+    if (removed <= 0) {
+      continue
+    }
+
+    resettleTroops(state, faction.id, removed)
+    state.history.push({
+      kind: 'desertion',
+      factionId: faction.id,
+      date: { ...state.currentDate },
+      targetId: null,
+      outcome: `粮尽，${faction.name}逃兵 ${removed}`,
+    })
   }
 }
 

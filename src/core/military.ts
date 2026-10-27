@@ -1,7 +1,8 @@
 import { runAction, type ActionResult } from './actions'
 import { isServing, scopeSitesFor } from './characters'
+import { populationCap } from './development'
 import { granaryOf } from './granary'
-import type { Character, CharacterId, FactionId, GameState, Site } from './model'
+import type { Character, CharacterId, FactionId, GameState } from './model'
 import { createRandom, type Random } from './random'
 
 /** 征兵产量的基准：每点统率征得的兵力。 */
@@ -12,8 +13,6 @@ export const TROOPS_LIMIT_PER_COMMAND = 150
 export const TROOPS_LIMIT_GROWTH_PER_COMMAND = 2
 /** 带兵上限的硬上限；中等统率一局之内远不到顶。 */
 export const TROOP_LIMIT_HARD_CAP = 99999
-/** 一次征兵至多从该点人口中抽走的比例，即当地丁口。 */
-export const RECRUIT_POPULATION_SHARE = 0.02
 /** 征粮产量的基准：每点内政征得的粮食。 */
 export const GRAIN_HARVEST_PER_POLITICS = 10
 /** 兵力达到此数，征粮的内政加成全额；兵力清零者几乎征不到粮。 */
@@ -51,16 +50,95 @@ export function growTroopLimits(state: GameState): void {
   }
 }
 
-/** 一处战略点可征的丁口：人口乘以抽丁比例，向下取整。 */
-export function sitePopulationCap(site: Site): number {
-  return Math.floor(site.population * RECRUIT_POPULATION_SHARE)
-}
-
 /** 某势力当前的总兵力，为其在仕武将所统率部队之和；退场者不计入。 */
 export function factionTroops(state: GameState, factionId: FactionId): number {
   return state.characters
     .filter((character) => isServing(character) && character.factionId === factionId)
     .reduce((total, character) => total + character.troops, 0)
+}
+
+/**
+ * 从某势力的在仕武将中按现有兵力比例扣减指定数量的兵，返回实际减员数。
+ * 用于粮尽逃兵：各队按同一比例缩水，避免只从某一人身上抽走。
+ */
+export function removeTroops(state: GameState, factionId: FactionId, count: number): number {
+  const officers = state.characters.filter(
+    (character) => isServing(character) && character.factionId === factionId && character.troops > 0,
+  )
+  const total = officers.reduce((sum, officer) => sum + officer.troops, 0)
+  const target = Math.min(total, Math.max(0, Math.round(count)))
+  if (target <= 0) {
+    return 0
+  }
+
+  const shares = officers.map((officer) => {
+    const exact = (officer.troops * target) / total
+    return { officer, exact, take: Math.floor(exact) }
+  })
+  let remainder = target - shares.reduce((sum, share) => sum + share.take, 0)
+  for (const share of [...shares].sort((a, b) => b.exact - b.take - (a.exact - a.take))) {
+    if (remainder <= 0) {
+      break
+    }
+    share.take += 1
+    remainder -= 1
+  }
+
+  return shares.reduce((removed, share) => {
+    const taken = Math.min(share.officer.troops, share.take)
+    share.officer.troops -= taken
+    return removed + taken
+  }, 0)
+}
+
+/**
+ * 把若干散兵按随机次序分入本方各战略点，作为当地人口；每点不超过人口上限，
+ * 装不下的部分继续分往尚未满的点，全部装满则散失。返回实际落籍的兵数。
+ */
+export function resettleTroops(state: GameState, factionId: FactionId, count: number): number {
+  let remaining = Math.max(0, Math.round(count))
+  if (remaining <= 0) {
+    return 0
+  }
+
+  const random = createRandom(state.randomState)
+  let settled = 0
+
+  while (remaining > 0) {
+    const open = state.geography.sites.filter(
+      (site) => site.owner === factionId && site.population < populationCap(site),
+    )
+    if (open.length === 0) {
+      break
+    }
+
+    for (let i = open.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(random.next() * (i + 1))
+      ;[open[i], open[j]] = [open[j], open[i]]
+    }
+
+    const share = Math.floor(remaining / open.length)
+    const extra = remaining % open.length
+    let placed = 0
+
+    open.forEach((site, index) => {
+      const want = share + (index < extra ? 1 : 0)
+      const room = populationCap(site) - site.population
+      const added = Math.min(room, want, remaining)
+      site.population += added
+      remaining -= added
+      placed += added
+    })
+
+    settled += placed
+    if (placed === 0) {
+      break
+    }
+  }
+
+  state.randomState = random.getState()
+
+  return settled
 }
 
 /** 势力是否已覆灭：失去全部战略点，或麾下不再有任何在仕武将。 */
@@ -123,8 +201,8 @@ export function attackGrainCost(troops: number): number {
 
 /**
  * 在一处自有战略点征兵：消耗粮食与行动力，从名册中选一名未行动的武将执行。
- * 粮不足、已达带兵上限、该点丁口不足或该武将本季已行动时拒绝且不扣行动力。
- * 兵力按统兵者的统率浮动，并以该点丁口为上限，补到带兵上限为止；
+ * 粮不足、已达带兵上限、该点人口枯竭或该武将本季已行动时拒绝且不扣行动力。
+ * 兵力按统兵者的统率浮动，补到带兵上限为止，且不超过该点现有人口；
  * 所征之兵自该点人口中扣除，粮耗按统率基准固定；征兵占用该武将本季的行动。
  */
 export function recruit(
@@ -165,8 +243,8 @@ export function recruit(
       if (character !== null && character.troops >= troopLimit(character)) {
         return `${character.name} 已达带兵上限`
       }
-      if (sitePopulationCap(site) < 1) {
-        return '该点丁口不足，无可征之兵'
+      if (site.population < 1) {
+        return '该点人口不足，无可征之兵'
       }
       const faction = current.factions.find((item) => item.id === factionId)
       if (faction === undefined || faction.grain < cost) {
@@ -185,7 +263,7 @@ export function recruit(
       const gained = Math.min(
         rollAmount(character.command * RECRUIT_TROOPS_PER_COMMAND, random),
         troopLimit(character) - character.troops,
-        sitePopulationCap(site),
+        site.population,
       )
       current.randomState = random.getState()
 

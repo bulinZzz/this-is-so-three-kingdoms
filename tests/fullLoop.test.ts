@@ -9,8 +9,7 @@ import { LocalSaveStore } from '../src/core/localSaveStore'
 import {
   attackGrainCost,
   factionTroops,
-  RECRUIT_POPULATION_SHARE,
-  sitePopulationCap,
+  RECRUIT_TROOPS_PER_COMMAND,
 } from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
@@ -348,10 +347,10 @@ describe('忠诚与叛离（无画面）', () => {
 })
 
 /**
- * 粮草收支：征粮 → 征兵受丁口所限 → 出征耗粮 → 结束回合结算军粮与人口。
+ * 粮草收支：征粮 → 征兵按统率公式 → 出征耗粮 → 结束回合结算军粮与人口。
  */
 
-/** 甲、乙两城相邻；甲城人口 2 万（丁口 400），乙城由曹操一名弱将驻守。 */
+/** 甲、乙两城相邻；甲城人口 2 万，乙城由曹操一名弱将驻守。 */
 function economyScenario(): Scenario {
   const serving = (
     over: Partial<Character> &
@@ -437,7 +436,7 @@ function runEconomyChain(session: GameSession): GameState {
 }
 
 describe('粮草收支（无画面）', () => {
-  it('征粮 → 征兵受丁口所限 → 出征耗粮并占领 → 结束回合结算收支与人口', () => {
+  it('征粮 → 征兵按统率公式 → 出征耗粮并占领 → 结束回合结算收支与人口', () => {
     const session = createEconomySession(208)
     const state = session.getState()
 
@@ -446,14 +445,16 @@ describe('粮草收支（无画面）', () => {
     expect(session.harvestGrain('a', 'farmer').ok).toBe(true)
     expect(playerGrain(state)).toBeGreaterThan(grainBefore)
 
-    // 征兵：产量本为统率 × 10，但甲城丁口只有 400，兵力按丁口截断，人口相应减少。
+    // 征兵：产量为统率 × 10，上下浮动 1/4；所征之兵自该点人口中扣除。
     const recruiter = characterOf(state, 'recruiter')
     const troopsBefore = recruiter.troops
-    const cap = sitePopulationCap(siteOf(state, 'a'))
-    expect(cap).toBe(Math.floor(20000 * RECRUIT_POPULATION_SHARE))
+    const recruitPopulationBefore = siteOf(state, 'a').population
+    const baseline = recruiter.command * RECRUIT_TROOPS_PER_COMMAND
     expect(session.recruit('a', 'recruiter').ok).toBe(true)
-    expect(recruiter.troops - troopsBefore).toBe(cap)
-    expect(siteOf(state, 'a').population).toBe(20000 - cap)
+    const gained = recruiter.troops - troopsBefore
+    expect(gained).toBeGreaterThanOrEqual(Math.round(baseline * 0.75))
+    expect(gained).toBeLessThanOrEqual(Math.round(baseline * 1.25))
+    expect(siteOf(state, 'a').population).toBe(recruitPopulationBefore - gained)
 
     // 出征：按投入兵力耗粮，交战并攻下乙城。
     const beforeAttack = playerGrain(state)
@@ -475,7 +476,7 @@ describe('粮草收支（无画面）', () => {
     expect(siteOf(state, 'a').population).toBeGreaterThan(populationBefore)
   })
 
-  it('粮尽时粮仓归零，但部队一兵不减', () => {
+  it('粮尽时粮仓归零，每季逃兵一成并散入各郡', () => {
     const session = createEconomySession(208)
     const state = session.getState()
     // 断掉粮源：人口与存粮皆为零，本季既运不回粮，也付不出军粮。
@@ -494,9 +495,9 @@ describe('粮草收支（无画面）', () => {
 
     expect(troopsBefore).toBeGreaterThan(0)
     expect(
-      state.history.some((record) => record.kind === 'disband' && record.factionId === 'liubei'),
-    ).toBe(false)
-    expect(factionTroops(state, 'liubei')).toBe(troopsBefore)
+      state.history.some((record) => record.kind === 'desertion' && record.factionId === 'liubei'),
+    ).toBe(true)
+    expect(factionTroops(state, 'liubei')).toBe(troopsBefore - Math.ceil(troopsBefore * 0.1))
     expect(playerGrain(state)).toBe(0)
   })
 

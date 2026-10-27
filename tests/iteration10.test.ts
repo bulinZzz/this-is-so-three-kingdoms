@@ -11,8 +11,8 @@ import { AUTO_SAVE_KEY } from '../src/core/saveStore'
 import { MemoryStorage } from './memoryStorage'
 
 /**
- * 迭代 10 全链的无画面验证：征粮（取自驻地存粮）→ 征兵（受丁口与粮所限）→ 出征 → 战斗（累计出战）
- * → 强化（出战额度换能力）→ 结束回合（存粮增加、运回入库、缺粮不减员）。全程只跑规则层与装配层。
+ * 迭代 10 全链的无画面验证：征粮（取自驻地存粮）→ 征兵（受统率与粮所限）→ 出征 → 战斗（累计出战）
+ * → 强化（出战额度换能力）→ 结束回合（存粮增加、运回入库、粮足则不逃兵）。全程只跑规则层与装配层。
  */
 
 function serving(
@@ -110,7 +110,7 @@ function runJ10Chain(session: GameSession): GameState {
 }
 
 describe('迭代 10 全链（无画面）', () => {
-  it('征粮自驻地存粮取、征兵与出征受粮所限、进攻累计出战、结束回合缺粮不减员', () => {
+  it('征粮自驻地存粮取、征兵与出征受粮所限、进攻累计出战、结束回合粮足不逃兵', () => {
     const session = createJ10Session(208)
     const state = session.getState()
     const site = siteOf(state, 'a')
@@ -144,11 +144,11 @@ describe('迭代 10 全链（无画面）', () => {
     expect(expOf(warrior)).toBe(WIN_EXP)
     expect(expOf(characterOf(state, 'defender'))).toBe(LOSS_EXP)
 
-    // 结束回合：缺粮也不减员，行动历史里没有逃散。
+    // 结束回合：粮足则照付军粮，不产生逃兵。
     const troopsBeforeSettle = factionTroops(state, 'liubei')
     session.endTurn()
     expect(factionTroops(state, 'liubei')).toBe(troopsBeforeSettle)
-    expect(state.history.some((record) => record.kind === 'disband')).toBe(false)
+    expect(state.history.some((record) => record.kind === 'desertion')).toBe(false)
   })
 
   it('固定种子下整条链可复现', () => {

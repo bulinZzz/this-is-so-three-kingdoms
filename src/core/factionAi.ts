@@ -23,7 +23,6 @@ import {
   readyOfficers,
   recruit,
   recruitGrainCost,
-  sitePopulationCap,
   troopLimit,
 } from './military'
 import type {
@@ -228,7 +227,7 @@ function diplomacyOnce(state: GameState, factionId: FactionId): void {
   }
 }
 
-/** 把余下的行动力用于征兵，直到用尽、无人可补、粮尽或丁口已枯。 */
+/** 把余下的行动力用于征兵，直到用尽、无人可补、粮尽或人口已枯。 */
 function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
   while (state.actionPoints[factionId] >= ACTION_COSTS.recruit) {
     const grain = state.factions.find((faction) => faction.id === factionId)?.grain ?? 0
@@ -246,7 +245,7 @@ function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
         .filter(
           (item) =>
             scopeSitesFor(state, candidate).includes(item.id) &&
-            sitePopulationCap(item) >= 1,
+            item.population >= 1,
         )
         .sort((a, b) => b.population - a.population)[0]
 

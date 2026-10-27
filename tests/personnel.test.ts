@@ -105,22 +105,33 @@ describe('解任', () => {
 })
 
 describe('遣散', () => {
-  it('兵力减到指定数量，不耗行动力、不算已行动、不退还粮食', () => {
+  it('兵力减到指定数量，散去的兵员归入本方各点人口，不耗行动力、不算已行动、不退还粮食', () => {
     const game = state()
     const target = officer(game)
     target.troops = 5000
     const apBefore = game.actionPoints.liubei
     const grainBefore = factionOf(game, 'liubei').grain
     const actedBefore = [...game.actedCharacterIds]
+    const populationBefore = game.geography.sites
+      .filter((site) => site.owner === 'liubei')
+      .reduce((sum, site) => sum + site.population, 0)
 
     const result = disband(game, target.id, 1000)
 
     expect(result.ok).toBe(true)
     expect(target.troops).toBe(1000)
+    expect(
+      game.geography.sites
+        .filter((site) => site.owner === 'liubei')
+        .reduce((sum, site) => sum + site.population, 0),
+    ).toBe(populationBefore + 4000)
     expect(game.actionPoints.liubei).toBe(apBefore)
     expect(factionOf(game, 'liubei').grain).toBe(grainBefore)
     expect(game.actedCharacterIds).toEqual(actedBefore)
     expect(game.history.at(-1)?.kind).toBe('disband')
+    if (result.ok) {
+      expect(result.record.outcome).toContain('归入各郡人口')
+    }
   })
 
   it('数量夹在 0 与当前兵力之间', () => {

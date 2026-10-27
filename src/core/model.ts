@@ -270,8 +270,8 @@ export type ActionKind =
   | 'executeCaptive'
   | 'releaseCaptive'
 
-/** 写入历史的记录类型：行动之外，世界结算（如叛离）与事件也各占一条。 */
-export type ActionRecordKind = ActionKind | 'defect' | 'event'
+/** 写入历史的记录类型：行动之外，世界结算（如叛离、逃兵）与事件也各占一条。 */
+export type ActionRecordKind = ActionKind | 'defect' | 'event' | 'desertion'
 
 /** 战报中一方的要点。 */
 export interface BattleReportSide {

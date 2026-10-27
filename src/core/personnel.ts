@@ -1,12 +1,13 @@
 import { runAction, type ActionResult } from './actions'
 import { becomeWild } from './captives'
 import { isServing } from './characters'
+import { resettleTroops } from './military'
 import type { Character, CharacterId, FactionId, GameState } from './model'
 
 /**
  * 人事：解任、赏赐与遣散。
  * 解任把在仕武将罢为在野，用于腾出麾下名额与裁汰；赏赐花金钱把忠诚拉回；
- * 遣散把兵力降到所需数量，不耗行动力、不算已行动、不退还粮食。
+ * 遣散把兵力降到所需数量，散去的兵员归入本方各战略点人口。
  * 数值为初值，待实测调整。
  */
 
@@ -99,6 +100,7 @@ export function reward(
 
 /**
  * 遣散：把一名武将的兵力减到指定数量（0–当前兵力），不耗行动力、不算已行动、不退还粮食。
+ * 散去的兵员随机归入本方各战略点人口，不超过各点人口上限。
  * 兵力的下限与上限在此夹定，写一条 `disband` 记录。
  */
 export function disband(
@@ -130,8 +132,12 @@ export function disband(
 
       const lost = character.troops - target
       character.troops = target
+      const settled = resettleTroops(state, factionId, lost)
 
-      return { targetId: character.id, outcome: `${character.name} 遣散 ${lost} 兵` }
+      return {
+        targetId: character.id,
+        outcome: `${character.name} 遣散 ${lost} 兵，${settled} 人归入各郡人口`,
+      }
     },
   })
 }

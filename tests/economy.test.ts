@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
 import {
+  DESERTION_SHARE,
   grainBalance,
   granaryIncome,
   growGranary,
@@ -108,7 +109,7 @@ describe('每季军粮与粮食收支', () => {
     expect(faction.grain).toBe(Math.max(0, before + income - upkeep))
   })
 
-  it('收不抵支时粮仓归零，部队一兵不减', () => {
+  it('粮仓见底时每季逃兵一成，散入本方各点人口并写入历史', () => {
     const state = createInitialState({ seed: 208 })
     const faction = factionOf(state, 'liubei')
     // 断掉粮源：人口与存粮皆为零，本季运不回粮，也付不出军粮。
@@ -118,14 +119,24 @@ describe('每季军粮与粮食收支', () => {
     }
     faction.grain = 0
     const troopsBefore = factionTroops(state, 'liubei')
+    const deserters = Math.ceil(troopsBefore * DESERTION_SHARE)
 
     expect(troopUpkeep(state, 'liubei')).toBeGreaterThan(0)
 
     settleGrain(state)
 
     expect(faction.grain).toBe(0)
-    expect(factionTroops(state, 'liubei')).toBe(troopsBefore)
-    expect(state.history.some((record) => record.kind === 'disband')).toBe(false)
+    expect(factionTroops(state, 'liubei')).toBe(troopsBefore - deserters)
+    expect(
+      state.geography.sites
+        .filter((site) => site.owner === 'liubei')
+        .reduce((sum, site) => sum + site.population, 0),
+    ).toBe(deserters)
+    expect(
+      state.history.some(
+        (record) => record.kind === 'desertion' && record.factionId === 'liubei',
+      ),
+    ).toBe(true)
   })
 })
 

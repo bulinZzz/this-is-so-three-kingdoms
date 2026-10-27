@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
 import { declareWar } from '../src/core/diplomacy'
+import { DESERTION_SHARE } from '../src/core/economy'
 import { runFactionTurns } from '../src/core/factionAi'
 import { factionTroops } from '../src/core/military'
 import type { Scenario } from '../src/core/model'
@@ -39,9 +40,9 @@ describe('势力自主行动', () => {
     expect(attacks.length).toBeGreaterThan(0)
   })
 
-  it('他方征兵受驻地丁口约束：丁口枯竭则无人可征', () => {
+  it('他方征兵受人口约束：人口枯竭则无人可征', () => {
     const state = createInitialState({ scenario: SANGUO_ACCEPTANCE, seed: 208 })
-    // 各战略点人口清零，丁口随之枯竭。
+    // 各战略点人口清零，无兵源可征。
     for (const site of state.geography.sites) {
       site.population = 0
     }
@@ -51,7 +52,7 @@ describe('势力自主行动', () => {
     expect(state.history.filter((record) => record.kind === 'recruit')).toEqual([])
   })
 
-  it('他方粮尽时粮仓归零、部队一兵不减', () => {
+  it('他方粮尽时粮仓归零、每季逃兵一成', () => {
     const state = createInitialState({ scenario: SANGUO_ACCEPTANCE, seed: 208 })
     const caocao = state.factions.find((faction) => faction.id === 'caocao')
     if (caocao === undefined) {
@@ -68,9 +69,11 @@ describe('势力自主行动', () => {
     advanceTurn(state)
 
     expect(
-      state.history.some((record) => record.kind === 'disband' && record.factionId === 'caocao'),
-    ).toBe(false)
-    expect(factionTroops(state, 'caocao')).toBe(troopsBefore)
+      state.history.some((record) => record.kind === 'desertion' && record.factionId === 'caocao'),
+    ).toBe(true)
+    expect(factionTroops(state, 'caocao')).toBe(
+      troopsBefore - Math.ceil(troopsBefore * DESERTION_SHARE),
+    )
     expect(caocao.grain).toBe(0)
   })
 

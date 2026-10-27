@@ -13,11 +13,11 @@ import {
   isFactionDestroyed,
   markActed,
   readyOfficers,
-  RECRUIT_POPULATION_SHARE,
   RECRUIT_TROOPS_PER_COMMAND,
   recruit,
   recruitGrainCost,
-  sitePopulationCap,
+  removeTroops,
+  resettleTroops,
   troopLimit,
 } from '../src/core/military'
 import type { FactionId, GameState } from '../src/core/model'
@@ -48,12 +48,12 @@ function siteOf(state: GameState, id: string) {
 }
 
 describe('征兵', () => {
-  it('在本方战略点征兵：兵力按统率浮动并以丁口为上限、粮食按统率基准扣除，扣行动力并写记录', () => {
+  it('在本方战略点征兵：兵力按统率浮动、粮食按统率基准扣除，扣行动力并写记录', () => {
     const state = createInitialState({ seed: 208 })
     const guanyu = characterOf(state, 'guanyu')
     const grainBefore = factionOf(state, 'liubei').grain
     const baseline = guanyu.command * RECRUIT_TROOPS_PER_COMMAND
-    const cap = sitePopulationCap(siteOf(state, 'gongan'))
+    const populationBefore = siteOf(state, 'gongan').population
 
     const result = recruit(state, 'gongan', 'guanyu')
 
@@ -62,39 +62,34 @@ describe('征兵', () => {
       expect(result.record.kind).toBe('recruit')
       expect(result.record.targetId).toBe('gongan')
     }
-    expect(guanyu.troops).toBeGreaterThanOrEqual(1000 + Math.round(baseline * 0.75))
-    expect(guanyu.troops).toBeLessThanOrEqual(1000 + Math.round(baseline * 1.25))
-    expect(guanyu.troops - 1000).toBeLessThanOrEqual(cap)
+    const gained = guanyu.troops - 1000
+    expect(gained).toBeGreaterThanOrEqual(Math.round(baseline * 0.75))
+    expect(gained).toBeLessThanOrEqual(Math.round(baseline * 1.25))
+    expect(siteOf(state, 'gongan').population).toBe(populationBefore - gained)
     expect(factionOf(state, 'liubei').grain).toBe(grainBefore - recruitGrainCost(guanyu))
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
     expect(state.history).toHaveLength(1)
   })
 
-  it('一次征兵至多抽走该点人口的丁口，所征之兵自该点人口中扣除', () => {
+  it('一次征兵不超过该点现有人口，人口随之归零', () => {
     const state = createInitialState({ seed: 208 })
     const guanyu = characterOf(state, 'guanyu')
     const site = siteOf(state, 'gongan')
-    // 人口压到低于一次征兵的产量，使丁口成为实际上限。
-    site.population = 20000
-    const cap = sitePopulationCap(site)
-
-    expect(cap).toBe(Math.floor(20000 * RECRUIT_POPULATION_SHARE))
-    expect(cap).toBeLessThan(guanyu.command * RECRUIT_TROOPS_PER_COMMAND * 0.75)
+    site.population = 300
 
     expect(recruit(state, 'gongan', 'guanyu').ok).toBe(true)
-    expect(guanyu.troops).toBe(1000 + cap)
-    expect(site.population).toBe(20000 - cap)
+    expect(guanyu.troops).toBe(1300)
+    expect(site.population).toBe(0)
   })
 
-  it('丁口不足时拒绝，不扣行动力也不改兵力', () => {
+  it('人口枯竭时拒绝，不扣行动力也不改兵力', () => {
     const state = createInitialState({ seed: 208 })
     const site = siteOf(state, 'gongan')
-    site.population = 40
+    site.population = 0
 
-    expect(sitePopulationCap(site)).toBe(0)
     expect(recruit(state, 'gongan', 'guanyu')).toEqual({
       ok: false,
-      reason: '该点丁口不足，无可征之兵',
+      reason: '该点人口不足，无可征之兵',
     })
     expect(characterOf(state, 'guanyu').troops).toBe(1000)
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
@@ -161,6 +156,63 @@ describe('征兵', () => {
     expect(liubei.stationedSiteId).not.toBeNull()
     expect(recruit(state, 'gongan', 'liubei').ok).toBe(true)
     expect(hasActedThisTurn(state, 'liubei')).toBe(true)
+  })
+})
+
+describe('兵员折损与归籍', () => {
+  /** 把刘备麾下除指定两人外的兵力清零，便于断言按比例扣减。 */
+  function trimArmy(state: GameState): void {
+    for (const character of state.characters) {
+      if (character.factionId === 'liubei' && character.id !== 'guanyu' && character.id !== 'zhangfei') {
+        character.troops = 0
+      }
+    }
+    characterOf(state, 'guanyu').troops = 3000
+    characterOf(state, 'zhangfei').troops = 1000
+  }
+
+  it('减员按各将现有兵力比例分摊', () => {
+    const state = createInitialState({ seed: 208 })
+    trimArmy(state)
+
+    expect(removeTroops(state, 'liubei', 400)).toBe(400)
+    expect(characterOf(state, 'guanyu').troops).toBe(2700)
+    expect(characterOf(state, 'zhangfei').troops).toBe(900)
+  })
+
+  it('散兵归入本方各点人口，不超过人口上限，不落入他方', () => {
+    const state = createInitialState({ seed: 208 })
+    const ownSites = state.geography.sites.filter((site) => site.owner === 'liubei')
+    const others = state.geography.sites.filter((site) => site.owner !== 'liubei')
+    const ownBefore = ownSites.reduce((sum, site) => sum + site.population, 0)
+    const otherBefore = others.map((site) => site.population)
+
+    expect(resettleTroops(state, 'liubei', 1200)).toBe(1200)
+    expect(ownSites.reduce((sum, site) => sum + site.population, 0)).toBe(ownBefore + 1200)
+    expect(others.map((site) => site.population)).toEqual(otherBefore)
+  })
+
+  it('各点俱满时散兵无处落籍，返回实际归入数', () => {
+    const state = createInitialState({ seed: 208 })
+    for (const site of state.geography.sites) {
+      if (site.owner === 'liubei') {
+        site.population = 999999999
+      }
+    }
+
+    expect(resettleTroops(state, 'liubei', 500)).toBe(0)
+  })
+
+  it('固定种子下归籍结果可复现', () => {
+    const first = createInitialState({ seed: 208 })
+    const second = createInitialState({ seed: 208 })
+
+    resettleTroops(first, 'liubei', 900)
+    resettleTroops(second, 'liubei', 900)
+
+    expect(first.geography.sites.map((site) => site.population)).toEqual(
+      second.geography.sites.map((site) => site.population),
+    )
   })
 })
 
