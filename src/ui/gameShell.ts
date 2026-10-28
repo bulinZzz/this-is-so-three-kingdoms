@@ -351,7 +351,9 @@ const SHELL_HTML = `
         <h2 class="saves__title site-info__title">战略点</h2>
         <button type="button" class="saves__close" data-action="close-site-info">关闭</button>
       </div>
+      <p class="site-info__subtitle"></p>
       <div class="site-info__body">
+        <h3 class="site-info__heading">概况</h3>
         <dl class="site-info__facts"></dl>
         <h3 class="site-info__heading">建设</h3>
         <ul class="site-info__list"></ul>
@@ -801,8 +803,6 @@ function renderSiteInfoDialog(
   const station = stationedAt(state, site.id)
   const yieldFactor = siteYieldFactor(state, site)
   const facts: readonly [string, string][] = [
-    ['类型', SITE_TYPE_LABELS[site.type]],
-    ['归属', ownerName],
     ['驻将', station === null ? '无' : `${station.name}（兵 ${station.troops}）`],
     ['人口', String(site.population)],
     ['存粮', String(granaryOf(site))],
@@ -815,6 +815,8 @@ function renderSiteInfoDialog(
   ]
 
   requireElement<HTMLElement>(dialog, '.site-info__title').textContent = site.name
+  requireElement<HTMLElement>(dialog, '.site-info__subtitle').textContent =
+    `${SITE_TYPE_LABELS[site.type]} · ${ownerName}`
   requireElement<HTMLElement>(dialog, '.site-info__status').textContent = message
 
   const list = requireElement<HTMLElement>(dialog, '.site-info__facts')
@@ -822,10 +824,17 @@ function renderSiteInfoDialog(
     ...facts.flatMap(([label, value]) => {
       const term = document.createElement('dt')
       term.textContent = label
-      const detail = document.createElement('dd')
-      detail.textContent = value
 
-      // 驻将的任免放在「进入」窗口里，与建设同处；征兵、征粮、赈济的入口放在人口与存粮右侧。
+      const detail = document.createElement('dd')
+      const valueEl = document.createElement('span')
+      valueEl.className = 'site-info__value'
+      valueEl.textContent = value
+      detail.append(valueEl)
+
+      const actions = document.createElement('span')
+      actions.className = 'site-info__actions'
+
+      // 驻将的任免放在「进入」窗口里；征兵、征粮、赈济的入口挂在人口与存粮右侧。
       if (label === '驻将') {
         const stationButton = document.createElement('button')
         stationButton.type = 'button'
@@ -839,14 +848,12 @@ function renderSiteInfoDialog(
           showCosts,
         )
         stationButton.disabled = !canAfford(state, state.playerFaction, 'station')
-        detail.classList.add('site-info__fact')
-        detail.append(stationButton)
+        actions.append(stationButton)
       }
 
       if (label === '人口' || label === '存粮') {
         const isRecruit = label === '人口'
         const faction = state.factions.find((item) => item.id === state.playerFaction)
-        detail.classList.add('site-info__fact')
         detail.title = isRecruit
           ? '征得的兵数由执行武将的统率决定，并从该点人口中扣除；另耗粮与金（按统率折算）'
           : '征粮自该点存粮中取走，人口也会少量流失'
@@ -867,6 +874,7 @@ function renderSiteInfoDialog(
           !canAfford(state, state.playerFaction, isRecruit ? 'recruit' : 'harvestGrain') ||
           harvestCandidates(state).length === 0 ||
           (isRecruit ? site.population < 1 : granaryOf(site) < 1)
+        actions.append(button)
 
         if (isRecruit) {
           const relief = document.createElement('button')
@@ -882,10 +890,12 @@ function renderSiteInfoDialog(
             (faction?.grain ?? 0) < 1 ||
             site.population >= populationCap(site) ||
             harvestCandidates(state).length === 0
-          detail.append(button, relief)
-        } else {
-          detail.append(button)
+          actions.append(relief)
         }
+      }
+
+      if (actions.childElementCount > 0) {
+        detail.append(actions)
       }
 
       return [term, detail]
@@ -930,10 +940,14 @@ function renderDevelopmentList(
       name.textContent = DEVELOPMENT_LABELS[kind]
       const meta = document.createElement('span')
       meta.className = 'site-info__meta'
-      meta.textContent = atLimit
-        ? `${level} / ${limit}　${developmentEffectText(kind)}`
-        : `${level} / ${limit}　${developmentEffectText(kind)}　进度 ${progress}/${requirement}`
+      meta.textContent = `${level} / ${limit}　${developmentEffectText(kind)}`
       info.append(name, meta)
+      if (!atLimit) {
+        const progressLine = document.createElement('span')
+        progressLine.className = 'site-info__progress'
+        progressLine.textContent = `进度 ${progress} / ${requirement}`
+        info.append(progressLine)
+      }
 
       const button = document.createElement('button')
       button.type = 'button'

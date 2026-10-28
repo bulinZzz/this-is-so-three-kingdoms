@@ -75,9 +75,9 @@ export function populationCap(site: Site): number {
   return POPULATION_CAP_BY_SITE_TYPE[site.type] + developmentOf(site).housing * POPULATION_PER_HOUSING
 }
 
-/** 该战略点某一项升到下一级所需的进度。 */
+/** 该战略点某一项升到下一级所需的进度：第 n 级为 250 × (n + 1)，即 500、750、1000…… */
 export function developmentRequirement(currentLevel: number): number {
-  return DEVELOPMENT_PROGRESS_BASE * (currentLevel + 1)
+  return DEVELOPMENT_PROGRESS_BASE * (currentLevel + 2)
 }
 
 /** 该战略点某一项的在建进度；尚无在建工程时为 0。 */
