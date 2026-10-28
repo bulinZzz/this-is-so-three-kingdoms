@@ -11,11 +11,14 @@ import {
   type BattleState,
 } from './battle'
 import { recruitWillingCaptives } from './captives'
-import { scopeSitesFor } from './characters'
+import { isServing, scopeSitesFor } from './characters'
+import { BUILD_COST, build } from './construction'
+import { developmentLevel, developmentLimit } from './development'
 import { ALLIANCE_FAVOR, alliance } from './diplomacy'
 import { granaryOf } from './granary'
 import { estimateOf } from './intelligence'
 import {
+  assignStation,
   attackGrainCost,
   harvestGrain,
   hasActedThisTurn,
@@ -39,9 +42,10 @@ import { favorBetween, relationBetween } from './relations'
 import { seekTalent } from './seekTalent'
 
 /**
- * 其他势力的自主行动。每季按最小行为集出手，顺序为寻访 → 外交 → 征粮 → 进攻 → 征兵：
+ * 其他势力的自主行动。每季按最小行为集出手，顺序为寻访 → 外交 → 征粮 → 进攻 → 驻守 → 征兵：
  * 先补一名新人，再看要不要结盟，粮仓见底则派人征粮，
- * 然后用有余力的武将进攻，最后把剩下的行动力用于征兵；营中「愿降」的俘虏在出手之初先行归附。
+ * 然后用有余力的武将进攻，给空置的据点补一名驻将，最后把剩下的行动力用于征兵；
+ * 营中「愿降」的俘虏在出手之初先行归附。
  * 进攻只打已宣战的势力——全图没有无主战略点，也没有中立可攻的目标。
  * 行为只走规则层既有动作，随机取自随存档落盘的模拟流，固定种子下可复现。
  * 他方守成：不自行向中立势力宣战，点火改由玩家的宣战；对别人只知大概——
@@ -227,7 +231,44 @@ function diplomacyOnce(state: GameState, factionId: FactionId): void {
   }
 }
 
-/** 把余下的行动力用于征兵，直到用尽、无人可补、粮尽或人口已枯。 */
+/**
+ * 给空置的据点补一名驻将：每季至多补一处，先补人口最多的一处。
+ * 优先派无兵可战的人——他们本就不出征，正好去守城理民；
+ * 只有在余将充足时才动一名最弱的战士，并留下至少三人可编成一队。
+ */
+function garrisonOnce(state: GameState, factionId: FactionId): void {
+  if (state.actionPoints[factionId] < ACTION_COSTS.station) {
+    return
+  }
+
+  const free = state.characters.filter(
+    (character) =>
+      isServing(character) &&
+      character.factionId === factionId &&
+      character.stationedSiteId === null,
+  )
+  const idle = free.filter((character) => character.troops < 1)
+  const fighters = free
+    .filter((character) => character.troops > 0)
+    .sort((a, b) => a.troops - b.troops)
+  const pool = idle.length > 0 ? idle : fighters.length > PARTY_SIZE ? fighters : []
+  if (pool.length === 0) {
+    return
+  }
+
+  const empty = sitesOf(state, factionId)
+    .filter((site) => !state.characters.some((item) => item.stationedSiteId === site.id))
+    .sort((a, b) => b.population - a.population)
+
+  for (const site of empty) {
+    const officer = pool.find((character) => character.scope.includes(site.id))
+    if (officer !== undefined && assignStation(state, site.id, officer.id, factionId).ok) {
+      return
+    }
+  }
+}
+
+/** 把余下的行动力用于征兵，直到用尽、无人可补或粮仓见底；征兵前先留出底粮。 */
 function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
   while (state.actionPoints[factionId] >= ACTION_COSTS.recruit) {
     const grain = state.factions.find((faction) => faction.id === factionId)?.grain ?? 0
@@ -235,7 +276,7 @@ function recruitUntilExhausted(state: GameState, factionId: FactionId): void {
       .filter(
         (character) =>
           character.troops < troopLimit(character) &&
-          grain >= recruitGrainCost(character),
+          grain - recruitGrainCost(character) >= AI_GRAIN_RESERVE,
       )
       .sort((a, b) => b.command - a.command)
 
@@ -296,6 +337,52 @@ function harvestOnce(state: GameState, factionId: FactionId): void {
   harvestGrain(state, site.id, candidate.id, factionId)
 }
 
+/** 富余到这个数才谈得上经营：钱先留着买人与应急。 */
+const AI_BUILD_MONEY = 8000
+
+/**
+ * 经营一处：缺粮时只修农田，先把粮产垫起来；
+ * 粮足而钱有余时按农田、民居、市集的次序补缺。
+ */
+function developOnce(state: GameState, factionId: FactionId, farmOnly: boolean): void {
+  if (state.actionPoints[factionId] < ACTION_COSTS.build) {
+    return
+  }
+  const faction = state.factions.find((item) => item.id === factionId)
+  if (faction === undefined || (!farmOnly && faction.money < AI_BUILD_MONEY)) {
+    return
+  }
+
+  const kinds = farmOnly
+    ? (['farm'] as const)
+    : (['farm', 'housing', 'market'] as const)
+  const sites = sitesOf(state, factionId)
+    .filter((site) => site.type !== 'field')
+    .sort((a, b) => b.population - a.population)
+  // 建设要有武将在场：取内政最高、活动范围覆盖该城的未行动部属。
+  const officers = readyOfficers(state, factionId)
+    .filter((character) => character.troops > 0)
+    .sort((a, b) => b.politics - a.politics)
+
+  for (const site of sites) {
+    const officer = officers.find((character) => character.scope.includes(site.id))
+    if (officer === undefined) {
+      continue
+    }
+    for (const kind of kinds) {
+      if (developmentLevel(site, kind) >= developmentLimit(site)) {
+        continue
+      }
+      if (faction.money < BUILD_COST) {
+        continue
+      }
+      if (build(state, site.id, kind, officer.id, factionId).ok) {
+        return
+      }
+    }
+  }
+}
+
 /** 一个势力的一季行动。 */
 function* runFactionTurn(
   state: GameState,
@@ -303,10 +390,20 @@ function* runFactionTurn(
 ): Generator<FactionTurnSignal, void, BattleState | null> {
   // 营中已到「愿降」档的俘虏先行归附，本季即可出力。
   recruitWillingCaptives(state, factionId)
-  seekOnce(state, factionId)
+
+  const grain = state.factions.find((item) => item.id === factionId)?.grain ?? 0
+  if (grain < AI_GRAIN_RESERVE) {
+    // 缺粮时先经营与征粮，把粮仓垫起来；寻访这类花钱的事往后放。
+    developOnce(state, factionId, true)
+    harvestOnce(state, factionId)
+  } else {
+    seekOnce(state, factionId)
+    developOnce(state, factionId, false)
+  }
+
   diplomacyOnce(state, factionId)
-  harvestOnce(state, factionId)
   yield* attackOnce(state, factionId)
+  garrisonOnce(state, factionId)
   recruitUntilExhausted(state, factionId)
 }
 

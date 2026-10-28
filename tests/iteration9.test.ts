@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
-import { build, developmentLevel } from '../src/core/development'
+import { build } from '../src/core/construction'
+import { developmentLevel } from '../src/core/development'
 import { declareWar, demand, gift } from '../src/core/diplomacy'
 import { moneyYield, settleMoney } from '../src/core/economy'
 import { granaryGrowth } from '../src/core/granary'
@@ -35,10 +36,17 @@ function runChain(): GameState {
     throw new Error('刘备麾下武将不足')
   }
 
-  // 内政：在公安建农田、市集与民居。
-  build(state, 'gongan', 'farm')
-  build(state, 'gongan', 'market')
-  build(state, 'gongan', 'housing')
+  // 内政：由刘备主持，在公安建农田、市集与民居（每次动工都当作新的一季）。
+  const builder = state.characters.find((character) => character.id === 'liubei')
+  if (builder === undefined) {
+    throw new Error('刘备不在名册')
+  }
+  builder.troops = 3000
+  build(state, 'gongan', 'farm', builder.id)
+  state.actedCharacterIds = []
+  build(state, 'gongan', 'market', builder.id)
+  state.actedCharacterIds = []
+  build(state, 'gongan', 'housing', builder.id)
 
   // 金钱结算。
   settleMoney(state)
@@ -72,12 +80,19 @@ describe('迭代 9 全链（无画面）', () => {
     const loyaltyBefore = first.loyalty
     const troopsBefore = first.troops
 
-    build(state, 'gongan', 'farm')
+    const builder = state.characters.find((character) => character.id === 'liubei')
+    if (builder === undefined) {
+      throw new Error('刘备不在名册')
+    }
+    builder.troops = 3000
+    build(state, 'gongan', 'farm', builder.id)
     expect(developmentLevel(farmSite, 'farm')).toBe(1)
     expect(granaryGrowth(farmSite)).toBeGreaterThan(growthBefore)
 
-    build(state, 'gongan', 'market')
-    build(state, 'gongan', 'housing')
+    state.actedCharacterIds = []
+    build(state, 'gongan', 'market', builder.id)
+    state.actedCharacterIds = []
+    build(state, 'gongan', 'housing', builder.id)
     const moneyAfterBuilds = factionOf(state, 'liubei').money
     settleMoney(state)
     expect(moneyYield(state, 'liubei')).toBeGreaterThan(0)

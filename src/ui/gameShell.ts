@@ -32,7 +32,11 @@ import {
   currentActor,
   DEFENDER_SELECTION,
   defenderCandidates,
+  FEAST_LIMIT,
+  FEAST_MORALE_BONUS,
+  feastCost,
   isAttackable,
+  MORALE_CEILING,
   ordersFor,
   rowOfSlot,
   setUnitSlot,
@@ -49,27 +53,47 @@ import {
 import { isRecruitable, isRetired, isServing, scopeSitesFor } from '../core/characters'
 import { captivesOf } from '../core/captives'
 import {
-  buildCost,
   developmentLevel,
   developmentLimit,
+  developmentRequirement,
   DEVELOPMENT_KINDS,
   DEVELOPMENT_LABELS,
   GRAIN_BONUS_PER_FARM_LEVEL,
+  HOUSING_GROWTH_BONUS,
   MONEY_BONUS_PER_MARKET_LEVEL,
   POPULATION_PER_HOUSING,
+  populationCap,
+  siteProgressOf,
 } from '../core/development'
-import { grainBalance, granaryIncome, moneyYield, troopUpkeep } from '../core/economy'
+import { BUILD_COST, buildProgressOf } from '../core/construction'
+import {
+  grainBalance,
+  granaryIncome,
+  moneyYield,
+  populationGrowth,
+  reliefBaseline,
+  siteMoneyYield,
+  siteYieldFactor,
+  troopUpkeep,
+} from '../core/economy'
 import { ALLIANCE_FAVOR, GIFT_MONEY, PEACE_FAVOR } from '../core/diplomacy'
-import { granaryOf } from '../core/granary'
+import { granaryGrowth, granaryOf } from '../core/granary'
 import { ABILITY_KINDS, ABILITY_LABELS, BOOST_GAIN, boostCredits, EXP_PER_BOOST } from '../core/growth'
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
 import { SCENARIOS } from '../core/scenarios'
+import { hireCost } from '../core/seekTalent'
 import {
+  amountRange,
   factionTroops,
+  harvestGrainBaseline,
   hasActedThisTurn,
   isFactionDestroyed,
+  RECRUIT_TROOPS_PER_COMMAND,
+  recruitGrainCost,
+  recruitMoneyCost,
+  troopGrowth,
   troopLimit,
 } from '../core/military'
 import { favorBetween, relationBetween } from '../core/relations'
@@ -112,10 +136,6 @@ const SHELL_HTML = `
         <button type="button" class="site-panel__action" data-action="site-info" hidden>
           <span>进入</span>
         </button>
-        <button type="button" class="site-panel__action" data-action="station-here" hidden>
-          <span>任命驻将</span>
-          <span class="action-cost"></span>
-        </button>
         <button type="button" class="site-panel__action" data-action="seek-here" hidden>
           <span>在此寻访</span>
           <span class="action-cost"></span>
@@ -154,6 +174,7 @@ const SHELL_HTML = `
                     <th>政</th>
                     <th>驻地</th>
                     <th>操作</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody class="roster__officers"></tbody>
@@ -163,7 +184,7 @@ const SHELL_HTML = `
           <section class="roster__section roster__dev" hidden>
             <h3 class="roster__section-title">全部武将<span class="roster__count roster__all-count"></span></h3>
             <div class="roster__table-wrap">
-              <table class="roster__table roster__table--all">
+              <table class="roster__table">
                 <thead>
                   <tr>
                     <th>姓名</th>
@@ -175,6 +196,7 @@ const SHELL_HTML = `
                     <th>政</th>
                     <th>状态</th>
                     <th>势力</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody class="roster__all"></tbody>
@@ -206,7 +228,7 @@ const SHELL_HTML = `
             <span class="domestic__value domestic__troops"></span>
           </div>
           <div class="domestic__row">
-            <span class="domestic__label">国库粮</span>
+            <span class="domestic__label">粮食</span>
             <span class="domestic__value domestic__grain"></span>
           </div>
           <div class="domestic__row">
@@ -217,23 +239,26 @@ const SHELL_HTML = `
             <span class="domestic__label">人口</span>
             <span class="domestic__value domestic__population"></span>
           </div>
-          <div class="domestic__row">
-            <span class="domestic__label">各点存粮</span>
-            <span class="domestic__value domestic__granary"></span>
-          </div>
         </section>
         <section class="domestic__section">
           <h3 class="domestic__heading">每季收支</h3>
           <div class="domestic__row">
-            <span class="domestic__label">国库粮</span>
+            <span class="domestic__label">兵力</span>
+            <span class="domestic__value domestic__troop-flow"></span>
+          </div>
+          <div class="domestic__row">
+            <span class="domestic__label">粮食</span>
             <span class="domestic__value domestic__grain-flow"></span>
           </div>
           <div class="domestic__row">
             <span class="domestic__label">黄金</span>
             <span class="domestic__value domestic__money-flow"></span>
           </div>
+          <div class="domestic__row">
+            <span class="domestic__label">人口</span>
+            <span class="domestic__value domestic__population-flow"></span>
+          </div>
         </section>
-        <p class="domestic__note">各点存粮每季运六成入国库，军粮从国库扣除；余下留在点上待征。</p>
         <p class="domestic__status" role="status"></p>
       </div>
     </dialog>
@@ -599,7 +624,7 @@ function formatSigned(value: number): string {
   return value >= 0 ? `+${value}` : `−${Math.abs(value)}`
 }
 
-/** 内政弹窗：上半记当前资源，下半记每季收支（运回减军粮、金钱收入）；征兵与征粮改在战略点窗口办理。 */
+/** 内政弹窗：上半记当前资源，下半记每季收支（兵力、粮食、黄金、人口）；征兵与征粮改在战略点窗口办理。 */
 function renderDomestic(
   dialog: HTMLElement,
   state: GameState,
@@ -608,7 +633,6 @@ function renderDomestic(
   const faction = state.factions.find((item) => item.id === state.playerFaction)
   const ownSites = state.geography.sites.filter((site) => site.owner === state.playerFaction)
   const population = ownSites.reduce((total, site) => total + site.population, 0)
-  const granary = ownSites.reduce((total, site) => total + granaryOf(site), 0)
 
   requireElement<HTMLElement>(dialog, '.domestic__troops').textContent = String(
     factionTroops(state, state.playerFaction),
@@ -616,13 +640,16 @@ function renderDomestic(
   requireElement<HTMLElement>(dialog, '.domestic__grain').textContent = String(faction?.grain ?? 0)
   requireElement<HTMLElement>(dialog, '.domestic__money').textContent = String(faction?.money ?? 0)
   requireElement<HTMLElement>(dialog, '.domestic__population').textContent = String(population)
-  requireElement<HTMLElement>(dialog, '.domestic__granary').textContent = String(granary)
+  requireElement<HTMLElement>(dialog, '.domestic__troop-flow').textContent =
+    `+${troopGrowth(state, state.playerFaction)}`
   requireElement<HTMLElement>(dialog, '.domestic__grain-flow').textContent =
     `+${granaryIncome(state, state.playerFaction)} − ${troopUpkeep(state, state.playerFaction)} = ${formatSigned(
       grainBalance(state, state.playerFaction),
     )}`
   requireElement<HTMLElement>(dialog, '.domestic__money-flow').textContent =
     `+${moneyYield(state, state.playerFaction)}`
+  requireElement<HTMLElement>(dialog, '.domestic__population-flow').textContent =
+    `+${populationGrowth(state, state.playerFaction)}`
   requireElement<HTMLElement>(dialog, '.domestic__status').textContent = message
 }
 
@@ -737,20 +764,11 @@ function renderSitePanel(
     ),
   )
 
-  // 进攻、任命与寻访都要进入选将页：行动力不够就不该放进去，按钮压暗、点不动。
+  // 进攻与寻访都要进入选将页：行动力不够就不该放进去，按钮压暗、点不动。
   const attackButton = requireElement<HTMLButtonElement>(panel, '[data-action="attack-here"]')
   attackButton.hidden = !isAttackable(state, site.id)
   attackButton.disabled = !canAfford(state, state.playerFaction, 'attack')
-  const stationButton = requireElement<HTMLButtonElement>(panel, '[data-action="station-here"]')
-  stationButton.hidden = !isOwn
-  stationButton.disabled = !canAfford(state, state.playerFaction, 'station')
-  setActionButton(
-    stationButton,
-    station === null ? '任命驻将' : '撤换驻将',
-    ACTION_COSTS.station,
-    true,
-  )
-  // 「进入」只对自家领地开放；建设也在那个窗口里办。
+  // 「进入」只对自家领地开放；建设与驻将的任免也在那个窗口里办。
   requireElement<HTMLButtonElement>(panel, '[data-action="site-info"]').hidden = !isOwn
   const seekButton = requireElement<HTMLButtonElement>(panel, '[data-action="seek-here"]')
   seekButton.hidden = !isOwn
@@ -781,12 +799,19 @@ function renderSiteInfoDialog(
       : (state.factions.find((faction) => faction.id === site.owner)?.name ?? site.owner)
 
   const station = stationedAt(state, site.id)
+  const yieldFactor = siteYieldFactor(state, site)
   const facts: readonly [string, string][] = [
     ['类型', SITE_TYPE_LABELS[site.type]],
     ['归属', ownerName],
     ['驻将', station === null ? '无' : `${station.name}（兵 ${station.troops}）`],
     ['人口', String(site.population)],
     ['存粮', String(granaryOf(site))],
+    [
+      '每季',
+      `粮 +${granaryGrowth(site, yieldFactor)}　金 +${siteMoneyYield(site, yieldFactor)}${
+        yieldFactor > 1 ? '　驻将加成' : ''
+      }`,
+    ],
   ]
 
   requireElement<HTMLElement>(dialog, '.site-info__title').textContent = site.name
@@ -800,11 +825,31 @@ function renderSiteInfoDialog(
       const detail = document.createElement('dd')
       detail.textContent = value
 
-      // 征兵、征粮的入口就放在人口与存粮右侧，点开即进入选将。
+      // 驻将的任免放在「进入」窗口里，与建设同处；征兵、征粮、赈济的入口放在人口与存粮右侧。
+      if (label === '驻将') {
+        const stationButton = document.createElement('button')
+        stationButton.type = 'button'
+        stationButton.className = 'site-info__button'
+        stationButton.dataset.action = 'station-here'
+        stationButton.dataset.site = site.id
+        setActionButton(
+          stationButton,
+          station === null ? '任命驻将' : '撤换驻将',
+          ACTION_COSTS.station,
+          showCosts,
+        )
+        stationButton.disabled = !canAfford(state, state.playerFaction, 'station')
+        detail.classList.add('site-info__fact')
+        detail.append(stationButton)
+      }
+
       if (label === '人口' || label === '存粮') {
         const isRecruit = label === '人口'
+        const faction = state.factions.find((item) => item.id === state.playerFaction)
         detail.classList.add('site-info__fact')
-        detail.title = isRecruit ? '征得的兵数由执行武将的统率决定，并从该点人口中扣除' : ''
+        detail.title = isRecruit
+          ? '征得的兵数由执行武将的统率决定，并从该点人口中扣除；另耗粮与金（按统率折算）'
+          : '征粮自该点存粮中取走，人口也会少量流失'
 
         const button = document.createElement('button')
         button.type = 'button'
@@ -822,7 +867,25 @@ function renderSiteInfoDialog(
           !canAfford(state, state.playerFaction, isRecruit ? 'recruit' : 'harvestGrain') ||
           harvestCandidates(state).length === 0 ||
           (isRecruit ? site.population < 1 : granaryOf(site) < 1)
-        detail.append(button)
+
+        if (isRecruit) {
+          const relief = document.createElement('button')
+          relief.type = 'button'
+          relief.className = 'site-info__button'
+          relief.dataset.action = 'relief-here'
+          relief.dataset.site = site.id
+          setActionButton(relief, '赈济', ACTION_COSTS.relief, showCosts)
+          relief.title = '投粮养民，人口增幅由执行武将的内政决定（受人口上限限制）'
+          relief.disabled =
+            site.owner !== state.playerFaction ||
+            !canAfford(state, state.playerFaction, 'relief') ||
+            (faction?.grain ?? 0) < 1 ||
+            site.population >= populationCap(site) ||
+            harvestCandidates(state).length === 0
+          detail.append(button, relief)
+        } else {
+          detail.append(button)
+        }
       }
 
       return [term, detail]
@@ -837,7 +900,7 @@ function renderSiteInfoDialog(
   )
 }
 
-/** 建设列表：三项开发的等级、上限、效果与下一级花费；满级或钱不够时按钮不可点。 */
+/** 建设列表：三项开发的等级、上限、效果与在建进度；每次动工花 200 金、派一名武将。 */
 function renderDevelopmentList(
   list: Element,
   state: GameState,
@@ -846,14 +909,16 @@ function renderDevelopmentList(
 ): void {
   const faction = state.factions.find((item) => item.id === state.playerFaction)
   const limit = developmentLimit(site)
+  const hasBuilder = harvestCandidates(state).length > 0
 
   list.replaceChildren(
     ...DEVELOPMENT_KINDS.map((kind) => {
       const level = developmentLevel(site, kind)
       const atLimit = level >= limit
-      const cost = buildCost(site, kind)
+      const progress = siteProgressOf(site, kind)
+      const requirement = developmentRequirement(level)
       const affordable =
-        (faction?.money ?? 0) >= cost && canAfford(state, state.playerFaction, 'build')
+        (faction?.money ?? 0) >= BUILD_COST && canAfford(state, state.playerFaction, 'build')
 
       const item = document.createElement('li')
       item.className = 'site-info__item'
@@ -865,7 +930,9 @@ function renderDevelopmentList(
       name.textContent = DEVELOPMENT_LABELS[kind]
       const meta = document.createElement('span')
       meta.className = 'site-info__meta'
-      meta.textContent = `${level} / ${limit}　${developmentEffectText(kind)}${atLimit ? '' : `　下一级 ${cost} 金`}`
+      meta.textContent = atLimit
+        ? `${level} / ${limit}　${developmentEffectText(kind)}`
+        : `${level} / ${limit}　${developmentEffectText(kind)}　进度 ${progress}/${requirement}`
       info.append(name, meta)
 
       const button = document.createElement('button')
@@ -876,8 +943,9 @@ function renderDevelopmentList(
       button.textContent = atLimit ? '已满级' : ''
       if (!atLimit) {
         setActionButton(button, '建设', ACTION_COSTS.build, showCosts)
+        button.title = `耗 ${BUILD_COST} 金，派一名未行动的武将主持`
       }
-      button.disabled = atLimit || !affordable
+      button.disabled = atLimit || !affordable || !hasBuilder
 
       item.append(info, button)
       return item
@@ -885,11 +953,13 @@ function renderDevelopmentList(
   )
 }
 
-/** 命令弹窗的当前请求：进攻、防守、征兵、征粮与任命驻将，都以选将框为入口。 */
+/** 命令弹窗的当前请求：进攻、防守、征兵、征粮、赈济、建设与任命驻将，都以选将框为入口。 */
 interface OrderRequest {
-  kind: 'attack' | 'defense' | 'harvest' | 'recruit' | 'station'
-  /** 目标战略点；防守、任命、进攻必带，征兵与征粮自战略点窗口进入时也必带。 */
+  kind: 'attack' | 'defense' | 'harvest' | 'recruit' | 'relief' | 'build' | 'station'
+  /** 目标战略点；防守、任命、进攻必带，征兵、征粮、赈济与建设自战略点窗口进入时也必带。 */
   siteId?: SiteId
+  /** 建设的目标开发项。 */
+  developmentKind?: DevelopmentKind
   /** 防守时随附来犯的势力与已布好攻方的战斗，供弹窗显示敌情。 */
   defense?: DefenseRequest
 }
@@ -952,6 +1022,7 @@ function renderContacts(
       button.dataset.action = 'visit-character'
       button.dataset.character = character.id
       setActionButton(button, '再次拜访', ACTION_COSTS.visit, showCosts)
+      button.title = `应允出仕需聘金 ${hireCost(character)} 金`
 
       item.append(name, button)
 
@@ -1010,19 +1081,25 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
     defense: '防守',
     harvest: '征粮',
     recruit: '征兵',
+    relief: '赈济',
+    build: '建设',
     station: '驻将',
   }
+  const buildLabel =
+    request.developmentKind === undefined ? '内政' : DEVELOPMENT_LABELS[request.developmentKind]
   const targets: Record<OrderRequest['kind'], string> = {
     attack: '请选择武将',
     defense: defenseTarget,
     harvest:
       request.siteId === undefined
         ? '先择一处战略点，再派一名未行动的武将征粮'
-        : `在 ${name} 征粮，选一名未行动的武将`,
+        : `在 ${name} 征粮，选一名未行动的武将（该点人口会少量流失）`,
     recruit:
       request.siteId === undefined
         ? '先择一处战略点，再派一名未行动的武将征兵'
-        : `在 ${name} 征兵，选一名未行动的武将`,
+        : `在 ${name} 征兵，选一名未行动的武将（粮与金按统率折算）`,
+    relief: `在 ${name} 赈济，选一名未行动的武将（内政决定一粮养几口人）`,
+    build: `在 ${name} 兴修${buildLabel}，选一名未行动的武将主持（内政与兵力决定进度）`,
     station: `任命 ${name} 的驻将，每点至多一人`,
   }
   const submits: Record<OrderRequest['kind'], string> = {
@@ -1030,6 +1107,8 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
     defense: '迎战',
     harvest: '征粮',
     recruit: '征兵',
+    relief: '赈济',
+    build: '动工',
     station: '任命',
   }
 
@@ -1042,16 +1121,26 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
     request.kind !== 'attack' && request.kind !== 'defense'
   const countLabel = requireElement<HTMLElement>(root, '.order__count')
   countLabel.hidden = request.kind !== 'attack' && request.kind !== 'defense'
-  // 征兵、征粮自战略点窗口进入，关掉时回到那个窗口；进攻与防守改用「放弃战斗」。
+  // 征兵、征粮、赈济、建设与驻将任免自战略点窗口进入，关掉时回到那个窗口；进攻与防守改用「放弃战斗」。
   const closeLabel =
-    request.kind === 'harvest' || request.kind === 'recruit' ? '返回战略点' : '关闭'
+    request.kind === 'harvest' ||
+    request.kind === 'recruit' ||
+    request.kind === 'relief' ||
+    request.kind === 'build' ||
+    request.kind === 'station'
+      ? '返回战略点'
+      : '关闭'
   const closeOrder = requireElement<HTMLButtonElement>(root, '[data-action="close-order"]')
   closeOrder.textContent = closeLabel
   closeOrder.hidden = request.kind === 'attack' || request.kind === 'defense'
 
   const siteRow = requireElement<HTMLElement>(root, '.order__site-row')
   const siteSelect = requireElement<HTMLSelectElement>(root, '.order__site')
-  const isLogistics = request.kind === 'harvest' || request.kind === 'recruit'
+  const isLogistics =
+    request.kind === 'harvest' ||
+    request.kind === 'recruit' ||
+    request.kind === 'relief' ||
+    request.kind === 'build'
   // 从战略点窗口进来时城池已定，不再让玩家改选；旧入口仍可先选地点。
   siteRow.hidden = !isLogistics || request.siteId !== undefined
   if (!siteRow.hidden) {
@@ -1103,16 +1192,52 @@ function renderOrderDialog(root: HTMLElement, state: GameState, request: OrderRe
     return
   }
 
-  if (request.kind === 'harvest' || request.kind === 'recruit') {
+  if (
+    request.kind === 'harvest' ||
+    request.kind === 'recruit' ||
+    request.kind === 'relief' ||
+    request.kind === 'build'
+  ) {
+    const factionGrain =
+      state.factions.find((item) => item.id === state.playerFaction)?.grain ?? 0
+    // 结果都是浮动的，条目里标出可能的区间，免得玩家以为是定数。
+    const noteOf = (character: Character): string => {
+      if (request.kind === 'recruit') {
+        const [low, high] = amountRange(character.command * RECRUIT_TROOPS_PER_COMMAND)
+        return `约 ${low}–${high} 兵　粮 ${recruitGrainCost(character)}　金 ${recruitMoneyCost(character)}`
+      }
+      if (request.kind === 'harvest') {
+        const [low, high] = amountRange(harvestGrainBaseline(character))
+        return `约 ${low}–${high} 粮`
+      }
+      if (character.troops < 1) {
+        return request.kind === 'relief' ? '无兵，难有收效' : '无兵，难有进度'
+      }
+      if (request.kind === 'build') {
+        return `进度 约 +${buildProgressOf(character)}　金 ${BUILD_COST}`
+      }
+      const [low, high] = amountRange(reliefBaseline(character, factionGrain))
+      return `约 ${low}–${high} 人`
+    }
     const renderCandidates = (): void => {
-      const candidates = harvestCandidates(state).sort(
-        (a, b) => b.politics - a.politics,
+      const candidates = harvestCandidates(state).sort((a, b) =>
+        request.kind === 'recruit' ? b.command - a.command : b.politics - a.politics,
       )
+      const emptyText =
+        request.kind === 'harvest'
+          ? '暂无可征粮的武将'
+          : request.kind === 'recruit'
+            ? '暂无可征兵的武将'
+            : request.kind === 'build'
+              ? '暂无可主持建设的武将'
+              : '暂无可赈济的武将'
       list.replaceChildren(
         ...(candidates.length === 0
-          ? [createListItem('order__empty', request.kind === 'harvest' ? '暂无可征粮的武将' : '暂无可征兵的武将')]
+          ? [createListItem('order__empty', emptyText)]
           : candidates.map((character) =>
-              createSelectionItem(character, state.playerFaction, 'single', null),
+              createSelectionItem(character, state.playerFaction, 'single', null, {
+                note: noteOf(character),
+              }),
             )),
       )
     }
@@ -1190,6 +1315,8 @@ interface BattleStage {
   pickedSlot: number | null
   /** 阵型调整的提示。 */
   formationMessage: string
+  /** 犒军的回显；开战后不再显示。 */
+  feastNote: string
   /** 行动条是否已涨满；涨满后才亮起行动者与指令按钮。 */
   paceReady: boolean
   /** 是否自动打完；自动时我方也由规则层下令，条子与间隔减半。 */
@@ -1582,17 +1709,36 @@ function stageContent(state: GameState, stage: BattleStage, showBattleShortcuts:
   const targets = actor !== null && playable ? targetsFor(battle, actor) : []
 
   switch (stage.step) {
-    case 'deploy':
+    case 'deploy': {
+      const troops = battle[ours].units.reduce((total, unit) => total + unit.troops, 0)
+      const count = battle.feastCount[ours]
+      const cost = feastCost(troops, count)
+      const gold = state.factions.find((item) => item.id === state.playerFaction)?.money ?? 0
+      const canFeast = count < FEAST_LIMIT && battle[ours].morale < MORALE_CEILING
+      const feast = stageButton(
+        canFeast ? `犒军 ${cost} 金` : count >= FEAST_LIMIT ? '犒军已尽' : '士气已盛',
+        'stage-feast',
+      )
+      feast.disabled = !canFeast || gold < cost
+      feast.title = canFeast
+        ? `第 ${count + 1}/${FEAST_LIMIT} 次，士气 +${FEAST_MORALE_BONUS}（至 ${MORALE_CEILING}）`
+        : count >= FEAST_LIMIT
+          ? `本场已犒军 ${FEAST_LIMIT} 次`
+          : `士气已至上限 ${MORALE_CEILING}`
+
       return [
         stageLine(`两军对阵于 ${battle.siteName}，请先排列阵型。`, 'prompt'),
         stageLine('拖动或依次点选两个阵位即可互换；近战宜列前排，弓手可居后排。', 'note'),
         ...(stage.formationMessage === '' ? [] : [stageLine(stage.formationMessage, 'prompt')]),
+        ...(stage.feastNote === '' ? [] : [stageLine(stage.feastNote, 'note')]),
         createBattleField(state, stage, null, []),
         stageActions(
+          feast,
           stageButton('开战', 'stage-begin'),
           stageButton('放弃战斗', 'stage-abandon'),
         ),
       ]
+    }
 
     case 'fight': {
       const main = document.createElement('div')
@@ -1801,7 +1947,7 @@ function createListItem(className: string, text: string): HTMLLIElement {
 }
 
 /** 武将表的列数，供空表与跨列单元格使用。 */
-const ROSTER_COLUMNS = 9
+const ROSTER_COLUMNS = 10
 
 /** 表格中的单元格。 */
 function createTextCell(text: string, className = ''): HTMLTableCellElement {
@@ -1830,20 +1976,25 @@ function createOfficerNameCell(character: Character): HTMLTableCellElement {
   return cell
 }
 
-/** 操作单元格：遣散不计行动，始终可选；已行动者另标「已行动」。征兵入口在战略点窗口。 */
-function createOpsCell(
-  character: Character,
-  acted: boolean,
-  showCosts: boolean,
-): HTMLTableCellElement {
+/** 操作单元格：遣散不计行动，始终可选。征兵入口在战略点窗口。 */
+function createOpsCell(character: Character, showCosts: boolean): HTMLTableCellElement {
   const cell = document.createElement('td')
   const ops = document.createElement('div')
   ops.className = 'roster__ops'
 
-  const disband = createRosterAction('遣散', 'disband-open', character.id, ACTION_COSTS.disband, showCosts)
-
-  ops.append(...(acted ? [createDoneAction()] : []), disband)
+  ops.append(createRosterAction('遣散', 'disband-open', character.id, ACTION_COSTS.disband, showCosts))
   cell.append(ops)
+
+  return cell
+}
+
+/** 最右单元格：本季已行动者标「已行动」，其余留白。 */
+function createActedCell(acted: boolean): HTMLTableCellElement {
+  const cell = document.createElement('td')
+
+  if (acted) {
+    cell.append(createDoneAction())
+  }
 
   return cell
 }
@@ -1895,10 +2046,11 @@ function renderOfficers(list: Element, state: GameState, showCosts: boolean): nu
         createTextCell(String(officer.politics)),
         createTextCell(
           officer.stationedSiteId === null
-            ? '-'
+            ? '—'
             : (siteNames.get(officer.stationedSiteId) ?? '—'),
         ),
-        createOpsCell(officer, acted, showCosts),
+        createOpsCell(officer, showCosts),
+        createActedCell(acted),
       )
 
       return row
@@ -2085,6 +2237,7 @@ function renderAllCharacters(list: Element, state: GameState): number {
         createTextCell(String(character.politics)),
         createTextCell(CHARACTER_STATUS_LABELS[character.status]),
         createTextCell(faction, faction === '—' ? 'roster__muted' : ''),
+        createTextCell(''),
       )
 
       return row
@@ -2321,7 +2474,7 @@ function developmentEffectText(kind: DevelopmentKind): string {
   if (kind === 'market') {
     return `税收 +${Math.round(MONEY_BONUS_PER_MARKET_LEVEL * 100)}%`
   }
-  return `人口 +${POPULATION_PER_HOUSING}`
+  return `上限 +${POPULATION_PER_HOUSING}　增长 +${(HOUSING_GROWTH_BONUS * 100).toFixed(1)}%`
 }
 
 /** 外交弹窗可用的一项动作；`cost` 为该动作的行动力消耗。 */
@@ -2695,7 +2848,6 @@ export function mountGameShell(
     }
 
     setActionCost('attack-here', String(ACTION_COSTS.attack), `${ACTION_COSTS.attack} 行动力`)
-    setActionCost('station-here', String(ACTION_COSTS.station), `${ACTION_COSTS.station} 行动力`)
     setActionCost('seek-here', String(ACTION_COSTS.seekTalent), `${ACTION_COSTS.seekTalent} 行动力`)
   }
 
@@ -2965,6 +3117,7 @@ export function mountGameShell(
       lastAction: null,
       pickedSlot: null,
       formationMessage: '',
+      feastNote: '',
       paceReady: false,
       auto: false,
     }
@@ -3191,7 +3344,7 @@ export function mountGameShell(
     startBattleStage('defense', request.battle)
   }
 
-  /** 关掉命令弹窗；迎战编成放弃即失守，征兵与征粮则回到战略点窗口。 */
+  /** 关掉命令弹窗；迎战编成放弃即失守，征兵、征粮、赈济、建设与驻将任免则回到战略点窗口。 */
   const abandonOrder = (): void => {
     if (orderRequest?.kind === 'defense') {
       const request = orderRequest.defense
@@ -3204,7 +3357,11 @@ export function mountGameShell(
     }
 
     const backSiteId =
-      orderRequest?.kind === 'harvest' || orderRequest?.kind === 'recruit'
+      orderRequest?.kind === 'harvest' ||
+      orderRequest?.kind === 'recruit' ||
+      orderRequest?.kind === 'relief' ||
+      orderRequest?.kind === 'build' ||
+      orderRequest?.kind === 'station'
         ? orderRequest.siteId
         : undefined
     orderDialog.close()
@@ -3260,7 +3417,7 @@ export function mountGameShell(
     const kind = orderRequest.kind
     const siteSelect = requireElement<HTMLSelectElement>(root, '.order__site')
     const siteId =
-      kind === 'harvest' || kind === 'recruit'
+      kind === 'harvest' || kind === 'recruit' || kind === 'relief' || kind === 'build'
         ? (orderRequest.siteId ?? siteSelect.value)
         : (orderRequest.siteId ?? '')
 
@@ -3296,6 +3453,29 @@ export function mountGameShell(
       return
     }
 
+    if (kind === 'build') {
+      const selected = orderList.querySelector<HTMLInputElement>('.picker__checkbox:checked')
+      const developmentKind = orderRequest.developmentKind
+      if (selected === null || developmentKind === undefined) {
+        return
+      }
+
+      const result = session.build(siteId, developmentKind, selected.value)
+      if (!result.ok) {
+        orderStatus.textContent = result.reason
+        return
+      }
+
+      // 结果回显到战略点窗口。
+      orderStatus.textContent = ''
+      buildMessage = result.record.outcome
+      orderDialog.close()
+      buildSiteId = siteId
+      paint(session.getState())
+      siteInfoDialog.showModal()
+      return
+    }
+
     if (kind === 'station') {
       const selected = orderList.querySelector<HTMLInputElement>('.picker__checkbox:checked')
       const result = session.assignStation(siteId, selected?.value || null)
@@ -3304,9 +3484,13 @@ export function mountGameShell(
         return
       }
 
-      siteMessage = result.record.outcome
+      // 结果回显到战略点窗口。
+      orderStatus.textContent = ''
+      buildMessage = result.record.outcome
       orderDialog.close()
+      buildSiteId = siteId
       paint(session.getState())
+      siteInfoDialog.showModal()
       return
     }
 
@@ -3315,8 +3499,11 @@ export function mountGameShell(
       return
     }
 
-    if (kind === 'harvest') {
-      const result = session.harvestGrain(siteId, selected.value)
+    if (kind === 'harvest' || kind === 'relief') {
+      const result =
+        kind === 'harvest'
+          ? session.harvestGrain(siteId, selected.value)
+          : session.relief(siteId, selected.value)
       if (!result.ok) {
         orderStatus.textContent = result.reason
         return
@@ -3384,6 +3571,14 @@ export function mountGameShell(
     }
 
     const action = button.dataset.action
+    if (action === 'stage-feast') {
+      const result = session.feast(battleStage.battle)
+      battleStage.feastNote = result.ok
+        ? `犒军 ${result.cost} 金，本场士气 +${FEAST_MORALE_BONUS}`
+        : result.reason
+      paint(session.getState())
+      return
+    }
     if (action === 'stage-begin') {
       beginBattle()
       return
@@ -3695,8 +3890,6 @@ export function mountGameShell(
 
     if (action === 'attack-here') {
       orderRequest = { kind: 'attack', siteId }
-    } else if (action === 'station-here') {
-      orderRequest = { kind: 'station', siteId }
     } else {
       return
     }
@@ -3706,7 +3899,7 @@ export function mountGameShell(
     orderDialog.showModal()
   })
 
-  /** 战略点窗口里的建设：按所选开发项建设，刷新等级、金钱与产出。 */
+  /** 战略点窗口里的建设：先选开发项，再挑一名武将主持。 */
   siteInfoList.addEventListener('click', (event) => {
     const button = actionButtonOf(event)
     const kind = button?.dataset.kind
@@ -3718,16 +3911,41 @@ export function mountGameShell(
       return
     }
 
-    const result = session.build(buildSiteId, kind as DevelopmentKind)
-    buildMessage = result.ok ? result.record.outcome : result.reason
+    siteInfoDialog.close()
+    buildMessage = ''
+    orderRequest = {
+      kind: 'build',
+      siteId: buildSiteId,
+      developmentKind: kind as DevelopmentKind,
+    }
+    orderStatus.textContent = ''
     paint(session.getState())
+    orderDialog.showModal()
   })
 
-  /** 战略点窗口里的征兵、征粮：带着当前城池直接进入选将。 */
+  /** 战略点窗口里的征兵、征粮、赈济与驻将任免：带着当前城池直接进入选将。 */
   siteInfoDialog.addEventListener('click', (event) => {
     const button = actionButtonOf(event)
     const action = button?.dataset.action
-    if (button === null || (action !== 'recruit-here' && action !== 'harvest-here')) {
+    if (button === null || action === undefined) {
+      return
+    }
+
+    if (action === 'station-here') {
+      const siteId = button.dataset.site ?? buildSiteId
+      if (siteId === null || siteId === undefined) {
+        return
+      }
+      siteInfoDialog.close()
+      buildMessage = ''
+      orderRequest = { kind: 'station', siteId }
+      orderStatus.textContent = ''
+      paint(session.getState())
+      orderDialog.showModal()
+      return
+    }
+
+    if (action !== 'recruit-here' && action !== 'harvest-here' && action !== 'relief-here') {
       return
     }
 
@@ -3739,7 +3957,8 @@ export function mountGameShell(
     siteInfoDialog.close()
     buildMessage = ''
     orderRequest = {
-      kind: action === 'recruit-here' ? 'recruit' : 'harvest',
+      kind:
+        action === 'recruit-here' ? 'recruit' : action === 'harvest-here' ? 'harvest' : 'relief',
       siteId,
     }
     orderStatus.textContent = ''

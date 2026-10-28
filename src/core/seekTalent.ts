@@ -3,7 +3,16 @@ import { affinityToward, joinLoyaltyFor, recruitmentFactor } from './affinity'
 import { isTierAvailable, provinceControl } from './cardPool'
 import { CHARACTER_LIMIT, countServing, isRecruitable, recruitProvinceOf } from './characters'
 import { TROOPS_LIMIT_PER_COMMAND } from './military'
-import type { Character, CharacterId, FactionId, GameState, Personality, Site, SiteId } from './model'
+import type {
+  Character,
+  CharacterId,
+  CharacterTier,
+  FactionId,
+  GameState,
+  Personality,
+  Site,
+  SiteId,
+} from './model'
 import type { Random } from './random'
 
 /**
@@ -26,6 +35,21 @@ const VISIT_GAIN_MAX = 15
 /** 某性格的基准招聘成功率。 */
 export function baseRecruitRate(personality: Personality): number {
   return BASE_RECRUIT_RATE[personality]
+}
+
+/**
+ * 聘金：招到人时按层级支付，层级越高越贵。
+ * 人是本作最稀缺的资产，黄金由此直接接进名册。
+ */
+const HIRE_COST_BY_TIER: Record<CharacterTier, number> = {
+  basic: 200,
+  second: 400,
+  third: 800,
+}
+
+/** 招聘某人应付的聘金；无层级的在野者不收。 */
+export function hireCost(character: Character): number {
+  return character.tier === null ? 0 : HIRE_COST_BY_TIER[character.tier]
 }
 
 /** 招聘某人的成功率：性格基准 × 对发起势力的偏好系数，夹在 0–1 之间，偏好越高越易招到。 */
@@ -112,7 +136,7 @@ function join(state: GameState, character: Character, factionId: FactionId): voi
 /**
  * 人才寻访：在指定势力自有的战略点就地发起，候选取自该战略点所在的州中层级已放出的在野者，
  * 已经认得路的（接触过、会面之处仍在手）不再入池，那些人走「拜访」。
- * 抽到一人后判定招聘——性格基准 × 偏好系数：成则入仕，败则记下会面之处，可日后再次拜访。
+ * 抽到一人后判定招聘——性格基准 × 偏好系数：成则付聘金入仕，败则记下会面之处，可日后再次拜访。
  * 抽取与判定只消耗传入的抽卡随机源，与模拟随机源互不干扰。缺省为玩家势力发起。
  */
 export function seekTalent(
@@ -157,15 +181,26 @@ export function seekTalent(
         return { targetId: site.id, outcome: `寻访到 ${picked.name}，但他不愿出仕` }
       }
 
+      const cost = hireCost(picked)
+      const faction = current.factions.find((item) => item.id === factionId)
+      if (faction === undefined || faction.money < cost) {
+        markContacted(current, factionId, picked.id, site.id)
+        return {
+          targetId: site.id,
+          outcome: `寻访到 ${picked.name}，愿仕，但聘金不足（需 ${cost} 金）`,
+        }
+      }
+
       join(current, picked, factionId)
-      return { targetId: site.id, outcome: `招募 ${picked.name}` }
+      faction.money -= cost
+      return { targetId: site.id, outcome: `招募 ${picked.name}（聘金 −${cost}）` }
     },
   })
 }
 
 /**
- * 拜访一位已接触的在野者：花行动力，使其对己方的偏好随机上升，然后重新判定招聘。
- * 用于寻访未果之后再次争取；未招到之前他仍在野，其他势力也可能把他招走。
+ * 拜访一位已接触的在野者：花行动力，使其对己方的偏好随机上升，然后重新判定招聘；
+ * 招到时同样付聘金。未招到之前他仍在野，其他势力也可能把他招走。
  */
 export function visit(
   state: GameState,
@@ -215,8 +250,18 @@ export function visit(
         return { targetId: character.id, outcome: `拜访 ${character.name}，意愿上升，但仍未应允` }
       }
 
+      const cost = hireCost(character)
+      const faction = current.factions.find((item) => item.id === factionId)
+      if (faction === undefined || faction.money < cost) {
+        return {
+          targetId: character.id,
+          outcome: `${character.name} 愿仕，但聘金不足（需 ${cost} 金）`,
+        }
+      }
+
       join(current, character, factionId)
-      return { targetId: character.id, outcome: `${character.name} 应允出仕` }
+      faction.money -= cost
+      return { targetId: character.id, outcome: `${character.name} 应允出仕（聘金 −${cost}）` }
     },
   })
 }

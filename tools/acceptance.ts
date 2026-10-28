@@ -17,9 +17,8 @@ import {
 import { isRecruitable } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import { granaryOf } from '../src/core/granary'
+import { BUILD_COST, build } from '../src/core/construction'
 import {
-  build,
-  buildCost,
   DEVELOPMENT_KINDS,
   developmentLevel,
   developmentLimit,
@@ -258,7 +257,7 @@ function developmentSiteOf(state: GameState, kind: DevelopmentKind): Site | null
       (item) =>
         item.owner === player &&
         developmentLevel(item, kind) < developmentLimit(item) &&
-        money >= buildCost(item, kind),
+        money >= BUILD_COST,
     )
     .sort((a, b) => b.population - a.population)[0]
 
@@ -588,6 +587,12 @@ function runPlaythrough(scenario: Scenario): Playthrough {
         break
       }
 
+      // 留出一次出征的粮：军粮按兵力逐季扣，征兵不能把粮吃到见底。
+      const reserve = attackGrainCost(factionTroops(state, player))
+      if (grain - recruitGrainCost(recruiter) < reserve) {
+        break
+      }
+
       const result = recruit(state, recruitSite.id, recruiter.id)
       if (!result.ok) {
         break
@@ -631,8 +636,11 @@ function runPlaythrough(scenario: Scenario): Playthrough {
       } else {
         const kind = DEVELOPMENT_KINDS[buildCycle % DEVELOPMENT_KINDS.length]
         const site = kind === undefined ? null : developmentSiteOf(state, kind)
-        if (kind !== undefined && site !== null) {
-          const result = build(state, site.id, kind)
+        const builder = readyOfficers(state, player)
+          .filter((item) => item.troops > 0)
+          .sort((a, b) => b.politics - a.politics)[0]
+        if (kind !== undefined && site !== null && builder !== undefined) {
+          const result = build(state, site.id, kind, builder.id)
           if (result.ok) {
             buildCycle += 1
             actions.push(result.record.outcome)

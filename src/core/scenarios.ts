@@ -22,7 +22,7 @@ export const SANGUO_208: Scenario = {
   factions: [
     { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 20000, money: 20000 },
     { id: 'sunquan', name: '孙权', color: '#b0413e', grain: 12000, money: 10000 },
-    { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 6000, money: 3000 },
+    { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 3000, money: 3000 },
     { id: 'liuzhang', name: '刘璋', color: '#8160a3', grain: 14000, money: 9000 },
     { id: 'zhanglu', name: '张鲁', color: '#c2a342', grain: 7000, money: 5000 },
     { id: 'mateng', name: '马腾', color: '#c26a33', grain: 6000, money: 3000 },

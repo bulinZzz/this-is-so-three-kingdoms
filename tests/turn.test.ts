@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import { DESERTION_SHARE, granaryIncome, troopUpkeep } from '../src/core/economy'
-import { factionTroops, TROOPS_LIMIT_GROWTH_PER_COMMAND, troopLimit } from '../src/core/military'
+import {
+  factionTroops,
+  troopGrowth,
+  TROOPS_LIMIT_GROWTH_PER_COMMAND,
+  troopLimit,
+} from '../src/core/military'
 import { advanceTurn, resolveFactionOrder } from '../src/core/turn'
 
 describe('advanceTurn', () => {
@@ -121,7 +126,7 @@ describe('advanceTurn', () => {
     expect(faction.grain).toBe(Math.max(0, before + income - upkeep))
   })
 
-  it('结束回合不改变兵力：兵只从征兵来，只有带兵上限随季提高', () => {
+  it('结束回合时兵力与带兵上限同幅增长', () => {
     const state = createInitialState({ seed: 208 })
     const serving = state.characters.filter(
       (character) => character.status === 'serving' && character.factionId === 'liubei',
@@ -132,9 +137,10 @@ describe('advanceTurn', () => {
     advanceTurn(state)
 
     for (const character of serving) {
-      expect(character.troops).toBe(before.get(character.id) ?? 0)
-      expect(troopLimit(character)).toBe(
-        (limits.get(character.id) ?? 0) + character.command * TROOPS_LIMIT_GROWTH_PER_COMMAND,
+      const growth = character.command * TROOPS_LIMIT_GROWTH_PER_COMMAND
+      expect(troopLimit(character)).toBe((limits.get(character.id) ?? 0) + growth)
+      expect(character.troops).toBe(
+        Math.min(troopLimit(character), (before.get(character.id) ?? 0) + growth),
       )
     }
   })
@@ -176,12 +182,13 @@ describe('advanceTurn', () => {
     }
     faction.grain = 0
     const troopsBefore = factionTroops(state, 'liubei')
+    const growth = troopGrowth(state, 'liubei')
 
     advanceTurn(state)
 
     expect(faction.grain).toBe(0)
     expect(factionTroops(state, 'liubei')).toBe(
-      troopsBefore - Math.ceil(troopsBefore * DESERTION_SHARE),
+      troopsBefore - Math.ceil(troopsBefore * DESERTION_SHARE) + growth,
     )
     expect(
       state.geography.sites

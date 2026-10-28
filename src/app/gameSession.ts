@@ -3,6 +3,7 @@ import {
   autoAction,
   cancelAttack as runCancelAttack,
   deployDefenders,
+  feastBattle as runFeastBattle,
   finishBattle,
   openAttack,
   resolveAction,
@@ -15,7 +16,7 @@ import {
 } from '../core/battle'
 import { executeCaptive as runExecuteCaptive, persuade as runPersuade, releaseCaptive as runReleaseCaptive } from '../core/captives'
 import { createInitialState } from '../core/createInitialState'
-import { build as runBuild } from '../core/development'
+import { build as runBuild } from '../core/construction'
 import {
   alliance as runAlliance,
   declareWar as runDeclareWar,
@@ -24,6 +25,7 @@ import {
   makePeace as runMakePeace,
 } from '../core/diplomacy'
 import { LocalSaveStore } from '../core/localSaveStore'
+import { relief as runRelief } from '../core/economy'
 import { strengthen as runStrengthen } from '../core/growth'
 import { assignStation as runAssignStation, harvestGrain as runHarvestGrain, recruit as runRecruit } from '../core/military'
 import type { AbilityKind, CharacterId, DevelopmentKind, FactionId, GameState, Scenario, SiteId } from '../core/model'
@@ -175,6 +177,11 @@ export class GameSession {
     return this.apply(runHarvestGrain(this.state, siteId, characterId))
   }
 
+  /** 在本方某处战略点投粮赈济，由名册中选一名武将执行；成功后通知界面。 */
+  relief(siteId: SiteId, characterId: CharacterId): ActionResult {
+    return this.apply(runRelief(this.state, siteId, characterId))
+  }
+
   /** 任命或撤换某点的驻将；传 null 表示撤下现任。成功后通知界面。 */
   assignStation(siteId: SiteId, characterId: CharacterId | null): ActionResult {
     return this.apply(runAssignStation(this.state, siteId, characterId))
@@ -200,9 +207,9 @@ export class GameSession {
     return this.apply(runDisband(this.state, characterId, remaining))
   }
 
-  /** 在自有战略点建设一项内政（农田、市集或民居）；成功后通知界面。 */
-  build(siteId: SiteId, kind: DevelopmentKind): ActionResult {
-    return this.apply(runBuild(this.state, siteId, kind))
+  /** 在自有战略点建设一项内政（农田、市集或民居），由名册中选一名武将主持；成功后通知界面。 */
+  build(siteId: SiteId, kind: DevelopmentKind, characterId: CharacterId): ActionResult {
+    return this.apply(runBuild(this.state, siteId, kind, characterId))
   }
 
   /**
@@ -211,6 +218,16 @@ export class GameSession {
    */
   attack(targetSiteId: SiteId, deployments: readonly BattleDeployment[]): BattleOpenResult {
     const result = openAttack(this.state, targetSiteId, deployments)
+    if (result.ok) {
+      this.notify()
+    }
+
+    return result
+  }
+
+  /** 开战前犒军：花金提振本场士气，可连投至上限；成功后通知界面。 */
+  feast(battle: BattleState): { ok: true; cost: number } | { ok: false; reason: string } {
+    const result = runFeastBattle(this.state, battle)
     if (result.ok) {
       this.notify()
     }

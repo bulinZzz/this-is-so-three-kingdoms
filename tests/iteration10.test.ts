@@ -4,7 +4,7 @@ import { autoDeployment } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
 import { granaryOf } from '../src/core/granary'
 import { ABILITY_MAX, BOOST_GAIN, EXP_PER_BOOST, LOSS_EXP, WIN_EXP, boostCredits, strengthen } from '../src/core/growth'
-import { factionTroops } from '../src/core/military'
+import { factionTroops, troopGrowth } from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
@@ -46,8 +46,8 @@ function j10Scenario(): Scenario {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 2000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 2000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 100000, grain: 2000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 100000, grain: 2000 },
     ],
     relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
     geography: {
@@ -144,10 +144,11 @@ describe('迭代 10 全链（无画面）', () => {
     expect(expOf(warrior)).toBe(WIN_EXP)
     expect(expOf(characterOf(state, 'defender'))).toBe(LOSS_EXP)
 
-    // 结束回合：粮足则照付军粮，不产生逃兵。
+    // 结束回合：粮足则照付军粮，不产生逃兵，兵力随上限自增。
     const troopsBeforeSettle = factionTroops(state, 'liubei')
+    const growth = troopGrowth(state, 'liubei')
     session.endTurn()
-    expect(factionTroops(state, 'liubei')).toBe(troopsBeforeSettle)
+    expect(factionTroops(state, 'liubei')).toBe(troopsBeforeSettle + growth)
     expect(state.history.some((record) => record.kind === 'desertion')).toBe(false)
   })
 

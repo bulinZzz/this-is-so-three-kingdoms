@@ -4,12 +4,13 @@ import { ACTION_COSTS } from '../src/core/actions'
 import { autoDeployment } from '../src/core/battle'
 import { validateCharacters } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
-import { troopUpkeep } from '../src/core/economy'
+import { DESERTION_SHARE, troopUpkeep } from '../src/core/economy'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import {
   attackGrainCost,
   factionTroops,
   RECRUIT_TROOPS_PER_COMMAND,
+  troopGrowth,
 } from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
@@ -69,8 +70,8 @@ function loopScenario(): Scenario {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 10000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 10000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 100000, grain: 10000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 100000, grain: 10000 },
     ],
     relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
     geography: {
@@ -379,8 +380,8 @@ function economyScenario(): Scenario {
     startDate: { era: '建安', year: 13, season: 'autumn' },
     playerFaction: 'liubei',
     factions: [
-      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 5000 },
-      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 5000 },
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 100000, grain: 5000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 100000, grain: 5000 },
     ],
     relations: [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }],
     geography: {
@@ -445,15 +446,15 @@ describe('粮草收支（无画面）', () => {
     expect(session.harvestGrain('a', 'farmer').ok).toBe(true)
     expect(playerGrain(state)).toBeGreaterThan(grainBefore)
 
-    // 征兵：产量为统率 × 10，上下浮动 1/4；所征之兵自该点人口中扣除。
+    // 征兵：产量为统率 × 10，上下浮动一成；所征之兵自该点人口中扣除。
     const recruiter = characterOf(state, 'recruiter')
     const troopsBefore = recruiter.troops
     const recruitPopulationBefore = siteOf(state, 'a').population
     const baseline = recruiter.command * RECRUIT_TROOPS_PER_COMMAND
     expect(session.recruit('a', 'recruiter').ok).toBe(true)
     const gained = recruiter.troops - troopsBefore
-    expect(gained).toBeGreaterThanOrEqual(Math.round(baseline * 0.75))
-    expect(gained).toBeLessThanOrEqual(Math.round(baseline * 1.25))
+    expect(gained).toBeGreaterThanOrEqual(Math.round(baseline * 0.9))
+    expect(gained).toBeLessThanOrEqual(Math.round(baseline * 1.1))
     expect(siteOf(state, 'a').population).toBe(recruitPopulationBefore - gained)
 
     // 出征：按投入兵力耗粮，交战并攻下乙城。
@@ -490,6 +491,7 @@ describe('粮草收支（无画面）', () => {
     }
     faction.grain = 0
     const troopsBefore = factionTroops(state, 'liubei')
+    const growth = troopGrowth(state, 'liubei')
 
     session.endTurn()
 
@@ -497,7 +499,9 @@ describe('粮草收支（无画面）', () => {
     expect(
       state.history.some((record) => record.kind === 'desertion' && record.factionId === 'liubei'),
     ).toBe(true)
-    expect(factionTroops(state, 'liubei')).toBe(troopsBefore - Math.ceil(troopsBefore * 0.1))
+    expect(factionTroops(state, 'liubei')).toBe(
+      troopsBefore - Math.ceil(troopsBefore * DESERTION_SHARE) + growth,
+    )
     expect(playerGrain(state)).toBe(0)
   })
 

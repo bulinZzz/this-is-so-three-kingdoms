@@ -5,21 +5,23 @@ import { granaryOf } from '../src/core/granary'
 import {
   assignStation,
   factionTroops,
-  GRAIN_HARVEST_FULL_TROOPS,
   GRAIN_HARVEST_PER_POLITICS,
   harvestGrain,
   harvestGrainBaseline,
   hasActedThisTurn,
   isFactionDestroyed,
   markActed,
+  POPULATION_LOSS_PER_GRAIN,
   readyOfficers,
   RECRUIT_TROOPS_PER_COMMAND,
   recruit,
   recruitGrainCost,
+  recruitMoneyCost,
   removeTroops,
   resettleTroops,
   troopLimit,
 } from '../src/core/military'
+import { LOGISTICS_FULL_TROOPS } from '../src/core/logistics'
 import type { FactionId, GameState } from '../src/core/model'
 import { advanceTurn } from '../src/core/turn'
 
@@ -48,10 +50,11 @@ function siteOf(state: GameState, id: string) {
 }
 
 describe('征兵', () => {
-  it('在本方战略点征兵：兵力按统率浮动、粮食按统率基准扣除，扣行动力并写记录', () => {
+  it('在本方战略点征兵：兵力按统率浮动、粮与金按统率基准扣除，扣行动力并写记录', () => {
     const state = createInitialState({ seed: 208 })
     const guanyu = characterOf(state, 'guanyu')
     const grainBefore = factionOf(state, 'liubei').grain
+    const moneyBefore = factionOf(state, 'liubei').money
     const baseline = guanyu.command * RECRUIT_TROOPS_PER_COMMAND
     const populationBefore = siteOf(state, 'gongan').population
 
@@ -63,12 +66,24 @@ describe('征兵', () => {
       expect(result.record.targetId).toBe('gongan')
     }
     const gained = guanyu.troops - 1000
-    expect(gained).toBeGreaterThanOrEqual(Math.round(baseline * 0.75))
-    expect(gained).toBeLessThanOrEqual(Math.round(baseline * 1.25))
+    expect(gained).toBeGreaterThanOrEqual(Math.round(baseline * 0.9))
+    expect(gained).toBeLessThanOrEqual(Math.round(baseline * 1.1))
     expect(siteOf(state, 'gongan').population).toBe(populationBefore - gained)
     expect(factionOf(state, 'liubei').grain).toBe(grainBefore - recruitGrainCost(guanyu))
+    expect(factionOf(state, 'liubei').money).toBe(moneyBefore - recruitMoneyCost(guanyu))
     expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.recruit)
     expect(state.history).toHaveLength(1)
+  })
+
+  it('金钱不足时拒绝，不扣行动力也不改兵力', () => {
+    const state = createInitialState({ seed: 208 })
+    const guanyu = characterOf(state, 'guanyu')
+    factionOf(state, 'liubei').money = recruitMoneyCost(guanyu) - 1
+
+    expect(recruit(state, 'gongan', 'guanyu')).toEqual({ ok: false, reason: '金钱不足' })
+    expect(guanyu.troops).toBe(1000)
+    expect(state.actionPoints[state.playerFaction]).toBe(ACTION_POINTS_PER_TURN)
+    expect(state.history).toEqual([])
   })
 
   it('一次征兵不超过该点现有人口，人口随之归零', () => {
@@ -130,7 +145,7 @@ describe('征兵', () => {
     expect(recruit(state, 'gongan', 'guanyu')).toEqual({ ok: false, reason: '关羽 本回合已行动' })
   })
 
-  it('补到带兵上限为止本季不能再征；上限随季增长后可再征', () => {
+  it('兵力随带兵上限同幅自增，满员者翻季后仍满员，不能靠上限增长挤出征兵空间', () => {
     const state = createInitialState({ seed: 208 })
     const guanyu = characterOf(state, 'guanyu')
     const limit = troopLimit(guanyu)
@@ -143,19 +158,22 @@ describe('征兵', () => {
 
     advanceTurn(state)
 
-    // 上限随季小幅提高，兵力却一兵不增，于是又能再征。
+    // 上限与兵力同幅提高，缺口不因翻季而缩小。
     expect(troopLimit(guanyu)).toBeGreaterThan(limit)
-    expect(guanyu.troops).toBe(limit)
-    expect(recruit(state, 'gongan', 'guanyu').ok).toBe(true)
+    expect(guanyu.troops).toBe(troopLimit(guanyu))
+    expect(recruit(state, 'gongan', 'guanyu')).toEqual({
+      ok: false,
+      reason: '关羽 已达带兵上限',
+    })
   })
 
   it('驻将照样可以征兵，征兵后本季已行动', () => {
     const state = createInitialState({ seed: 208 })
-    const liubei = characterOf(state, 'liubei')
+    const liuqi = characterOf(state, 'liuqi')
 
-    expect(liubei.stationedSiteId).not.toBeNull()
-    expect(recruit(state, 'gongan', 'liubei').ok).toBe(true)
-    expect(hasActedThisTurn(state, 'liubei')).toBe(true)
+    expect(liuqi.stationedSiteId).toBe('jiangxia')
+    expect(recruit(state, 'jiangxia', 'liuqi').ok).toBe(true)
+    expect(hasActedThisTurn(state, 'liuqi')).toBe(true)
   })
 })
 
@@ -223,6 +241,7 @@ describe('征粮', () => {
     const site = siteOf(state, 'gongan')
     const grainBefore = factionOf(state, 'liubei').grain
     const granaryBefore = granaryOf(site)
+    const populationBefore = site.population
     const baseline = harvestGrainBaseline(zhugeliang)
 
     const result = harvestGrain(state, 'gongan', 'zhugeliang')
@@ -236,7 +255,7 @@ describe('征粮', () => {
       Math.round(
         zhugeliang.politics *
           GRAIN_HARVEST_PER_POLITICS *
-          Math.min(1, zhugeliang.troops / GRAIN_HARVEST_FULL_TROOPS),
+          Math.min(1, zhugeliang.troops / LOGISTICS_FULL_TROOPS),
       ),
     )
     const gained = factionOf(state, 'liubei').grain - grainBefore
@@ -244,6 +263,7 @@ describe('征粮', () => {
     expect(gained).toBeGreaterThan(0)
     expect(gained).toBeLessThanOrEqual(granaryBefore)
     expect(granaryOf(site)).toBe(granaryBefore - gained)
+    expect(site.population).toBe(populationBefore - Math.round(gained * POPULATION_LOSS_PER_GRAIN))
     expect(hasActedThisTurn(state, 'zhugeliang')).toBe(true)
     expect(state.actionPoints[state.playerFaction]).toBe(
       ACTION_POINTS_PER_TURN - ACTION_COSTS.harvestGrain,
@@ -258,7 +278,7 @@ describe('征粮', () => {
     zhugeliang.troops = 0
     expect(harvestGrainBaseline(zhugeliang)).toBe(0)
 
-    zhugeliang.troops = GRAIN_HARVEST_FULL_TROOPS
+    zhugeliang.troops = LOGISTICS_FULL_TROOPS
     expect(harvestGrainBaseline(zhugeliang)).toBeGreaterThan(withTroops)
   })
 

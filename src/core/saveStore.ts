@@ -6,7 +6,7 @@ import type { GameDate, GameState } from './model'
  * 存档内含整份地理归属与人物处境；武将调度与战斗重做后，人物的兵种、驻守含义与战斗记录都已不同，
  * 旧存档随这一版失效。
  */
-export const SCHEMA_VERSION = 100
+export const SCHEMA_VERSION = 101
 
 /** 手动存档槽位数量，槽位编号从 1 开始。 */
 export const SLOT_COUNT = 10

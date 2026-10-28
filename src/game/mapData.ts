@@ -36,6 +36,8 @@ export const SITE_COORDINATES: Record<SiteId, LonLat> = {
   // 幽州（柳城、辽东）
   liucheng: [120.45, 41.55],
   xiangping: [123.17, 41.28],
+  // 玄菟郡治高句丽县，在襄平东北的辽东腹地。
+  xuantu: [124.3, 41.9],
   // 柳城与右北平是襄平西出蓟的两处中转。
   youbeiping: [119.0, 40.95],
 

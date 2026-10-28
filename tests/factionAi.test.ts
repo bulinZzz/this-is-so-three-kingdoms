@@ -3,7 +3,7 @@ import { createInitialState } from '../src/core/createInitialState'
 import { declareWar } from '../src/core/diplomacy'
 import { DESERTION_SHARE } from '../src/core/economy'
 import { runFactionTurns } from '../src/core/factionAi'
-import { factionTroops } from '../src/core/military'
+import { factionTroops, troopGrowth } from '../src/core/military'
 import type { Scenario } from '../src/core/model'
 import { relationBetween } from '../src/core/relations'
 import { SANGUO_208, SANGUO_ACCEPTANCE } from '../src/core/scenarios'
@@ -65,6 +65,7 @@ describe('势力自主行动', () => {
     }
     caocao.grain = 0
     const troopsBefore = factionTroops(state, 'caocao')
+    const growth = troopGrowth(state, 'caocao')
 
     advanceTurn(state)
 
@@ -72,7 +73,7 @@ describe('势力自主行动', () => {
       state.history.some((record) => record.kind === 'desertion' && record.factionId === 'caocao'),
     ).toBe(true)
     expect(factionTroops(state, 'caocao')).toBe(
-      troopsBefore - Math.ceil(troopsBefore * DESERTION_SHARE),
+      troopsBefore - Math.ceil(troopsBefore * DESERTION_SHARE) + growth,
     )
     expect(caocao.grain).toBe(0)
   })
@@ -133,6 +134,63 @@ function warScene() {
 
   return createInitialState({ scenario, seed: 208 })
 }
+
+/** 一座空置的城与一名不带兵的文官：他方应当把文官派去驻守。 */
+function garrisonScene() {
+  const scenario: Scenario = {
+    id: 'garrison-ai',
+    name: '补驻将',
+    startDate: { era: '建安', year: 13, season: 'autumn' },
+    playerFaction: 'liubei',
+    factions: [
+      { id: 'liubei', name: '刘备', color: '#3f7a5a', money: 0, grain: 10000 },
+      { id: 'caocao', name: '曹操', color: '#3d6ea8', money: 0, grain: 10000 },
+    ],
+    geography: {
+      provinces: [{ id: 'p', name: '州', owner: null }],
+      sites: [
+        { id: 'a', name: '甲城', type: 'city', population: 50000, provinceId: 'p', owner: 'liubei', neighbors: ['b'] },
+        { id: 'b', name: '乙城', type: 'city', population: 50000, provinceId: 'p', owner: 'caocao', neighbors: ['a'] },
+      ],
+    },
+    characters: [
+      {
+        id: 'lord', name: '甲将', status: 'serving', factionId: 'liubei', provinceId: 'p',
+        scope: ['a'],
+        might: 60, command: 60, intellect: 50, politics: 50, age: 40, personality: 'steady',
+        affinities: {}, loyalty: 90, isMonarch: true, armType: 'infantry', stationedSiteId: 'a', troops: 500, tier: null,
+      },
+      {
+        id: 'clerk', name: '乙文', status: 'serving', factionId: 'caocao', provinceId: 'p',
+        scope: ['b'],
+        might: 30, command: 60, intellect: 70, politics: 70, age: 40, personality: 'steady',
+        affinities: {}, loyalty: 90, isMonarch: false, armType: 'infantry', stationedSiteId: null, troops: 0, tier: null,
+      },
+    ],
+  }
+
+  return createInitialState({ scenario, seed: 208 })
+}
+
+describe('他方补齐驻将', () => {
+  it('空置的据点会派无兵的部属去守，并扣一点行动力', () => {
+    const state = garrisonScene()
+    const pointsBefore = state.actionPoints.caocao
+
+    runFactionTurns(state)
+
+    expect(state.characters.find((character) => character.id === 'clerk')?.stationedSiteId).toBe('b')
+    expect(state.actionPoints.caocao).toBeLessThan(pointsBefore)
+  })
+
+  it('余将不足时不动用尚能出征的武将', () => {
+    const state = warScene()
+
+    runFactionTurns(state)
+
+    expect(state.characters.find((character) => character.id === 'raider')?.stationedSiteId).toBeNull()
+  })
+})
 
 describe('外交接入他方决策', () => {
   it('开局无战事：多季推进他方也不自行宣战、不夺有主之地', () => {

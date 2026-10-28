@@ -16,6 +16,7 @@ export function cloneGeography(geography: Geography): Geography {
       neighbors: [...site.neighbors],
       granary: initialGranary(site),
       development: { ...developmentOf(site) },
+      developmentProgress: site.developmentProgress ? { ...site.developmentProgress } : undefined,
     })),
   }
 }

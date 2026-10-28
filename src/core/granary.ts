@@ -8,7 +8,7 @@ import type { Site } from './model'
  */
 
 /** 每点人口每季在战略点上积累的存粮。粮要派人去取才到得了粮仓。 */
-export const SITE_GRANARY_PER_POPULATION = 0.004
+export const SITE_GRANARY_PER_POPULATION = 0.0036
 
 /** 战略点存粮的上限，按人口折算：存粮在点上累积，满则不再增加。 */
 export const SITE_GRANARY_CAP_PER_POPULATION = 1
@@ -21,11 +21,11 @@ export function granaryOf(site: Site): number {
   return site.granary ?? 0
 }
 
-/** 该战略点本季的存粮增量；农田建设在此之上加成。 */
-export function granaryGrowth(site: Site): number {
+/** 该战略点本季的存粮增量；农田建设在此之上加成，驻将的加成由调用方以系数传入。 */
+export function granaryGrowth(site: Site, factor = 1): number {
   const weighted = site.population * (1 + developmentOf(site).farm * GRAIN_BONUS_PER_FARM_LEVEL)
 
-  return Math.round(weighted * SITE_GRANARY_PER_POPULATION)
+  return Math.round(weighted * SITE_GRANARY_PER_POPULATION * factor)
 }
 
 /** 该战略点存粮的上限。 */

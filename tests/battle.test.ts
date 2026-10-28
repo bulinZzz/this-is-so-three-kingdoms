@@ -7,12 +7,18 @@ import {
   autoDeployment,
   autoFormation,
   BATTLE_ACTIONS,
+  cancelAttack,
   canSortie,
   currentActor,
   defenderCandidates,
   deployDefenders,
+  FEAST_LIMIT,
+  FEAST_MORALE_BONUS,
+  feastBattle,
+  feastCost,
   finishBattle,
   isAttackable,
+  MORALE_FULL,
   openAttack,
   ordersFor,
   resolveAction,
@@ -200,7 +206,7 @@ function advance(battle: BattleState, kinds: readonly ('attack' | 'defend')[] = 
 }
 
 describe('兵种与据点补正', () => {
-  it('骑兵最快、步兵次之、弓箭手最慢；骑兵攻高防薄，弓手攻低防低且能及远', () => {
+  it('骑兵最快、步兵次之、弓兵最慢；骑兵攻高防薄，弓手攻低防低且能及远', () => {
     expect(ARM_STATS.cavalry.mobility).toBeGreaterThan(ARM_STATS.infantry.mobility)
     expect(ARM_STATS.infantry.mobility).toBeGreaterThan(ARM_STATS.archer.mobility)
     expect(ARM_STATS.cavalry.attack).toBeGreaterThan(ARM_STATS.infantry.attack)
@@ -551,7 +557,7 @@ describe('交锋', () => {
     expect(characterOf(state, 'attacker').loyalty).toBe(90 - 8)
   })
 
-  it('近战只及前排，弓箭手可越排打后排', () => {
+  it('近战只及前排，弓兵可越排打后排', () => {
     const melee = scene({
       attackerTroops: 20000,
       defenderTroops: 30000,
@@ -1034,6 +1040,61 @@ describe('战后结算', () => {
     if (survivor.status !== 'captured') {
       expect(survivor.factionId).toBeNull()
     }
+  })
+
+  it('犒军三次、士气逐次 +5，花费逐次递增，取消进攻时全数退回', () => {
+    const state = scene({ attackerTroops: 10000, defenderTroops: 3000 })
+    const faction = state.factions.find((item) => item.id === 'liubei')
+    if (faction === undefined) {
+      throw new Error('势力不存在：liubei')
+    }
+    faction.money = 10000
+    const battle = opened(state, 'b', ['attacker'])
+    const base = feastCost(10000, 0)
+
+    for (let count = 0; count < FEAST_LIMIT; count += 1) {
+      expect(feastBattle(state, battle)).toEqual({ ok: true, cost: base * (count + 1) })
+      expect(battle.attacker.morale).toBe(MORALE_FULL + FEAST_MORALE_BONUS * (count + 1))
+    }
+    expect(feastBattle(state, battle)).toEqual({
+      ok: false,
+      reason: `犒军至多 ${FEAST_LIMIT} 次`,
+    })
+
+    const spent = base * (1 + 2 + 3)
+    expect(faction.money).toBe(10000 - spent)
+
+    expect(cancelAttack(state, battle)).toBe(true)
+    expect(faction.money).toBe(10000)
+  })
+
+  it('玩家麾下的守将败退后不被俘、不战死', () => {
+    const state = scene({
+      attackerTroops: 40000,
+      defenderTroops: 1000,
+      extraSites: [
+        {
+          id: 'c',
+          name: '丙',
+          type: 'city',
+          population: 10000,
+          provinceId: 'jing',
+          owner: 'caocao',
+          neighbors: ['b'],
+        },
+      ],
+    })
+    const battle = opened(state, 'b', ['attacker'], { autoDefender: false })
+    expect(deployDefenders(battle, state, autoDeployment(['defender']))).toBeNull()
+
+    // 把守方当作玩家一方来结算，验证玩家武将的去向保护。
+    state.playerFaction = 'caocao'
+    finishBattle(state, battle, 'win')
+
+    const defender = characterOf(state, 'defender')
+    expect(defender.status).toBe('serving')
+    expect(defender.factionId).toBe('caocao')
+    expect(state.captives.caocao ?? []).toHaveLength(0)
   })
 
   it('战报写入行动历史，归属与结果齐备', () => {

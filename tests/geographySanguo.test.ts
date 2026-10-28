@@ -76,9 +76,9 @@ describe('三国地理数据', () => {
     expect(validateGeography(GEOGRAPHY_SANGUO, FACTION_IDS)).toEqual([])
   })
 
-  it('覆盖十三个州、六十六个战略点，州名不重复', () => {
+  it('覆盖十三个州、六十七个战略点，州名不重复', () => {
     expect(GEOGRAPHY_SANGUO.provinces).toHaveLength(13)
-    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(66)
+    expect(GEOGRAPHY_SANGUO.sites).toHaveLength(67)
     expect(new Set(GEOGRAPHY_SANGUO.provinces.map((province) => province.name)).size).toBe(13)
   })
 
@@ -114,7 +114,7 @@ describe('三国地理数据', () => {
   it('可占战略点都有人口，为合理的正整数', () => {
     const owned = GEOGRAPHY_SANGUO.sites.filter((site) => site.type !== 'field')
 
-    expect(owned).toHaveLength(58)
+    expect(owned).toHaveLength(59)
     for (const site of owned) {
       expect(Number.isInteger(site.population)).toBe(true)
       expect(site.population).toBeGreaterThan(0)
@@ -122,9 +122,9 @@ describe('三国地理数据', () => {
   })
 
   it('人口与类型解耦：同为城，人口可以悬殊', () => {
-    // 三江城虽作大城入图，人烟却只抵一座小县；零陵只是小城，人口六万反过三江城。
+    // 三江城虽作大城入图，一城统南中诸部，人口一十二万；零陵只是小城，人口六万。
     expect(siteOf('sancheng').type).toBe('city')
-    expect(siteOf('sancheng').population).toBe(30000)
+    expect(siteOf('sancheng').population).toBe(120000)
     expect(siteOf('lingling').type).toBe('town')
     expect(siteOf('lingling').population).toBe(60000)
   })
@@ -259,7 +259,7 @@ describe('三国地理数据', () => {
       GEOGRAPHY_SANGUO.sites.reduce((sum, site) => sum + site.neighbors.length, 0) / 2
     const completeGraphEdgeCount = (siteCount * (siteCount - 1)) / 2
 
-    expect(completeGraphEdgeCount).toBe(2145)
+    expect(completeGraphEdgeCount).toBe(2211)
     expect(edgeCount).toBeLessThan(siteCount * 4)
   })
 })

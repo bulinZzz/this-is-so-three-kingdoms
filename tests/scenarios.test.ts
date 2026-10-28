@@ -484,8 +484,9 @@ describe('建安十三年', () => {
     expect(zhiwugu?.neighbors).not.toContain('baidicheng')
   })
 
-  it('襄平是辽东公孙康所据的大城，西经柳城、右北平抵蓟', () => {
+  it('襄平是辽东公孙康所据的大城，西经柳城、右北平抵蓟，东北出玄菟', () => {
     const xiangping = GEOGRAPHY_NEW.sites.find((site) => site.id === 'xiangping')
+    const xuantu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'xuantu')
     const ye = GEOGRAPHY_NEW.sites.find((site) => site.id === 'ye')
     const guangling = GEOGRAPHY_NEW.sites.find((site) => site.id === 'guangling')
 
@@ -494,12 +495,20 @@ describe('建安十三年', () => {
     expect(xiangping?.population).toBe(50000)
     expect(xiangping?.provinceId).toBe('you')
     expect(xiangping?.owner).toBe('gongsunkang')
-    // 襄平只西接柳城入幽州，海上再无去路。
-    expect(xiangping?.neighbors).toEqual(['liucheng'])
+    // 襄平西接柳城、东北接玄菟，海上再无去路。
+    expect(xiangping?.neighbors).toEqual(['xuantu', 'liucheng'])
     expect(ye?.neighbors).not.toContain('xiangping')
     expect(guangling?.neighbors).not.toContain('xiangping')
 
-    // 公孙康据襄平、柳城与右北平三点，曹操只据州治蓟，幽州归公孙康。
+    // 玄菟是襄平东北的郡治，同属公孙康，只与襄平相通。
+    expect(xuantu?.name).toBe('玄菟')
+    expect(xuantu?.type).toBe('city')
+    expect(xuantu?.population).toBe(40000)
+    expect(xuantu?.provinceId).toBe('you')
+    expect(xuantu?.owner).toBe('gongsunkang')
+    expect(xuantu?.neighbors).toEqual(['xiangping'])
+
+    // 公孙康据襄平、玄菟、柳城与右北平四点，曹操只据州治蓟，幽州归公孙康。
     const you = GEOGRAPHY_NEW.provinces.find((province) => province.id === 'you')
     expect(you?.owner).toBe('gongsunkang')
   })
@@ -781,9 +790,9 @@ describe('建安十三年', () => {
     const taohuadu = GEOGRAPHY_NEW.sites.find((site) => site.id === 'taohuadu')
     const sancheng = GEOGRAPHY_NEW.sites.find((site) => site.id === 'sancheng')
 
-    // 三江城是南蛮唯一的城池，归孟获所立的南蛮；作大城而人口仅三万。
+    // 三江城是南蛮唯一的城池，归孟获所立的南蛮，一城统南中诸部。
     expect(sancheng?.type).toBe('city')
-    expect(sancheng?.population).toBe(30000)
+    expect(sancheng?.population).toBe(120000)
     expect(sancheng?.provinceId).toBe('yi')
     expect(sancheng?.owner).toBe('nanman')
 

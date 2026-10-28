@@ -75,6 +75,12 @@ describe('事件条件', () => {
 
   it('资源条件按阈值判断', () => {
     const state = newState()
+    const faction = state.factions.find((item) => item.id === 'liubei')
+    if (faction === undefined) {
+      throw new Error('势力不存在：liubei')
+    }
+    // 阈值与开局存粮脱钩，单看条件本身。
+    faction.grain = 6000
     const poor: EventDefinition = {
       id: 'poor',
       text: '粮尽',
@@ -118,6 +124,12 @@ describe('事件效果', () => {
 
   it('好感、粮食与金钱按增量改动', () => {
     const state = newState()
+    const faction = state.factions.find((item) => item.id === 'liubei')
+    if (faction === undefined) {
+      throw new Error('势力不存在：liubei')
+    }
+    const grainBefore = faction.grain
+    const moneyBefore = faction.money
     const event: EventDefinition = {
       id: 'shift',
       text: '礼尚往来',
@@ -133,8 +145,8 @@ describe('事件效果', () => {
     fireEvents(state, [event])
 
     expect(favorBetween(state, 'liubei', 'sunquan')).toBe(50)
-    expect(state.factions.find((faction) => faction.id === 'liubei')?.grain).toBe(5000)
-    expect(state.factions.find((faction) => faction.id === 'liubei')?.money).toBe(3500)
+    expect(faction.grain).toBe(grainBefore - 1000)
+    expect(faction.money).toBe(moneyBefore + 500)
   })
 
   it('忠诚与偏好改动，君主不计忠诚', () => {

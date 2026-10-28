@@ -50,6 +50,18 @@ export const SORTIE_PROGRESS = 30
 /** 士气满值与下限。 */
 export const MORALE_FULL = 100
 export const MORALE_FLOOR = 40
+/** 犒军的次数上限、每次的士气增量与士气上限。 */
+export const FEAST_LIMIT = 3
+export const FEAST_MORALE_BONUS = 5
+export const MORALE_CEILING = 120
+/** 犒军的基础花费：按投入兵力折算，第 n 次按 n 倍递增。 */
+export const FEAST_GOLD_PER_TROOP = 0.01
+
+/** 一次犒军的花费：第 count+1 次投入 count+1 倍的基础钱。 */
+export function feastCost(troops: number, count: number): number {
+  return Math.round(troops * FEAST_GOLD_PER_TROOP * (count + 1))
+}
+
 /** 每方的阵位：前三后三。 */
 export const FRONT_SIZE = 3
 export const BACK_SIZE = 3
@@ -62,7 +74,7 @@ const ATTACK_SELF_LOSS = 0.05
 const DEFEND_SELF_LOSS_SCALE = 0.5
 /** 防御指令的减伤。 */
 const DEFEND_DAMAGE_SCALE = 0.7
-/** 弓箭手对伤害的倍率。 */
+/** 弓兵对伤害的倍率。 */
 const ARCHER_DAMAGE_SCALE = 0.7
 /** 伤害与减伤的兵力系数；二十五次行动的节奏下，一击须有明显分量。 */
 const DAMAGE_TROOP_FACTOR = 0.6
@@ -97,7 +109,7 @@ export interface ArmStats {
 
 export const ARM_STATS: Record<ArmType, ArmStats> = {
   infantry: { label: '步兵', mobility: 10, attack: 1, defense: 1, ranged: false, counterLoss: 1 },
-  archer: { label: '弓箭手', mobility: 9, attack: 0.85, defense: 0.8, ranged: true, counterLoss: 0 },
+  archer: { label: '弓兵', mobility: 9, attack: 0.85, defense: 0.8, ranged: true, counterLoss: 0 },
   cavalry: { label: '骑兵', mobility: 13, attack: 1.3, defense: 0.6, ranged: false, counterLoss: 1 },
 }
 
@@ -183,6 +195,10 @@ export interface BattleState {
   randomState: number
   /** 开发者模式指定的胜负，取攻方视角。 */
   forcedOutcome: ForcedOutcome | null
+  /** 双方已为犒军付出的金钱，取消进攻时按此退还。 */
+  feastPaid: { attacker: number; defender: number }
+  /** 双方已犒军的次数，每人至多 FEAST_LIMIT 次。 */
+  feastCount: { attacker: number; defender: number }
 }
 
 /** 一次行动的结算结果，供界面演出与测试核对。 */
@@ -285,7 +301,7 @@ export function autoDeployment(ids: readonly CharacterId[]): BattleDeployment[] 
 }
 
 /**
- * 按兵种排默认阵形：近战填前排、弓箭手填后排；一侧坐满后溢到另一侧。
+ * 按兵种排默认阵形：近战填前排、弓兵填后排；一侧坐满后溢到另一侧。
  * 全是弓手时也至少挪一队到前排，否则开不了战。
  */
 export function autoFormation(
@@ -652,6 +668,8 @@ export function openAttack(
     attackerWins: false,
     randomState: state.randomState,
     forcedOutcome: null,
+    feastPaid: { attacker: 0, defender: 0 },
+    feastCount: { attacker: 0, defender: 0 },
   }
   seedPace(battle, units)
 
@@ -686,8 +704,52 @@ export function cancelAttack(state: GameState, battle: BattleState): boolean {
   const troops = battle.attacker.units.reduce((total, unit) => total + unit.troops, 0)
   state.actionPoints[factionId] = (state.actionPoints[factionId] ?? 0) + ACTION_COSTS.attack
   faction.grain += attackGrainCost(troops)
+  faction.money += battle.feastPaid.attacker
+  battle.feastPaid.attacker = 0
 
   return true
+}
+
+/**
+ * 犒军：战前投金提振本场士气，每次 +5，最多三次；第 n 次的花费按 n 倍递增。
+ * 只对玩家一方、开打前有效；花多少按本场投入兵力折算。
+ */
+export function feastBattle(
+  state: GameState,
+  battle: BattleState,
+): { ok: true; cost: number } | { ok: false; reason: string } {
+  const side: BattleSide | null =
+    battle.attacker.factionId === state.playerFaction
+      ? 'attacker'
+      : battle.defender.factionId === state.playerFaction
+        ? 'defender'
+        : null
+  if (side === null) {
+    return { ok: false, reason: '此战没有我军' }
+  }
+  if (battle.finished || battle.actionsUsed > 0) {
+    return { ok: false, reason: '战事已开，不能再犒军' }
+  }
+  if (battle.feastCount[side] >= FEAST_LIMIT) {
+    return { ok: false, reason: `犒军至多 ${FEAST_LIMIT} 次` }
+  }
+  if (battle[side].morale >= MORALE_CEILING) {
+    return { ok: false, reason: '士气已盛' }
+  }
+
+  const troops = battle[side].units.reduce((total, unit) => total + unit.troops, 0)
+  const cost = feastCost(troops, battle.feastCount[side])
+  const faction = state.factions.find((item) => item.id === state.playerFaction)
+  if (faction === undefined || faction.money < cost) {
+    return { ok: false, reason: '金钱不足' }
+  }
+
+  faction.money -= cost
+  battle[side].morale = Math.min(MORALE_CEILING, battle[side].morale + FEAST_MORALE_BONUS)
+  battle.feastPaid[side] += cost
+  battle.feastCount[side] += 1
+
+  return { ok: true, cost }
 }
 
 /**
@@ -785,7 +847,7 @@ function findUnit(battle: BattleState, characterId: CharacterId): BattleUnit | u
 }
 
 /**
- * 一队可攻击的目标：近战只及敌方前排，弓箭手可及任意；敌方前排已空时，近战也及于后排。
+ * 一队可攻击的目标：近战只及敌方前排，弓兵可及任意；敌方前排已空时，近战也及于后排。
  * 后排的近战够不着敌军，骑兵须先出击、步兵只能防御或待机。
  */
 export function targetsFor(battle: BattleState, unit: BattleUnit): BattleUnit[] {
@@ -816,7 +878,7 @@ export function canSortie(battle: BattleState, unit: BattleUnit): boolean {
 /**
  * 一队此刻可选的指令：由兵种与所在排决定。
  * 骑兵前排可攻击、后排只能出击或待机；步兵前排可攻击与防御、后排只能防御或待机；
- * 弓箭手在哪一排都可攻击。待机人人可选。
+ * 弓兵在哪一排都可攻击。待机人人可选。
  */
 export function ordersFor(battle: BattleState, unit: BattleUnit): BattleOrderKind[] {
   if (unit.exited) {
@@ -1352,6 +1414,15 @@ export function finishBattle(
     for (const unit of defenderUnits) {
       const character = state.characters.find((item) => item.id === unit.characterId)
       if (character === undefined) {
+        continue
+      }
+      // 我方武将既不战死也不被俘：败退只降忠诚，离心者自行离开，去留交玩家处置。
+      if (defenderFaction === state.playerFaction) {
+        character.stationedSiteId = null
+        if (unit.stationed) {
+          loseLoyalty(character, LOYALTY_LOSS.siteLost)
+          fates.push(maybeDefect(state, character, '失守') ?? `${character.name} 撤出`)
+        }
         continue
       }
       const roll = random.next()

@@ -1,7 +1,7 @@
 import type { Geography } from './model'
 
 /**
- * 建安十三年的地理格局：十三州、六十六个战略点。
+ * 建安十三年的地理格局：十三州、六十七个战略点。
  * 荆州一隅与扬州东端的柴桑：赤壁战后，刘备据公安与江夏，曹操守江陵、襄阳、樊城、宛城、夷陵与秭归，孙权据柴桑，
  * 赤壁是孙权的野地；荆南四郡（武陵、长沙、零陵、桂阳）自成一家的「荆南」势力所据——
  * 四郡名义上属曹操，但曹军隔着公安一线，刘备南下取四郡时北军顾及不及，
@@ -24,7 +24,7 @@ import type { Geography } from './model'
  * 洛阳据天下之中、虎牢关扼其东，陈留与许都分居兖、豫而许都为汉廷所在，邺是河北重镇——洛阳—虎牢关—许都/陈留
  * 串成中原一线，邺则南渡白马津、直抵陈留。白马津一带是关羽斩颜良、延津之战的地望，不另立战略点。
  * 宛城为南阳郡治，自洛阳、许都南下接樊城与襄阳，中原由是与荆州相通。
- * 幽州东端的辽东另有公孙康一家，据襄平自守，柳城与右北平在其西、是西出幽州的两处中转，蓟是幽州治所、归曹操，
+ * 幽州东端的辽东另有公孙康一家，据襄平自守，玄菟在其东北、同属公孙氏；柳城与右北平在其西、是西出幽州的两处中转，蓟是幽州治所、归曹操，
  * 襄平西出蓟而抵邺，辽东只此一条出入之路。汉中另有张鲁一家：
  * 南郑为其所居，阳平关扼其西路，是汉中腹地与西面门户；南郑又北经子午谷直抵长安，东出荆州则须借道巴东。
  * 阳平关险不可拔，沔阳之南的定军山是张鲁的野地，
@@ -62,7 +62,7 @@ export const GEOGRAPHY_SANGUO: Geography = {
     { id: 'liang', name: '凉州', owner: 'zhanglu' },
     { id: 'bing', name: '并州', owner: null },
     { id: 'ji', name: '冀州', owner: 'caocao' },
-    // 幽州：襄平、柳城与右北平归公孙康，蓟为州治、归曹操；公孙康占点最多，幽州归公孙康。
+    // 幽州：襄平、玄菟、柳城与右北平归公孙康，蓟为州治、归曹操；公孙康占点最多，幽州归公孙康。
     { id: 'you', name: '幽州', owner: 'gongsunkang' },
     // 扬州：孙权据柴桑、建业、吴、会稽、东冶、京口与濡须，曹操据合肥、皖城与寿春，孙权占点最多，故扬州归孙权。
     { id: 'yang', name: '扬州', owner: 'sunquan' },
@@ -96,11 +96,13 @@ export const GEOGRAPHY_SANGUO: Geography = {
     // 谯即谯县，曹操本贯，在许都与寿春之间的涡水一线，是中原南下淮南的必经之地。
     { id: 'qiao', name: '谯', type: 'city', population: 90000, provinceId: 'yu', owner: 'caocao', neighbors: ['pengcheng', 'xudu', 'shouchun'] },
 
-    // 辽东：襄平是辽东郡治，公孙康据之；柳城与右北平是襄平西出幽州的两处中转，皆归公孙康。
+    // 辽东：襄平是辽东郡治，公孙康据之，玄菟郡在其东北、同为公孙氏所据；
+    // 柳城与右北平是襄平西出幽州的两处中转，皆归公孙康。
     // 柳城是辽西郡内的名城，当白狼山与柳城一战的地望，居襄平与右北平之间。
     // 蓟是幽州治所、归曹操，襄平西出柳城、右北平而抵蓟，再由蓟入邺。
     // 辽东与右北平地广人稀，户口只及中原大县的一角。
-    { id: 'xiangping', name: '襄平', type: 'city', population: 50000, provinceId: 'you', owner: 'gongsunkang', neighbors: ['liucheng'] },
+    { id: 'xiangping', name: '襄平', type: 'city', population: 50000, provinceId: 'you', owner: 'gongsunkang', neighbors: ['xuantu', 'liucheng'] },
+    { id: 'xuantu', name: '玄菟', type: 'city', population: 40000, provinceId: 'you', owner: 'gongsunkang', neighbors: ['xiangping'] },
     { id: 'liucheng', name: '柳城', type: 'town', population: 15000, provinceId: 'you', owner: 'gongsunkang', neighbors: ['youbeiping', 'xiangping'] },
     { id: 'youbeiping', name: '右北平', type: 'town', population: 15000, provinceId: 'you', owner: 'gongsunkang', neighbors: ['liucheng', 'jicheng'] },
     { id: 'jicheng', name: '蓟', type: 'city', population: 70000, provinceId: 'you', owner: 'caocao', neighbors: ['youbeiping', 'ye'] },
@@ -194,7 +196,7 @@ export const GEOGRAPHY_SANGUO: Geography = {
     // 成都—泸水—秃龙洞—三江城—桃花渡串成一线，是自蜀中出入南中的一路，亦合《演义》南征的行军次序。
     { id: 'lushui', name: '泸水', type: 'field', population: 0, provinceId: 'yi', owner: 'nanman', neighbors: ['tulongdong', 'chengdu'] },
     { id: 'tulongdong', name: '秃龙洞', type: 'field', population: 0, provinceId: 'yi', owner: 'nanman', neighbors: ['sancheng', 'lushui'] },
-    { id: 'sancheng', name: '三江城', type: 'city', population: 30000, provinceId: 'yi', owner: 'nanman', neighbors: ['tulongdong', 'taohuadu'] },
+    { id: 'sancheng', name: '三江城', type: 'city', population: 120000, provinceId: 'yi', owner: 'nanman', neighbors: ['tulongdong', 'taohuadu'] },
     { id: 'taohuadu', name: '桃花渡', type: 'field', population: 0, provinceId: 'yi', owner: 'nanman', neighbors: ['sancheng'] },
 
     // 交州：士燮一家据州自守，兄弟分守诸郡。番禺是南海郡治，西接苍梧的广信；广信为苍梧郡治，

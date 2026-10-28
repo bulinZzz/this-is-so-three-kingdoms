@@ -2,6 +2,7 @@ import { runAction, type ActionResult } from './actions'
 import { isServing, scopeSitesFor } from './characters'
 import { populationCap } from './development'
 import { granaryOf } from './granary'
+import { logisticsFactor } from './logistics'
 import type { Character, CharacterId, FactionId, GameState } from './model'
 import { createRandom, type Random } from './random'
 
@@ -15,18 +16,25 @@ export const TROOPS_LIMIT_GROWTH_PER_COMMAND = 2
 export const TROOP_LIMIT_HARD_CAP = 99999
 /** 征粮产量的基准：每点内政征得的粮食。 */
 export const GRAIN_HARVEST_PER_POLITICS = 10
-/** 兵力达到此数，征粮的内政加成全额；兵力清零者几乎征不到粮。 */
-export const GRAIN_HARVEST_FULL_TROOPS = 3000
 /** 征兵时每名士兵所需的粮食。 */
 export const GRAIN_PER_TROOP = 1
+/** 征兵时每点统率所需的金钱：募兵的安家与器械开销。 */
+export const RECRUIT_MONEY_PER_COMMAND = 3
+/** 征粮取之于民，每征一粮流失的人口。 */
+export const POPULATION_LOSS_PER_GRAIN = 0.1
 /** 出征时每名士兵所需的粮食，一次行军按投入兵力换算。 */
 export const GRAIN_PER_ATTACK_TROOP = 0.05
-/** 自然增长、征兵与征粮产量的浮动幅度：实际产量落在基准的 1±此值 之间。 */
-const AMOUNT_VARIANCE = 0.25
+/** 征兵、征粮与赈济产量的浮动幅度：实际产量落在基准的 1±此值 之间。 */
+export const AMOUNT_VARIANCE = 0.1
 
 /** 在基准上下按固定幅度浮动的一个整数量。 */
-function rollAmount(base: number, random: Random): number {
+export function rollAmount(base: number, random: Random): number {
   return Math.round(base * (1 - AMOUNT_VARIANCE + random.next() * 2 * AMOUNT_VARIANCE))
+}
+
+/** 基准产量在浮动之后可能落在的区间，供界面标出「约多少」。 */
+export function amountRange(base: number): [number, number] {
+  return [Math.round(base * (1 - AMOUNT_VARIANCE)), Math.round(base * (1 + AMOUNT_VARIANCE))]
 }
 
 /** 该武将的带兵上限；剧本数据未记时按统率折算。 */
@@ -34,19 +42,53 @@ export function troopLimit(character: Character): number {
   return character.troopLimit ?? character.command * TROOPS_LIMIT_PER_COMMAND
 }
 
+/** 该武将本季的带兵上限增量：按统率计，止于硬上限。 */
+function troopLimitGrowth(character: Character): number {
+  return (
+    Math.min(
+      TROOP_LIMIT_HARD_CAP,
+      troopLimit(character) + character.command * TROOPS_LIMIT_GROWTH_PER_COMMAND,
+    ) - troopLimit(character)
+  )
+}
+
+/** 该武将本季的兵力增量：与上限增量同数，止于增长后的上限。 */
+export function troopGrowthOf(character: Character): number {
+  const growth = troopLimitGrowth(character)
+  const nextLimit = troopLimit(character) + growth
+
+  return Math.max(0, Math.min(nextLimit, character.troops + growth) - character.troops)
+}
+
+/** 某势力本季的兵力增量：其名册中各将的增量之和；粮仓见底时为 0。 */
+export function troopGrowth(state: GameState, factionId: FactionId): number {
+  const faction = state.factions.find((item) => item.id === factionId)
+  if (faction === undefined || faction.grain <= 0) {
+    return 0
+  }
+
+  return state.characters
+    .filter((character) => isServing(character) && character.factionId === factionId)
+    .reduce((total, character) => total + troopGrowthOf(character), 0)
+}
+
 /**
- * 每季带兵上限的小幅增长：各在仕武将按当前统率提高上限，止于硬上限。
- * 兵力本身不随之增长——兵只从征兵来；上限是看得见却够不着的目标。
+ * 每季在仕武将的兵与带兵上限同步增长：上限按统率提高，兵力随之增加同数。
+ * 这部分兵凭空得来，不经征兵、不耗人口与粮食；长到上限即止。
+ * 粮仓见底时不长——先让逃兵把军队缩回养得起的规模，等粮回来再恢复。
  */
-export function growTroopLimits(state: GameState): void {
+export function growTroops(state: GameState): void {
   for (const character of state.characters) {
     if (!isServing(character) || character.factionId === null) {
       continue
     }
-    character.troopLimit = Math.min(
-      TROOP_LIMIT_HARD_CAP,
-      troopLimit(character) + character.command * TROOPS_LIMIT_GROWTH_PER_COMMAND,
-    )
+    const faction = state.factions.find((item) => item.id === character.factionId)
+    if (faction === undefined || faction.grain <= 0) {
+      continue
+    }
+    const growth = troopLimitGrowth(character)
+    character.troopLimit = troopLimit(character) + growth
+    character.troops = Math.min(troopLimit(character), character.troops + growth)
   }
 }
 
@@ -194,16 +236,21 @@ export function recruitGrainCost(character: Character): number {
   return Math.round(character.command * RECRUIT_TROOPS_PER_COMMAND * GRAIN_PER_TROOP)
 }
 
+/** 一次征兵消耗的金钱，按统兵者的统率换算。 */
+export function recruitMoneyCost(character: Character): number {
+  return Math.round(character.command * RECRUIT_MONEY_PER_COMMAND)
+}
+
 /** 一次出征消耗的粮食，按投入兵力换算。 */
 export function attackGrainCost(troops: number): number {
   return Math.round(troops * GRAIN_PER_ATTACK_TROOP)
 }
 
 /**
- * 在一处自有战略点征兵：消耗粮食与行动力，从名册中选一名未行动的武将执行。
- * 粮不足、已达带兵上限、该点人口枯竭或该武将本季已行动时拒绝且不扣行动力。
+ * 在一处自有战略点征兵：消耗粮食、金钱与行动力，从名册中选一名未行动的武将执行。
+ * 粮或金钱不足、已达带兵上限、该点人口枯竭或该武将本季已行动时拒绝且不扣行动力。
  * 兵力按统兵者的统率浮动，补到带兵上限为止，且不超过该点现有人口；
- * 所征之兵自该点人口中扣除，粮耗按统率基准固定；征兵占用该武将本季的行动。
+ * 所征之兵自该点人口中扣除，粮与金按统率基准固定；征兵占用该武将本季的行动。
  */
 export function recruit(
   state: GameState,
@@ -212,7 +259,8 @@ export function recruit(
   factionId: FactionId = state.playerFaction,
 ): ActionResult {
   const character = state.characters.find((item) => item.id === characterId) ?? null
-  const cost = character === null ? 0 : recruitGrainCost(character)
+  const grainCost = character === null ? 0 : recruitGrainCost(character)
+  const moneyCost = character === null ? 0 : recruitMoneyCost(character)
 
   return runAction(state, {
     kind: 'recruit',
@@ -247,8 +295,11 @@ export function recruit(
         return '该点人口不足，无可征之兵'
       }
       const faction = current.factions.find((item) => item.id === factionId)
-      if (faction === undefined || faction.grain < cost) {
+      if (faction === undefined || faction.grain < grainCost) {
         return '粮食不足'
+      }
+      if (faction.money < moneyCost) {
+        return '金钱不足'
       }
       return null
     },
@@ -269,12 +320,13 @@ export function recruit(
 
       character.troops += gained
       site.population -= gained
-      faction.grain -= cost
+      faction.grain -= grainCost
+      faction.money -= moneyCost
       markActed(current, character.id)
 
       return {
         targetId: site.id,
-        outcome: `${character.name} 在${site.name}征得 ${gained} 兵（人口 −${gained}）`,
+        outcome: `${character.name} 在${site.name}征得 ${gained} 兵（人口 −${gained}，粮 −${grainCost}，金 −${moneyCost}）`,
       }
     },
   })
@@ -285,9 +337,7 @@ export function recruit(
  * 兵力达到基准即全额；兵力清零者几乎征不到粮，堵住「把征粮武将的兵遣散光」的退化解法。
  */
 export function harvestGrainBaseline(character: Character): number {
-  const troopFactor = Math.min(1, character.troops / GRAIN_HARVEST_FULL_TROOPS)
-
-  return Math.round(character.politics * GRAIN_HARVEST_PER_POLITICS * troopFactor)
+  return Math.round(character.politics * GRAIN_HARVEST_PER_POLITICS * logisticsFactor(character))
 }
 
 /**
@@ -364,7 +414,7 @@ export function assignStation(
 
 /**
  * 征粮：在一处自有战略点征收粮食，消耗行动力，从名册选一名未行动的武将执行。
- * 取量不超过该点存粮，且随内政与兵力浮动；不像征兵那样需要粮食，也从存粮中扣除。
+ * 取量不超过该点存粮，且随内政与兵力浮动；取之于民，该点人口随之少量流失。
  */
 export function harvestGrain(
   state: GameState,
@@ -413,13 +463,15 @@ export function harvestGrain(
       const gained = Math.min(rollAmount(harvestGrainBaseline(character), random), granaryOf(site))
       current.randomState = random.getState()
 
+      const lost = Math.min(site.population, Math.round(gained * POPULATION_LOSS_PER_GRAIN))
       site.granary = granaryOf(site) - gained
+      site.population -= lost
       faction.grain += gained
       markActed(current, character.id)
 
       return {
         targetId: site.id,
-        outcome: `${character.name} 在${site.name}征得 ${gained} 粮`,
+        outcome: `${character.name} 在${site.name}征得 ${gained} 粮（人口 −${lost}）`,
       }
     },
   })

@@ -1,5 +1,4 @@
-import { runAction, type ActionResult } from './actions'
-import type { DevelopmentKind, FactionId, GameState, Site, SiteDevelopment, SiteType } from './model'
+import type { DevelopmentKind, Site, SiteDevelopment, SiteType } from './model'
 import type { Random } from './random'
 
 /**
@@ -26,8 +25,8 @@ export const POPULATION_CAP_BY_SITE_TYPE: Record<SiteType, number> = {
   field: 0,
 }
 
-/** 建设的基础花费：第 n 级花费 = 基础 × n，逐级递增。 */
-export const BUILD_COST_BASE = 200
+/** 建设进度的基准：目标第 n 级所需进度 = 基准 × (n + 1)，级别越高越费工夫。 */
+export const DEVELOPMENT_PROGRESS_BASE = 250
 
 /** 农田每级带来的粮产加成比例。 */
 export const GRAIN_BONUS_PER_FARM_LEVEL = 0.1
@@ -35,8 +34,11 @@ export const GRAIN_BONUS_PER_FARM_LEVEL = 0.1
 /** 市集每级带来的金钱产出加成比例。 */
 export const MONEY_BONUS_PER_MARKET_LEVEL = 0.15
 
-/** 建民居立即增加的人口，同时等量抬高该点的人口上限。 */
+/** 民居每级抬高的人口上限；人口本身不再因建房而立刻增加。 */
 export const POPULATION_PER_HOUSING = 10000
+
+/** 民居每级带来的人口增长率加成：民居不只抬高上限，也让人口攒得更快。 */
+export const HOUSING_GROWTH_BONUS = 0.001
 
 /** 开发项的中文名，供行动记录与界面展示。 */
 export const DEVELOPMENT_LABELS: Record<DevelopmentKind, string> = {
@@ -73,69 +75,28 @@ export function populationCap(site: Site): number {
   return POPULATION_CAP_BY_SITE_TYPE[site.type] + developmentOf(site).housing * POPULATION_PER_HOUSING
 }
 
-/** 建设该项下一级的花费。 */
-export function buildCost(site: Site, kind: DevelopmentKind): number {
-  return BUILD_COST_BASE * (developmentLevel(site, kind) + 1)
+/** 该战略点某一项升到下一级所需的进度。 */
+export function developmentRequirement(currentLevel: number): number {
+  return DEVELOPMENT_PROGRESS_BASE * (currentLevel + 1)
 }
 
-/**
- * 建设：在自有战略点提升一项开发等级，消耗行动力与金钱。
- * 非自有战略点、已达该项上限或金钱不足时拒绝且不扣行动力。
- * 民居建成时立即增加该点人口（不超过新建后的人口上限）。
- */
-export function build(
-  state: GameState,
-  siteId: string,
-  kind: DevelopmentKind,
-  factionId: FactionId = state.playerFaction,
-): ActionResult {
-  const site = state.geography.sites.find((item) => item.id === siteId) ?? null
-  const cost = site === null ? 0 : buildCost(site, kind)
+/** 该战略点某一项的在建进度；尚无在建工程时为 0。 */
+export function siteProgressOf(site: Site, kind: DevelopmentKind): number {
+  return site.developmentProgress?.[kind] ?? 0
+}
 
-  return runAction(state, {
-    kind: 'build',
-    factionId,
-    precondition: (current) => {
-      if (site === null) {
-        return '战略点不存在'
-      }
-      if (site.owner !== factionId) {
-        return '此处不是自有战略点'
-      }
-      if (developmentLevel(site, kind) >= developmentLimit(site)) {
-        return `${DEVELOPMENT_LABELS[kind]} 已达上限`
-      }
-      const faction = current.factions.find((item) => item.id === factionId)
-      if (faction === undefined || faction.money < cost) {
-        return '金钱不足'
-      }
-      return null
-    },
-    execute: (current) => {
-      const faction = current.factions.find((item) => item.id === factionId)
-      if (site === null || faction === undefined) {
-        return { outcome: '建设未生效' }
-      }
-
-      site.development = developmentOf(site)
-      site.development[kind] += 1
-      faction.money -= cost
-
-      if (kind === 'housing') {
-        site.population = Math.min(site.population + POPULATION_PER_HOUSING, populationCap(site))
-      }
-
-      return {
-        targetId: site.id,
-        outcome: `${site.name} 兴建${DEVELOPMENT_LABELS[kind]}（${site.development[kind]} 级）`,
-      }
-    },
-  })
+/** 记下该战略点某一项的在建进度。 */
+export function setSiteProgress(site: Site, kind: DevelopmentKind, progress: number): void {
+  site.developmentProgress = {
+    ...site.developmentProgress,
+    [kind]: Math.max(0, Math.round(progress)),
+  }
 }
 
 /**
  * 战略点易主时的战火损耗：在前任已开发的设施里随机挑 1–2 项，各降一级（最低归零）。
- * 得城不是白得，前任的经营未必留得住。返回被降级的项，供行动记录展示；无可降者返回空。
+ * 得城不是白得，前任的经营未必留得住；被降级的项，在建进度一并作废。
+ * 返回被降级的项，供行动记录展示；无可降者返回空。
  */
 export function damageOnCapture(site: Site, random: Random): DevelopmentKind[] {
   const leveled = DEVELOPMENT_KINDS.filter((kind) => developmentLevel(site, kind) > 0)
@@ -156,6 +117,7 @@ export function damageOnCapture(site: Site, random: Random): DevelopmentKind[] {
 
     site.development = developmentOf(site)
     site.development[kind] -= 1
+    setSiteProgress(site, kind, 0)
     damaged.push(kind)
   }
 

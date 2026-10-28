@@ -12,6 +12,7 @@ export const ACTION_COSTS: Record<ActionKind, number> = {
   visit: 2,
   recruit: 3,
   harvestGrain: 2,
+  relief: 1,
   build: 2,
   attack: 4,
   declareWar: 2,

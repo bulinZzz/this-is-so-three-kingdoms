@@ -227,8 +227,8 @@ describe('GameSession 作战接口', () => {
     const result = session.recruit('gongan', 'guanyu')
 
     expect(result.ok).toBe(true)
-    expect(guanyu.troops).toBeGreaterThanOrEqual(troopsBefore + Math.round(baseline * 0.75))
-    expect(guanyu.troops).toBeLessThanOrEqual(troopsBefore + Math.round(baseline * 1.25))
+    expect(guanyu.troops).toBeGreaterThanOrEqual(troopsBefore + Math.round(baseline * 0.9))
+    expect(guanyu.troops).toBeLessThanOrEqual(troopsBefore + Math.round(baseline * 1.1))
     expect(state.factions.find((faction) => faction.id === state.playerFaction)?.grain).toBe(
       grainBefore - recruitGrainCost(guanyu),
     )

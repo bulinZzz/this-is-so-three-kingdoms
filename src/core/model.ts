@@ -85,6 +85,11 @@ export interface Site {
   granary?: number
   /** 三项开发等级；剧本数据可省略，开局时补为全 0。 */
   development?: SiteDevelopment
+  /**
+   * 三项开发各自的在建进度：攒够下一级所需即升一级，进度随地块走。
+   * 剧本数据可省略，视作尚无在建工程。
+   */
+  developmentProgress?: Partial<Record<DevelopmentKind, number>>
 }
 
 /** 天下地理结构。 */
@@ -254,6 +259,7 @@ export type ActionKind =
   | 'visit'
   | 'recruit'
   | 'harvestGrain'
+  | 'relief'
   | 'build'
   | 'attack'
   | 'declareWar'
