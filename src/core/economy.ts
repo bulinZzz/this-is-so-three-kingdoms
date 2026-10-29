@@ -216,8 +216,8 @@ export function reliefBaseline(character: Character, grain: number): number {
 /**
  * 赈济：在自有战略点投粮养民，从名册中选一名未行动的武将执行，耗一点行动力。
  * 一粮养几口人由执行者的内政决定，产出还按其兵力折算——兵太少便收效甚微；
- * 产量上下浮动，受人口上限与国库存粮限制。人口已满、国库无粮或该武将本季已行动时
- * 拒绝且不扣行动力。执行后该武将本季已行动。
+ * 用粮先取该点存粮，不足的部分再由国库补上。产量上下浮动，受人口上限与两处存粮之和限制。
+ * 人口已满、无粮可投或该武将本季已行动时拒绝且不扣行动力。执行后该武将本季已行动。
  */
 export function relief(
   state: GameState,
@@ -257,7 +257,7 @@ export function relief(
         return '人口已达上限'
       }
       const faction = current.factions.find((item) => item.id === factionId)
-      if (faction === undefined || faction.grain < 1) {
+      if (faction === undefined || granaryOf(site) + faction.grain < 1) {
         return '粮食不足'
       }
       return null
@@ -270,7 +270,7 @@ export function relief(
 
       const random = createRandom(current.randomState)
       const perGrain = reliefPopulationPerGrain(character)
-      const budget = Math.min(RELIEF_GRAIN, faction.grain)
+      const budget = Math.min(RELIEF_GRAIN, granaryOf(site) + faction.grain)
       const rolled = Math.max(
         0,
         rollAmount(Math.round(budget * perGrain * logisticsFactor(character)), random),
@@ -281,8 +281,11 @@ export function relief(
         people > 0 ? Math.min(budget, Math.max(1, Math.ceil(people / perGrain))) : 0
       current.randomState = random.getState()
 
+      // 先用该点存粮，不足的部分再由国库补上。
+      const fromSite = Math.min(granaryOf(site), grainSpent)
+      site.granary = granaryOf(site) - fromSite
+      faction.grain -= grainSpent - fromSite
       site.population += people
-      faction.grain -= grainSpent
       markActed(current, character.id)
 
       return {

@@ -260,10 +260,11 @@ describe('赈济', () => {
     }
     const faction = factionOf(state, 'liubei')
     const officer = firstServingOfficer(state, 'liubei')
+    const siteGranaryBefore = granaryOf(site)
     faction.grain = 1000
     const populationBefore = site.population
     const perGrain = reliefPopulationPerGrain(officer)
-    const [low, high] = amountRange(reliefBaseline(officer, 1000))
+    const [low, high] = amountRange(reliefBaseline(officer, siteGranaryBefore + 1000))
 
     const result = relief(state, 'gongan', officer.id)
 
@@ -271,9 +272,48 @@ describe('赈济', () => {
     const gained = site.population - populationBefore
     expect(gained).toBeGreaterThanOrEqual(low)
     expect(gained).toBeLessThanOrEqual(high)
-    expect(faction.grain).toBe(1000 - Math.min(RELIEF_GRAIN, Math.ceil(gained / perGrain)))
+    const spent = Math.min(RELIEF_GRAIN, Math.max(1, Math.ceil(gained / perGrain)))
+    expect(granaryOf(site)).toBe(Math.max(0, siteGranaryBefore - spent))
+    expect(faction.grain).toBe(1000 - Math.max(0, spent - siteGranaryBefore))
     expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.relief)
     expect(state.actedCharacterIds).toContain(officer.id)
+  })
+
+  it('先用该点存粮，国库无粮时也能赈济', () => {
+    const state = createInitialState({ seed: 208 })
+    const site = state.geography.sites.find((item) => item.id === 'gongan')
+    if (site === undefined) {
+      throw new Error('战略点不存在：gongan')
+    }
+    const faction = factionOf(state, 'liubei')
+    const officer = firstServingOfficer(state, 'liubei')
+    site.granary = 500
+    faction.grain = 0
+    const populationBefore = site.population
+    const perGrain = reliefPopulationPerGrain(officer)
+
+    const result = relief(state, 'gongan', officer.id)
+
+    expect(result.ok).toBe(true)
+    const gained = site.population - populationBefore
+    const spent = Math.min(RELIEF_GRAIN, Math.max(1, Math.ceil(gained / perGrain)))
+    expect(granaryOf(site)).toBe(500 - spent)
+    expect(faction.grain).toBe(0)
+  })
+
+  it('该点存粮与国库都无粮时拒绝，不扣行动力', () => {
+    const state = createInitialState({ seed: 208 })
+    const site = state.geography.sites.find((item) => item.id === 'gongan')
+    if (site === undefined) {
+      throw new Error('战略点不存在：gongan')
+    }
+    const faction = factionOf(state, 'liubei')
+    const officer = firstServingOfficer(state, 'liubei')
+    site.granary = 0
+    faction.grain = 0
+
+    expect(relief(state, 'gongan', officer.id)).toEqual({ ok: false, reason: '粮食不足' })
+    expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN)
   })
 
   it('兵力不足时产出按比例折算，无兵时几无收效', () => {
