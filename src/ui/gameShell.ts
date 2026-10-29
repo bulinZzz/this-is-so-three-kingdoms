@@ -126,11 +126,13 @@ const SHELL_HTML = `
       <h2 class="shell__title">战略点</h2>
       <div class="site-panel__head">
         <p class="site-panel__name"></p>
+        <p class="site-panel__meta"></p>
         <p class="site-panel__owner"></p>
       </div>
-      <p class="site-panel__meta"></p>
-      <p class="site-panel__label">驻守</p>
-      <ul class="site-panel__officers"></ul>
+      <div class="site-panel__station">
+        <span class="site-panel__label">驻将</span>
+        <ul class="site-panel__officers"></ul>
+      </div>
       <div class="site-panel__actions">
         <button type="button" class="site-panel__action" data-action="attack-here" hidden>
           <span>进攻此地</span>
@@ -777,7 +779,7 @@ function renderSitePanel(
   requireElement<HTMLElement>(panel, '.site-panel__officers').replaceChildren(
     createListItem(
       station === null ? 'site-panel__empty' : 'site-panel__officer',
-      station === null ? '无驻将' : `${station.name}（兵 ${station.troops}）`,
+      station === null ? '无' : `${station.name}（兵 ${station.troops}）`,
     ),
   )
 
@@ -3072,6 +3074,7 @@ export function mountGameShell(
   }
 
   endTurnButton.addEventListener('click', () => {
+    siteMessage = ''
     recruitMessage = ''
     contactMessage = ''
     runTurnFlow(session.endTurnStaged())
