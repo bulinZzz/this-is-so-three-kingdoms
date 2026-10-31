@@ -73,8 +73,8 @@
 }
 
 .shell__factions {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -84,7 +84,8 @@
 .shell__faction {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
   font-size: 15px;
 }
 
@@ -95,8 +96,34 @@
   border-radius: 3px;
 }
 
+/* 势力名按文字排布；他方势力可点开外交，只是多一层手型与悬停提示。 */
+.shell__faction-name {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.shell__faction-name {
+  cursor: pointer;
+}
+
+button.shell__faction-name:hover {
+  color: #f0e2bd;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .shell__badge {
-  padding: 1px 7px;
+  flex: none;
+  padding: 1px 5px;
   border: 1px solid #6b5c42;
   border-radius: 999px;
   font-size: 11px;
@@ -125,7 +152,6 @@
   color: #9a8b70;
 }
 
-/* 他方势力与「无归属」都只作展示，外交一律走底部菜单的入口。 */
 .shell__action-points {
   margin: 6px 0 0;
   font-size: 14px;
@@ -267,56 +293,118 @@
   display: none;
 }
 
-/* 战略点面板自上而下：名称与归属、类别与人口、驻守、行动。 */
+/* 战略点面板自上而下：方图与名称、规模与归属、驻将、行动。 */
 .site-panel__head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: stretch;
+  gap: 12px;
+}
+
+/* 类型方图：五类各一幅线描插画，右下角压一枚势力色角标。 */
+.site-panel__art {
+  position: relative;
+  flex: none;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border: 1px solid #3a3128;
+  border-radius: 8px;
+  background: #241d16;
+}
+
+.site-panel__art-illu,
+.site-panel__art-illu svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.site-panel__art-badge {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #1b1712;
+  border-radius: 50%;
+}
+
+/* 右栏三行：名称、规模与归属、驻将。 */
+.site-panel__info {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
 }
 
 .site-panel__name {
   margin: 0;
   font-size: 17px;
   color: #e8d9b5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.site-panel__owner,
-.site-panel__meta,
-.site-panel__label {
+.site-panel__owner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
+  min-width: 0;
   font-size: 12px;
   color: #9a8b70;
 }
 
-.site-panel__meta {
-  margin-right: auto;
+.site-panel__type {
+  flex: none;
 }
 
-/* 驻将一行：标签与驻将并排。 */
+.site-panel__owner-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-panel__label {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: #9a8b70;
+  white-space: nowrap;
+}
+
+/* 驻将一行：标签与驻将并排；只写名字，兵力在「进入」窗口里看。 */
 .site-panel__station {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 10px;
+  min-width: 0;
 }
 
 .site-panel__officers {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
+  min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .site-panel__officer {
+  min-width: 0;
+  overflow: hidden;
   padding: 3px 9px;
   border: 1px solid #3a3128;
   border-radius: 999px;
   background: #241d16;
   font-size: 12px;
   color: #e8d9b5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .site-panel__empty {
@@ -1236,14 +1324,15 @@
 .site-panel__action {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  gap: 4px;
+  padding: 4px;
   border: 1px solid #7a6746;
   border-radius: 8px;
   background: linear-gradient(180deg, #33291c, #2a2219);
   color: #f0e2bd;
   font-family: inherit;
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -1258,6 +1347,29 @@
 
 .site-panel__action[hidden] {
   display: none;
+}
+
+/* 主按钮与方图同宽：非自家领地由「进攻此地」独占。 */
+.site-panel__action--primary {
+  width: 72px;
+  justify-content: center;
+}
+
+/* 「进入」在左、「在此寻访」在右，各与方图同宽。 */
+.site-panel__pair {
+  display: flex;
+  gap: 8px;
+}
+
+.site-panel__pair[hidden] {
+  display: none;
+}
+
+.site-panel__pair > .site-panel__action {
+  flex: none;
+  width: 72px;
+  min-width: 0;
+  justify-content: center;
 }
 
 /* 行动力不足时压暗、点不动，鼠标悬停也不再回亮。 */

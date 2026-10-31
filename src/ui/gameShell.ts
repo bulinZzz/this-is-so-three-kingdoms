@@ -102,6 +102,7 @@ import {
 import { favorBetween, relationBetween } from '../core/relations'
 import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
+import { SITE_ART } from './siteArt'
 import './shell.css'
 
 const SHELL_HTML = `
@@ -125,26 +126,36 @@ const SHELL_HTML = `
     <section class="shell__section site-panel" hidden>
       <h2 class="shell__title">战略点</h2>
       <div class="site-panel__head">
-        <p class="site-panel__name"></p>
-        <p class="site-panel__meta"></p>
-        <p class="site-panel__owner"></p>
-      </div>
-      <div class="site-panel__station">
-        <span class="site-panel__label">驻将</span>
-        <ul class="site-panel__officers"></ul>
+        <div class="site-panel__art">
+          <span class="site-panel__art-illu"></span>
+          <span class="site-panel__art-badge"></span>
+        </div>
+        <div class="site-panel__info">
+          <p class="site-panel__name"></p>
+          <p class="site-panel__owner">
+            <span class="site-panel__type"></span>
+            <span class="site-panel__owner-name"></span>
+          </p>
+          <div class="site-panel__station">
+            <span class="site-panel__label">驻将</span>
+            <ul class="site-panel__officers"></ul>
+          </div>
+        </div>
       </div>
       <div class="site-panel__actions">
         <button type="button" class="site-panel__action" data-action="attack-here" hidden>
           <span>进攻此地</span>
           <span class="action-cost"></span>
         </button>
-        <button type="button" class="site-panel__action" data-action="site-info" hidden>
-          <span>进入</span>
-        </button>
-        <button type="button" class="site-panel__action" data-action="seek-here" hidden>
-          <span>在此寻访</span>
-          <span class="action-cost"></span>
-        </button>
+        <div class="site-panel__pair" hidden>
+          <button type="button" class="site-panel__action" data-action="site-info">
+            <span>进入</span>
+          </button>
+          <button type="button" class="site-panel__action" data-action="seek-here">
+            <span>在此寻访</span>
+            <span class="action-cost"></span>
+          </button>
+        </div>
       </div>
       <p class="site-panel__status" role="status"></p>
     </section>
@@ -538,9 +549,18 @@ function renderFactions(list: Element, state: GameState): void {
     swatch.className = 'shell__swatch'
     swatch.style.background = faction.color
 
-    const name = document.createElement('span')
+    // 名号即外交入口：他方势力点名字直接进对应交涉页；己方与已覆灭者只作展示。
+    const interactive =
+      faction.id !== state.playerFaction && !isFactionDestroyed(state, faction.id)
+    const name = document.createElement(interactive ? 'button' : 'span')
     name.className = 'shell__faction-name'
     name.textContent = faction.name
+    if (interactive) {
+      const button = name as HTMLButtonElement
+      button.type = 'button'
+      button.dataset.action = 'open-faction-diplomacy'
+      button.dataset.faction = faction.id
+    }
 
     item.append(swatch, name)
 
@@ -765,21 +785,27 @@ function renderSitePanel(
   }
 
   panel.hidden = false
+  requireElement<HTMLElement>(panel, '.site-panel__art-illu').innerHTML = SITE_ART[site.type]
   requireElement<HTMLElement>(panel, '.site-panel__name').textContent = site.name
-  requireElement<HTMLElement>(panel, '.site-panel__meta').textContent = SITE_TYPE_LABELS[site.type]
+  requireElement<HTMLElement>(panel, '.site-panel__type').textContent =
+    `${SITE_TYPE_LABELS[site.type]} ·`
 
-  const ownerName =
+  // 归属用势力色角标压在方图右下，颜色与地图上该势力的领土一致。
+  const owner =
     site.owner === null
-      ? '无归属'
-      : (state.factions.find((faction) => faction.id === site.owner)?.name ?? site.owner)
-  requireElement<HTMLElement>(panel, '.site-panel__owner').textContent = `归属：${ownerName}`
+      ? undefined
+      : state.factions.find((faction) => faction.id === site.owner)
+  requireElement<HTMLElement>(panel, '.site-panel__art-badge').style.backgroundColor =
+    owner?.color ?? '#6f6250'
+  requireElement<HTMLElement>(panel, '.site-panel__owner-name').textContent =
+    owner?.name ?? '无归属'
 
   const isOwn = site.owner === state.playerFaction
   const station = stationedAt(state, site.id)
   requireElement<HTMLElement>(panel, '.site-panel__officers').replaceChildren(
     createListItem(
       station === null ? 'site-panel__empty' : 'site-panel__officer',
-      station === null ? '无' : `${station.name}（兵 ${station.troops}）`,
+      station === null ? '无' : station.name,
     ),
   )
 
@@ -787,10 +813,11 @@ function renderSitePanel(
   const attackButton = requireElement<HTMLButtonElement>(panel, '[data-action="attack-here"]')
   attackButton.hidden = !isAttackable(state, site.id)
   attackButton.disabled = !canAfford(state, state.playerFaction, 'attack')
-  // 「进入」只对自家领地开放；建设与驻将的任免也在那个窗口里办。
-  requireElement<HTMLButtonElement>(panel, '[data-action="site-info"]').hidden = !isOwn
+  // 非自家领地没有「进入」，由「进攻此地」独占一行。
+  attackButton.classList.toggle('site-panel__action--primary', !isOwn)
+  // 自家领地：「进入」在左、「在此寻访」在右，各占半行。
+  requireElement<HTMLElement>(panel, '.site-panel__pair').hidden = !isOwn
   const seekButton = requireElement<HTMLButtonElement>(panel, '[data-action="seek-here"]')
-  seekButton.hidden = !isOwn
   seekButton.disabled = !canAfford(state, state.playerFaction, 'seekTalent')
   requireElement<HTMLElement>(panel, '.site-panel__status').textContent = message
 }
@@ -1046,15 +1073,25 @@ function ownSites(state: GameState): Site[] {
 function renderContacts(
   panel: HTMLElement,
   state: GameState,
+  siteId: SiteId | null,
   message: string,
   showCosts: boolean,
 ): void {
   const contacts = state.contactedCandidates[state.playerFaction] ?? []
-  const candidates = contacts
-    .map((contact) => state.characters.find((character) => character.id === contact.characterId))
-    .filter(
-      (character): character is Character => character !== undefined && isRecruitable(character),
-    )
+  // 只列活动范围覆盖当前选中战略点的人；换到范围外的地点就不再显示。
+  const candidates =
+    siteId === null
+      ? []
+      : contacts
+          .map((contact) =>
+            state.characters.find((character) => character.id === contact.characterId),
+          )
+          .filter(
+            (character): character is Character =>
+              character !== undefined &&
+              isRecruitable(character) &&
+              character.scope.includes(siteId),
+          )
 
   panel.hidden = candidates.length === 0
 
@@ -3018,7 +3055,7 @@ export function mountGameShell(
     renderFactions(factionList, state)
     applyActionCosts(showCosts)
     renderSitePanel(sitePanel, state, selection.get(), siteMessage)
-    renderContacts(contactPanel, state, contactMessage, showCosts)
+    renderContacts(contactPanel, state, selection.get(), contactMessage, showCosts)
     renderOrderDialog(root, state, orderRequest)
     refreshOrderSubmit()
     renderBattleStage(root, state, battleStage, settings.get().battleShortcuts)
@@ -4091,6 +4128,24 @@ export function mountGameShell(
   /** 底部菜单的外交入口：从势力列表开始。 */
   openDiplomacyButton.addEventListener('click', () => {
     diplomacyFactionId = null
+    diplomacyMessage = ''
+    paint(session.getState())
+    diplomacyDialog.showModal()
+  })
+
+  /** 侧栏点势力名：跳过列表，直接进入该势力的交涉页。 */
+  factionList.addEventListener('click', (event) => {
+    const button = actionButtonOf(event)
+    if (button?.dataset.action !== 'open-faction-diplomacy') {
+      return
+    }
+
+    const factionId = button.dataset.faction
+    if (factionId === undefined) {
+      return
+    }
+
+    diplomacyFactionId = factionId
     diplomacyMessage = ''
     paint(session.getState())
     diplomacyDialog.showModal()
