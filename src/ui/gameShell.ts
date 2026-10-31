@@ -2,9 +2,7 @@ import type { GameSession } from '../app/gameSession'
 import type { SelectionStore } from '../app/selectionStore'
 import type { SettingsStore } from '../app/settingsStore'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN, canAfford } from '../core/actions'
-import { affinityAttitude, affinityToward } from '../core/affinity'
 import type {
-  AbilityKind,
   BattleReport,
   BattleReportSide,
   CaptiveReport,
@@ -51,7 +49,7 @@ import {
   type BattleUnit,
   type ForcedOutcome,
 } from '../core/battle'
-import { isRecruitable, isRetired, isServing, scopeSitesFor } from '../core/characters'
+import { isRecruitable, isRetired, isServing } from '../core/characters'
 import { captivesOf } from '../core/captives'
 import {
   developmentLevel,
@@ -80,9 +78,18 @@ import {
   siteYieldFactor,
   troopUpkeep,
 } from '../core/economy'
-import { ALLIANCE_FAVOR, GIFT_MONEY, PEACE_FAVOR } from '../core/diplomacy'
+import { PEACE_TRIBUTE } from '../core/diplomacy'
 import { granaryGrowth, granaryOf } from '../core/granary'
-import { ABILITY_KINDS, ABILITY_LABELS, BOOST_GAIN, boostCredits, EXP_PER_BOOST } from '../core/growth'
+import {
+  ABILITY_KINDS,
+  ABILITY_LABELS,
+  ABILITY_MAX,
+  BOOST_GAIN,
+  boostCredits,
+  EXP_PER_BOOST,
+  TROOP_BOOST_GAIN,
+  type StrengthenKind,
+} from '../core/growth'
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
@@ -97,10 +104,11 @@ import {
   RECRUIT_TROOPS_PER_COMMAND,
   recruitGrainCost,
   recruitMoneyCost,
+  TROOP_LIMIT_HARD_CAP,
   troopGrowth,
   troopLimit,
 } from '../core/military'
-import { favorBetween, relationBetween } from '../core/relations'
+import { relationBetween } from '../core/relations'
 import { resolveFactionOrder } from '../core/turn'
 import { UNOWNED_SITE_COLOR } from '../game/mapLayout'
 import { SITE_ART } from './siteArt'
@@ -146,6 +154,10 @@ const SHELL_HTML = `
       <div class="site-panel__actions">
         <button type="button" class="site-panel__action" data-action="attack-here" hidden>
           <span>进攻此地</span>
+          <span class="action-cost"></span>
+        </button>
+        <button type="button" class="site-panel__action site-panel__action--primary" data-action="declare-war-here" hidden>
+          <span>宣战</span>
           <span class="action-cost"></span>
         </button>
         <div class="site-panel__pair" hidden>
@@ -330,11 +342,9 @@ const SHELL_HTML = `
       <div class="saves__head">
         <h2 class="saves__title">外交</h2>
         <div class="saves__head-actions">
-          <button type="button" class="saves__close" data-action="diplomacy-back" hidden>返回</button>
           <button type="button" class="saves__close" data-action="close-diplomacy">关闭</button>
         </div>
       </div>
-      <p class="diplomacy__target"></p>
       <ul class="diplomacy__list"></ul>
       <p class="diplomacy__status" role="status"></p>
     </dialog>
@@ -360,8 +370,19 @@ const SHELL_HTML = `
       </div>
       <p class="confirm__text"></p>
       <div class="confirm__actions">
-        <button type="button" class="confirm__button" data-action="dismiss-cancel">取消</button>
         <button type="button" class="confirm__button confirm__button--primary" data-action="dismiss-confirm">解任</button>
+        <button type="button" class="confirm__button" data-action="dismiss-cancel">取消</button>
+      </div>
+    </dialog>
+    <dialog class="hire">
+      <div class="saves__head">
+        <h2 class="saves__title">招募</h2>
+        <button type="button" class="saves__close" data-action="close-hire">关闭</button>
+      </div>
+      <p class="hire__text"></p>
+      <div class="hire__actions">
+        <button type="button" class="confirm__button confirm__button--primary" data-action="hire-confirm">招募</button>
+        <button type="button" class="confirm__button" data-action="hire-cancel">取消</button>
       </div>
     </dialog>
     <dialog class="site-info">
@@ -528,13 +549,7 @@ function formatSlotSummary(summary: SaveSummary): string {
 
 /** 关系状态的中文名。 */
 function relationLabel(kind: RelationKind): string {
-  if (kind === 'ally') {
-    return '同盟'
-  }
-  if (kind === 'hostile') {
-    return '敌对'
-  }
-  return '中立'
+  return kind === 'hostile' ? '敌对' : '中立'
 }
 
 function renderFactions(list: Element, state: GameState): void {
@@ -551,18 +566,10 @@ function renderFactions(list: Element, state: GameState): void {
     swatch.className = 'shell__swatch'
     swatch.style.background = faction.color
 
-    // 名号即外交入口：他方势力点名字直接进对应交涉页；己方与已覆灭者只作展示。
-    const interactive =
-      faction.id !== state.playerFaction && !isFactionDestroyed(state, faction.id)
-    const name = document.createElement(interactive ? 'button' : 'span')
+    // 势力名只作展示，不再作为外交入口；外交统一走底部菜单。
+    const name = document.createElement('span')
     name.className = 'shell__faction-name'
     name.textContent = faction.name
-    if (interactive) {
-      const button = name as HTMLButtonElement
-      button.type = 'button'
-      button.dataset.action = 'open-faction-diplomacy'
-      button.dataset.faction = faction.id
-    }
 
     item.append(swatch, name)
 
@@ -771,6 +778,13 @@ function partyMetaText(character: Character, factionId: FactionId): string {
   return `${officerSummaryText(character)}${loyaltyHintText(character, factionId)}`
 }
 
+/** 该战略点是否与己方任一战略点相邻，用于判断能否就近宣战。 */
+function bordersOwnTerritory(state: GameState, siteId: SiteId): boolean {
+  return state.geography.sites.some(
+    (site) => site.owner === state.playerFaction && site.neighbors.includes(siteId),
+  )
+}
+
 /** 侧栏战略点面板：名称、类型、归属与驻将；按接壤情况提供进攻、任命与寻访。 */
 function renderSitePanel(
   panel: HTMLElement,
@@ -815,8 +829,22 @@ function renderSitePanel(
   const attackButton = requireElement<HTMLButtonElement>(panel, '[data-action="attack-here"]')
   attackButton.hidden = !isAttackable(state, site.id)
   attackButton.disabled = !canAfford(state, state.playerFaction, 'attack')
-  // 非自家领地没有「进入」，由「进攻此地」独占一行。
+  // 非自家领地没有「进入」，由「进攻此地」或「宣战」独占一行。
   attackButton.classList.toggle('site-panel__action--primary', !isOwn)
+
+  // 中立且与己方接壤的势力：就地宣战，省去绕道外交面板。
+  const declareWarButton = requireElement<HTMLButtonElement>(panel, '[data-action="declare-war-here"]')
+  const canDeclareWar =
+    owner !== undefined &&
+    !isOwn &&
+    !isFactionDestroyed(state, owner.id) &&
+    relationBetween(state, state.playerFaction, owner.id) !== 'hostile' &&
+    bordersOwnTerritory(state, site.id)
+  declareWarButton.hidden = !canDeclareWar
+  if (canDeclareWar) {
+    declareWarButton.disabled = !canAfford(state, state.playerFaction, 'declareWar')
+  }
+
   // 自家领地：「进入」在左、「在此寻访」在右，各占半行。
   requireElement<HTMLElement>(panel, '.site-panel__pair').hidden = !isOwn
   const seekButton = requireElement<HTMLButtonElement>(panel, '[data-action="seek-here"]')
@@ -848,11 +876,9 @@ function renderSiteInfoDialog(
 
   const station = stationedAt(state, site.id)
   const yieldFactor = siteYieldFactor(state, site)
-  const defenseBonus = Math.round(SITE_DEFENSE_BONUS[site.type] * 100)
   const facts: readonly [string, string][] = [
     ['归属', ownerName],
     ['规模', SITE_TYPE_LABELS[site.type]],
-    ['防守补正', defenseBonus === 0 ? '无险可依' : `守军受击 −${defenseBonus}%`],
     ['驻将', station === null ? '无' : `${station.name}（兵 ${station.troops}）`],
     ['人口', String(site.population)],
     ['存粮', String(granaryOf(site))],
@@ -2262,7 +2288,7 @@ const PERSONALITY_LABELS: Record<Personality, string> = {
 }
 
 /**
- * 武将详情：表格之外的记录性信息——头像位、身份、年龄、性格、忠诚与对己方态度。
+ * 武将详情：表格之外的记录性信息——头像位、身份、年龄、性格与忠诚。
  * 赏赐以图标缀在忠诚右侧，解任放在底部。头像暂以姓名首字占位，将来换作正式立绘。
  */
 function renderOfficerDetail(
@@ -2291,29 +2317,22 @@ function renderOfficerDetail(
   name.className = 'officer-detail__name'
   name.textContent = character.name
 
-  const role = document.createElement('span')
-  role.className = 'officer-detail__role'
-  role.textContent = character.isMonarch ? '君主' : '麾下'
-
-  title.append(name, role)
+  if (character.isMonarch) {
+    const role = document.createElement('span')
+    role.className = 'officer-detail__role'
+    role.textContent = '君主'
+    title.append(name, role)
+  } else {
+    title.append(name)
+  }
   head.append(portrait, title)
 
   const hint = loyaltyHint(character.loyalty, defectThresholdFor(character, state.playerFaction))
   const credits = boostCredits(character)
-  const siteNames = new Map(state.geography.sites.map((site) => [site.id, site.name]))
-  const scopeText =
-    scopeSitesFor(state, character)
-      .map((id) => siteNames.get(id) ?? id)
-      .join('、') || '—'
-  const scopeNote = character.roamingSiteId === null || character.roamingSiteId === undefined
-    ? scopeText
-    : `${scopeText}（无籍，当季落脚）`
   const facts: readonly [string, string][] = [
     ['年龄', ageText(character.age)],
     ['性格', PERSONALITY_LABELS[character.personality]],
-    ['活动范围', scopeNote],
     ['忠诚', character.isMonarch ? '君主不计' : `${character.loyalty}${hint === null ? '' : `（${hint}）`}`],
-    ['对己方态度', affinityAttitude(affinityToward(character, state.playerFaction))],
     ['经验', `${character.exp ?? 0}（每 ${EXP_PER_BOOST} 点得一次强化，现有 ${credits} 次）`],
   ]
 
@@ -2333,36 +2352,65 @@ function renderOfficerDetail(
 
   const parts: HTMLElement[] = [back, head, list]
 
-  // 强化：攒够出战额度时，横排四项能力，选一项提升一级。消耗已在标题行说明，按钮不再重复。
-  if (credits > 0) {
-    const boosts = document.createElement('div')
-    boosts.className = 'officer-detail__actions'
-    const lead = document.createElement('span')
-    lead.className = 'officer-detail__hint'
-    lead.replaceChildren('强化', createActionCost(ACTION_COSTS.strengthen, showCosts))
+  // 强化：始终展示可用点数与五项去向；额度不足或已至上限时按钮禁用。
+  const boosts = document.createElement('div')
+  boosts.className = 'officer-detail__actions'
+  const lead = document.createElement('span')
+  lead.className = 'officer-detail__hint'
+  lead.replaceChildren('强化', createActionCost(ACTION_COSTS.strengthen, showCosts))
+  const points = document.createElement('span')
+  points.className = 'officer-detail__hint'
+  points.textContent = `可用点数：${credits}`
 
-    const row = document.createElement('div')
-    row.className = 'officer-detail__boosts'
-    for (const kind of ABILITY_KINDS) {
-      const button = createRosterAction(
-        `${ABILITY_LABELS[kind]} +${BOOST_GAIN}`,
-        'strengthen',
-        character.id,
-        0,
-        false,
-      )
-      button.dataset.kind = kind
-      row.append(button)
-    }
-
-    boosts.append(lead, row)
-    parts.push(boosts)
+  const row = document.createElement('div')
+  row.className = 'officer-detail__boosts'
+  for (const kind of ABILITY_KINDS) {
+    const button = createRosterAction(
+      `${ABILITY_LABELS[kind]} +${BOOST_GAIN}`,
+      'strengthen',
+      character.id,
+      0,
+      false,
+    )
+    button.dataset.kind = kind
+    const atMax = character[kind] >= ABILITY_MAX
+    button.disabled = credits < 1 || atMax
+    button.title =
+      credits < 1
+        ? '可用点数为 0'
+        : atMax
+          ? `${ABILITY_LABELS[kind]}已达上限`
+          : `消耗 1 点可用点数，${ABILITY_LABELS[kind]} +${BOOST_GAIN}`
+    row.append(button)
   }
+
+  const troopsAtMax = troopLimit(character) >= TROOP_LIMIT_HARD_CAP
+  const troopsButton = createRosterAction(
+    `带兵上限 +${TROOP_BOOST_GAIN}`,
+    'strengthen',
+    character.id,
+    0,
+    false,
+  )
+  troopsButton.dataset.kind = 'troops'
+  troopsButton.disabled = credits < 1 || troopsAtMax
+  troopsButton.title =
+    credits < 1
+      ? '可用点数为 0'
+      : troopsAtMax
+        ? '带兵上限已达上限'
+        : `消耗 1 点可用点数，带兵上限与兵力各 +${TROOP_BOOST_GAIN}`
+  row.append(troopsButton)
+
+  boosts.append(lead, points, row)
+  parts.push(boosts)
 
   if (!character.isMonarch) {
     const actions = document.createElement('div')
     actions.className = 'officer-detail__actions'
-    actions.append(createRosterAction('解任', 'dismiss', character.id, ACTION_COSTS.dismiss, showCosts))
+    const dismiss = createRosterAction('解任', 'dismiss', character.id, ACTION_COSTS.dismiss, showCosts)
+    dismiss.classList.add('officer-detail__dismiss')
+    actions.append(dismiss)
     parts.push(actions)
   }
 
@@ -2669,42 +2717,6 @@ function developmentEffectText(kind: DevelopmentKind, level: number): string {
   return `人口上限 +${level * POPULATION_PER_HOUSING}　每季增长 +${(level * HOUSING_GROWTH_BONUS * 100).toFixed(1)}%`
 }
 
-/** 外交弹窗可用的一项动作；`cost` 为该动作的行动力消耗。 */
-interface DiplomacyOption {
-  label: string
-  action: string
-  cost: number
-  meta?: string
-}
-
-/** 按当前关系列出可用的外交动作。 */
-function diplomacyOptions(kind: RelationKind): DiplomacyOption[] {
-  const options: DiplomacyOption[] = []
-  if (kind !== 'hostile') {
-    options.push({ label: '宣战', action: 'declare-war', cost: ACTION_COSTS.declareWar })
-  }
-  if (kind === 'hostile') {
-    options.push({
-      label: '停战',
-      action: 'make-peace',
-      cost: ACTION_COSTS.makePeace,
-      meta: `需好感 ≥ ${PEACE_FAVOR}`,
-    })
-  }
-  if (kind === 'neutral') {
-    options.push({
-      label: '结盟',
-      action: 'alliance',
-      cost: ACTION_COSTS.alliance,
-      meta: `需好感 ≥ ${ALLIANCE_FAVOR}`,
-    })
-  }
-  options.push({ label: `赠礼 ${GIFT_MONEY} 金`, action: 'gift', cost: ACTION_COSTS.gift })
-  options.push({ label: '索取粮食', action: 'demand', cost: ACTION_COSTS.demand })
-
-  return options
-}
-
 /** 他方势力：非玩家、未覆灭者。 */
 function otherFactions(state: GameState): Faction[] {
   return state.factions.filter(
@@ -2712,15 +2724,15 @@ function otherFactions(state: GameState): Faction[] {
   )
 }
 
-/** 一条外交行：左侧名称与摘要，右侧一枚按钮，按钮上缀行动力角标。 */
+/**
+ * 一条外交行：左侧势力名与当前关系，右侧是该关系下唯一可做的事。
+ * 中立只能宣战，敌对只能求和；求和另标赔款。
+ */
 function createDiplomacyRow(
-  nameText: string,
-  metaText: string | null,
-  action: string,
-  actionLabel: string,
-  cost: number,
+  faction: Faction,
+  kind: RelationKind,
+  state: GameState,
   showCosts: boolean,
-  factionId?: FactionId,
 ): HTMLLIElement {
   const item = document.createElement('li')
   item.className = 'diplomacy__item'
@@ -2729,74 +2741,60 @@ function createDiplomacyRow(
   info.className = 'diplomacy__info'
   const name = document.createElement('span')
   name.className = 'diplomacy__name'
-  name.textContent = nameText
-  info.append(name)
-  if (metaText !== null) {
-    const meta = document.createElement('span')
-    meta.className = 'diplomacy__meta'
-    meta.textContent = metaText
-    info.append(meta)
-  }
+  name.textContent = faction.name
+  const meta = document.createElement('span')
+  meta.className = 'diplomacy__meta'
+  meta.textContent = relationLabel(kind)
+  info.append(name, meta)
 
   const button = document.createElement('button')
   button.type = 'button'
   button.className = 'diplomacy__button'
-  button.dataset.action = action
-  if (factionId !== undefined) {
-    button.dataset.faction = factionId
+  button.dataset.faction = faction.id
+
+  if (kind === 'hostile') {
+    const money = state.factions.find((item) => item.id === state.playerFaction)?.money ?? 0
+    button.dataset.action = 'make-peace'
+    setActionButton(
+      button,
+      `求和 赔款 ${PEACE_TRIBUTE} 金`,
+      ACTION_COSTS.makePeace,
+      showCosts,
+    )
+    button.disabled =
+      !canAfford(state, state.playerFaction, 'makePeace') || money < PEACE_TRIBUTE
+    button.title =
+      money < PEACE_TRIBUTE
+        ? `赔款不足，须 ${PEACE_TRIBUTE} 金`
+        : `停战并赔款 ${PEACE_TRIBUTE} 金，消耗 ${ACTION_COSTS.makePeace} 行动力`
+  } else {
+    button.dataset.action = 'declare-war'
+    setActionButton(button, '宣战', ACTION_COSTS.declareWar, showCosts)
+    button.disabled = !canAfford(state, state.playerFaction, 'declareWar')
+    button.title = `向 ${faction.name} 宣战，消耗 ${ACTION_COSTS.declareWar} 行动力`
   }
-  setActionButton(button, actionLabel, cost, showCosts)
 
   item.append(info, button)
   return item
 }
 
-/** 外交弹窗：未选对象时列出他方势力，选定后显示其状态、好感与可用的外交动作。 */
+/** 外交弹窗：列出他方势力，按当前关系给出宣战或求和。 */
 function renderDiplomacyDialog(
   dialog: HTMLElement,
   state: GameState,
-  factionId: FactionId | null,
   message: string,
   showCosts: boolean,
 ): void {
-  const backButton = requireElement<HTMLButtonElement>(dialog, '[data-action="diplomacy-back"]')
-  const targetLine = requireElement<HTMLElement>(dialog, '.diplomacy__target')
   const statusLine = requireElement<HTMLElement>(dialog, '.diplomacy__status')
   const list = requireElement<HTMLElement>(dialog, '.diplomacy__list')
 
-  const target = factionId === null ? undefined : state.factions.find((item) => item.id === factionId)
-  if (target === undefined) {
-    backButton.hidden = true
-    targetLine.textContent = '选择交涉对象'
-    statusLine.textContent = ''
-    list.replaceChildren(
-      ...otherFactions(state).map((faction) =>
-        createDiplomacyRow(
-          faction.name,
-          `${relationLabel(relationBetween(state, state.playerFaction, faction.id))} · ${affinityAttitude(favorBetween(state, state.playerFaction, faction.id))}`,
-          'pick-diplomacy',
-          '交涉',
-          0,
-          showCosts,
-          faction.id,
-        ),
-      ),
-    )
-    return
-  }
-
-  backButton.hidden = false
-  const kind = relationBetween(state, state.playerFaction, target.id)
-  targetLine.textContent = `${target.name}　${relationLabel(kind)} · ${affinityAttitude(favorBetween(state, state.playerFaction, target.id))}`
   statusLine.textContent = message
   list.replaceChildren(
-    ...diplomacyOptions(kind).map((option) =>
+    ...otherFactions(state).map((faction) =>
       createDiplomacyRow(
-        option.label,
-        option.meta ?? null,
-        option.action,
-        '执行',
-        option.cost,
+        faction,
+        relationBetween(state, state.playerFaction, faction.id),
+        state,
         showCosts,
       ),
     ),
@@ -2846,6 +2844,23 @@ function renderDismissConfirm(
 
   requireElement<HTMLElement>(dialog, '.confirm__text').textContent =
     `将 ${character.name} 罢为在野，卸下其驻地与部队。`
+}
+
+/** 招募确认弹窗：写明聘金与现有金钱，等玩家确认后才付款入仕。 */
+function renderHireConfirm(
+  dialog: HTMLElement,
+  state: GameState,
+  characterId: CharacterId | null,
+): void {
+  const character =
+    characterId === null ? undefined : state.characters.find((item) => item.id === characterId)
+  if (character === undefined) {
+    return
+  }
+
+  const faction = state.factions.find((item) => item.id === state.playerFaction)
+  requireElement<HTMLElement>(dialog, '.hire__text').textContent =
+    `${character.name} 愿仕，聘金 ${hireCost(character)} 金（现有 ${faction?.money ?? 0} 金）。是否招募？`
 }
 
 function createSlotItem(label: string, summary: SaveSummary | null): HTMLLIElement {
@@ -3013,7 +3028,6 @@ export function mountGameShell(
   const diplomacyDialog = requireElement<HTMLDialogElement>(root, '.diplomacy')
   const diplomacyList = requireElement<HTMLElement>(root, '.diplomacy__list')
   const openDiplomacyButton = requireElement<HTMLButtonElement>(actionBar, '[data-action="open-diplomacy"]')
-  const backDiplomacyButton = requireElement<HTMLButtonElement>(root, '[data-action="diplomacy-back"]')
   const closeDisbandButton = requireElement<HTMLButtonElement>(root, '[data-action="close-disband"]')
   const disbandDialog = requireElement<HTMLDialogElement>(root, '.disband')
   const disbandSlider = requireElement<HTMLInputElement>(root, '.disband__slider')
@@ -3024,6 +3038,10 @@ export function mountGameShell(
   const dismissDialog = requireElement<HTMLDialogElement>(root, '.confirm')
   const dismissCancelButton = requireElement<HTMLButtonElement>(root, '[data-action="dismiss-cancel"]')
   const dismissConfirmButton = requireElement<HTMLButtonElement>(root, '[data-action="dismiss-confirm"]')
+  const hireDialog = requireElement<HTMLDialogElement>(root, '.hire')
+  const hireCancelButton = requireElement<HTMLButtonElement>(root, '[data-action="hire-cancel"]')
+  const hireConfirmButton = requireElement<HTMLButtonElement>(root, '[data-action="hire-confirm"]')
+  const closeHireButton = requireElement<HTMLButtonElement>(root, '[data-action="close-hire"]')
   const closeDismissButton = requireElement<HTMLButtonElement>(root, '[data-action="close-confirm"]')
 
   linksCheckbox.checked = settings.get().showStrategicLinks
@@ -3040,6 +3058,11 @@ export function mountGameShell(
     }
 
     setActionCost('attack-here', String(ACTION_COSTS.attack), `${ACTION_COSTS.attack} 行动力`)
+    setActionCost(
+      'declare-war-here',
+      String(ACTION_COSTS.declareWar),
+      `${ACTION_COSTS.declareWar} 行动力`,
+    )
     setActionCost('seek-here', String(ACTION_COSTS.seekTalent), `${ACTION_COSTS.seekTalent} 行动力`)
   }
 
@@ -3086,8 +3109,7 @@ export function mountGameShell(
   /** 建设弹窗当前的目标战略点与上一次操作反馈。 */
   let buildSiteId: SiteId | null = null
   let buildMessage = ''
-  /** 外交弹窗当前的目标势力与上一次操作反馈。 */
-  let diplomacyFactionId: FactionId | null = null
+  /** 外交弹窗的上一次操作反馈。 */
   let diplomacyMessage = ''
   /** 遣散弹窗当前的目标武将与上一次操作反馈。 */
   let disbandCharacterId: CharacterId | null = null
@@ -3096,6 +3118,9 @@ export function mountGameShell(
   let domesticMessage = ''
   /** 解任确认弹窗当前要处置的武将。 */
   let dismissTargetId: CharacterId | null = null
+  /** 待确认的招聘：目标武将与反馈写回的面板。 */
+  let hireCharacterId: CharacterId | null = null
+  let hireSource: 'seek' | 'visit' = 'seek'
 
   const paint = (state: GameState): void => {
     const showCosts = settings.get().showActionCosts
@@ -3135,10 +3160,11 @@ export function mountGameShell(
 
     renderHistory(historyList, state)
     renderPrison(prisonDialog, state, prisonMessage, showCosts)
-    renderDiplomacyDialog(diplomacyDialog, state, diplomacyFactionId, diplomacyMessage, showCosts)
+    renderDiplomacyDialog(diplomacyDialog, state, diplomacyMessage, showCosts)
     renderDisbandDialog(disbandDialog, state, disbandCharacterId, disbandMessage)
     renderSiteInfoDialog(siteInfoDialog, state, buildSiteId, buildMessage, showCosts)
     renderDismissConfirm(dismissDialog, state, dismissTargetId)
+    renderHireConfirm(hireDialog, state, hireCharacterId)
     renderSlots(slotList, session)
 
     const showAllCharacters = settings.get().showAllCharacters
@@ -3978,7 +4004,7 @@ export function mountGameShell(
     }
 
     if (action === 'strengthen') {
-      const kind = button.dataset.kind as AbilityKind | undefined
+      const kind = button.dataset.kind as StrengthenKind | undefined
       if (kind === undefined) {
         return
       }
@@ -4049,6 +4075,44 @@ export function mountGameShell(
     siteInfoDialog.close()
   })
 
+  /**
+   * 招聘确认：判定成功只打开确认窗，玩家点「招募」后才扣聘金入仕；
+   * 取消、关闭或直接关掉窗口都算未支付，此人留在待招募名单里。
+   */
+  const finishHire = (message: string): void => {
+    const source = hireSource
+    hireCharacterId = null
+    hireDialog.close()
+    if (source === 'visit') {
+      contactMessage = message
+    } else {
+      siteMessage = message
+    }
+    paint(session.getState())
+  }
+
+  const cancelHire = (): void => {
+    if (hireCharacterId === null) {
+      hireDialog.close()
+      return
+    }
+
+    const character = session.getState().characters.find((item) => item.id === hireCharacterId)
+    finishHire(character === undefined ? '未招募' : `未招募 ${character.name}，已列入待招募`)
+  }
+
+  hireConfirmButton.addEventListener('click', () => {
+    if (hireCharacterId === null) {
+      return
+    }
+
+    const result = session.hire(hireCharacterId)
+    finishHire(result.ok ? result.record.outcome : result.reason)
+  })
+
+  hireCancelButton.addEventListener('click', cancelHire)
+  closeHireButton.addEventListener('click', cancelHire)
+
   siteSeekButton.addEventListener('click', () => {
     const siteId = selection.get()
     if (siteId === null) {
@@ -4056,6 +4120,15 @@ export function mountGameShell(
     }
 
     const result = session.seekTalent(siteId)
+    if (result.ok && result.pendingHire !== undefined) {
+      siteMessage = ''
+      hireCharacterId = result.pendingHire.characterId
+      hireSource = 'seek'
+      paint(session.getState())
+      hireDialog.showModal()
+      return
+    }
+
     siteMessage = result.ok ? result.record.outcome : result.reason
     paint(session.getState())
   })
@@ -4069,6 +4142,15 @@ export function mountGameShell(
     }
 
     const result = session.visit(characterId)
+    if (result.ok && result.pendingHire !== undefined) {
+      contactMessage = ''
+      hireCharacterId = result.pendingHire.characterId
+      hireSource = 'visit'
+      paint(session.getState())
+      hireDialog.showModal()
+      return
+    }
+
     contactMessage = result.ok ? result.record.outcome : result.reason
     paint(session.getState())
   })
@@ -4085,6 +4167,17 @@ export function mountGameShell(
       buildMessage = ''
       paint(session.getState())
       siteInfoDialog.showModal()
+      return
+    }
+
+    if (action === 'declare-war-here') {
+      const site = session.getState().geography.sites.find((item) => item.id === siteId)
+      if (site === undefined || site.owner === null) {
+        return
+      }
+      const result = session.declareWar(site.owner)
+      siteMessage = result.ok ? result.record.outcome : result.reason
+      paint(session.getState())
       return
     }
 
@@ -4166,42 +4259,21 @@ export function mountGameShell(
     orderDialog.showModal()
   })
 
-  /** 外交面板：先选交涉对象，再执行动作；返回可退回势力列表。 */
+  /** 外交面板：每个势力只有一枚按钮，中立宣战、敌对求和。 */
   diplomacyList.addEventListener('click', (event) => {
     const button = actionButtonOf(event)
     const action = button?.dataset.action
-    if (button === null || action === undefined) {
+    const target = button?.dataset.faction
+    if (button === null || action === undefined || target === undefined) {
       return
     }
 
-    if (action === 'pick-diplomacy') {
-      const factionId = button.dataset.faction
-      if (factionId === undefined) {
-        return
-      }
-      diplomacyFactionId = factionId
-      diplomacyMessage = ''
-      paint(session.getState())
-      return
-    }
-
-    if (diplomacyFactionId === null) {
-      return
-    }
-
-    const target = diplomacyFactionId
     const result =
       action === 'declare-war'
         ? session.declareWar(target)
         : action === 'make-peace'
           ? session.makePeace(target)
-          : action === 'alliance'
-            ? session.alliance(target)
-            : action === 'gift'
-              ? session.gift(target)
-              : action === 'demand'
-                ? session.demand(target)
-                : null
+          : null
     if (result === null) {
       return
     }
@@ -4210,36 +4282,11 @@ export function mountGameShell(
     paint(session.getState())
   })
 
-  /** 底部菜单的外交入口：从势力列表开始。 */
+  /** 底部菜单的外交入口：打开势力列表。 */
   openDiplomacyButton.addEventListener('click', () => {
-    diplomacyFactionId = null
     diplomacyMessage = ''
     paint(session.getState())
     diplomacyDialog.showModal()
-  })
-
-  /** 侧栏点势力名：跳过列表，直接进入该势力的交涉页。 */
-  factionList.addEventListener('click', (event) => {
-    const button = actionButtonOf(event)
-    if (button?.dataset.action !== 'open-faction-diplomacy') {
-      return
-    }
-
-    const factionId = button.dataset.faction
-    if (factionId === undefined) {
-      return
-    }
-
-    diplomacyFactionId = factionId
-    diplomacyMessage = ''
-    paint(session.getState())
-    diplomacyDialog.showModal()
-  })
-
-  backDiplomacyButton.addEventListener('click', () => {
-    diplomacyFactionId = null
-    diplomacyMessage = ''
-    paint(session.getState())
   })
 
   closeDiplomacyButton.addEventListener('click', () => {
@@ -4365,12 +4412,13 @@ export function mountGameShell(
     prisonMessage = ''
     buildSiteId = null
     buildMessage = ''
-    diplomacyFactionId = null
     diplomacyMessage = ''
     disbandCharacterId = null
     disbandMessage = ''
     domesticMessage = ''
     dismissTargetId = null
+    hireCharacterId = null
+    hireSource = 'seek'
     selection.select(null)
     resetTransientUi()
     newGameDialog.close()
@@ -4408,7 +4456,6 @@ export function mountGameShell(
     [
       diplomacyDialog,
       () => {
-        diplomacyFactionId = null
         diplomacyMessage = ''
       },
     ],
@@ -4420,6 +4467,7 @@ export function mountGameShell(
       },
     ],
     [dismissDialog, () => (dismissTargetId = null)],
+    [hireDialog, () => (hireCharacterId = null)],
   ]
   for (const [dialog, reset] of dialogResets) {
     dialog.addEventListener('close', () => {

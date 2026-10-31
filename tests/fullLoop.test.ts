@@ -62,6 +62,19 @@ function attackSite(session: GameSession, targetSiteId: string, memberIds: strin
   return true
 }
 
+/** 寻访并在判定成功后确认支付聘金，模拟玩家在确认窗里点了「招募」。 */
+function seekAndHire(session: GameSession, siteId: string): boolean {
+  const result = session.seekTalent(siteId)
+  if (!result.ok) {
+    return false
+  }
+  if (result.pendingHire !== undefined) {
+    session.hire(result.pendingHire.characterId)
+  }
+
+  return true
+}
+
 /** 一个州三个战略点：玩家占一角，攻下敌战略点即可成为该州归属势力。 */
 function loopScenario(): Scenario {
   return {
@@ -234,7 +247,7 @@ describe('州归属与卡池联动（无画面）', () => {
     const state = session.getState()
 
     // 只占一角：基础池，只能寻得基础客。
-    expect(session.seekTalent('a').ok).toBe(true)
+    expect(seekAndHire(session, 'a')).toBe(true)
     expect(characterOf(state, 'basic-1').status).toBe('serving')
     expect(characterOf(state, 'second-1').status).toBe('wild')
 
@@ -243,7 +256,7 @@ describe('州归属与卡池联动（无画面）', () => {
     expect(state.geography.provinces.find((province) => province.id === 'p')?.owner).toBe('liubei')
 
     // 二级池随之开放，继续寻访可寻得二级客。
-    expect(session.seekTalent('a').ok).toBe(true)
+    expect(seekAndHire(session, 'a')).toBe(true)
     expect(characterOf(state, 'second-1').status).toBe('serving')
   })
 })

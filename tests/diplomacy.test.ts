@@ -1,46 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { ACTION_COSTS } from '../src/core/actions'
+import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { createInitialState } from '../src/core/createInitialState'
 import {
-  alliance,
   declareWar,
-  demand,
-  DEMAND_FAVOR_PENALTY,
-  DEMAND_GRAIN,
-  DEMAND_REFUSE_PENALTY,
-  gift,
-  GIFT_FAVOR,
-  GIFT_MONEY,
   makePeace,
+  PEACE_TRIBUTE,
   WAR_FAVOR_PENALTY,
 } from '../src/core/diplomacy'
 import type { GameState } from '../src/core/model'
-import { createRandom } from '../src/core/random'
-import { adjustFavor, favorBetween, relationBetween } from '../src/core/relations'
+import { favorBetween, relationBetween } from '../src/core/relations'
 import { SANGUO_208 } from '../src/core/scenarios'
 
 function state(): GameState {
   return createInitialState({ scenario: SANGUO_208, seed: 208 })
-}
-
-/** 把随机状态设成首个取值低于阈值的种子，用于稳定地走通「对方应允」。 */
-function forceRollBelow(state: GameState, threshold: number): void {
-  for (let seed = 1; ; seed += 1) {
-    if (createRandom(seed).next() < threshold) {
-      state.randomState = seed
-      return
-    }
-  }
-}
-
-/** 把随机状态设成首个取值不低于阈值的种子，用于稳定地走通「对方拒绝」。 */
-function forceRollAbove(state: GameState, threshold: number): void {
-  for (let seed = 1; ; seed += 1) {
-    if (createRandom(seed).next() >= threshold) {
-      state.randomState = seed
-      return
-    }
-  }
 }
 
 function factionOf(state: GameState, id: string) {
@@ -75,123 +47,47 @@ describe('宣战', () => {
   })
 })
 
-describe('赠礼', () => {
-  it('花金钱提升好感', () => {
-    const game = state()
-    const moneyBefore = factionOf(game, 'liubei').money
-    const favorBefore = favorBetween(game, 'liubei', 'caocao')
-
-    const result = gift(game, 'caocao')
-
-    expect(result.ok).toBe(true)
-    expect(factionOf(game, 'liubei').money).toBe(moneyBefore - GIFT_MONEY)
-    expect(favorBetween(game, 'liubei', 'caocao')).toBe(favorBefore + GIFT_FAVOR)
-    expect(game.actionPoints.liubei).toBe(10 - ACTION_COSTS.gift)
-  })
-
-  it('金钱不足被拒且不扣行动力', () => {
-    const game = state()
-    factionOf(game, 'liubei').money = 0
-    const apBefore = game.actionPoints.liubei
-
-    const result = gift(game, 'caocao')
-
-    expect(result.ok).toBe(false)
-    expect(game.actionPoints.liubei).toBe(apBefore)
-  })
-})
-
-describe('停战与结盟', () => {
-  it('好感不足时不能停战', () => {
-    const game = state()
-    const apBefore = game.actionPoints.liubei
-
-    const result = makePeace(game, 'caocao')
-
-    expect(result.ok).toBe(false)
-    expect(game.actionPoints.liubei).toBe(apBefore)
-  })
-
-  it('好感达标且对方应允时转为中立', () => {
+describe('求和', () => {
+  it('敌对转中立，赔款由己方转给对方', () => {
     const game = state()
     game.relations = [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }]
-    adjustFavor(game, 'liubei', 'caocao', 75)
-    forceRollBelow(game, 0.5)
+    const moneyBefore = factionOf(game, 'liubei').money
+    const targetMoneyBefore = factionOf(game, 'caocao').money
 
     const result = makePeace(game, 'caocao')
 
     expect(result.ok).toBe(true)
     expect(relationBetween(game, 'liubei', 'caocao')).toBe('neutral')
+    expect(factionOf(game, 'liubei').money).toBe(moneyBefore - PEACE_TRIBUTE)
+    expect(factionOf(game, 'caocao').money).toBe(targetMoneyBefore + PEACE_TRIBUTE)
+    expect(game.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.makePeace)
   })
 
-  it('好感不足时不能结盟', () => {
+  it('赔款不足时被拒且不扣行动力', () => {
     const game = state()
-    game.relations = []
+    game.relations = [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 }]
+    factionOf(game, 'liubei').money = PEACE_TRIBUTE - 1
+    const apBefore = game.actionPoints.liubei
 
-    const result = alliance(game, 'caocao')
+    const result = makePeace(game, 'caocao')
 
     expect(result.ok).toBe(false)
+    expect(game.actionPoints.liubei).toBe(apBefore)
   })
 
-  it('敌对时不能结盟', () => {
+  it('并不敌对时被拒且不扣行动力', () => {
     const game = state()
-    game.relations = [{ factions: ['liubei', 'caocao'], kind: 'hostile', favor: 90 }]
+    const apBefore = game.actionPoints.liubei
 
-    const result = alliance(game, 'caocao')
+    const result = makePeace(game, 'caocao')
 
     expect(result.ok).toBe(false)
+    expect(game.actionPoints.liubei).toBe(apBefore)
   })
 
-  it('好感达标且对方应允时结为同盟', () => {
-    const game = state()
-    game.relations = []
-    adjustFavor(game, 'liubei', 'caocao', 45)
-    forceRollBelow(game, 0.5)
-
-    const result = alliance(game, 'caocao')
-
-    expect(result.ok).toBe(true)
-    expect(relationBetween(game, 'liubei', 'caocao')).toBe('ally')
-  })
-})
-
-describe('索取', () => {
-  it('对方应允时得粮，好感下降', () => {
-    const game = state()
-    adjustFavor(game, 'liubei', 'caocao', 75)
-    forceRollBelow(game, 0.5)
-    const grainBefore = factionOf(game, 'liubei').grain
-    const favorBefore = favorBetween(game, 'liubei', 'caocao')
-
-    const result = demand(game, 'caocao')
-
-    expect(result.ok).toBe(true)
-    expect(factionOf(game, 'liubei').grain).toBe(grainBefore + DEMAND_GRAIN)
-    expect(favorBetween(game, 'liubei', 'caocao')).toBe(favorBefore - DEMAND_FAVOR_PENALTY)
-  })
-
-  it('对方拒绝时索不到粮，好感小幅下降', () => {
-    const game = state()
-    // 好感低于中性时对方才倾向拒绝，据此取得稳定的拒绝结果。
-    game.relations = [{ factions: ['liubei', 'caocao'], kind: 'neutral', favor: 25 }]
-    forceRollAbove(game, 0.99)
-    const grainBefore = factionOf(game, 'liubei').grain
-    const favorBefore = favorBetween(game, 'liubei', 'caocao')
-
-    const result = demand(game, 'caocao')
-
-    expect(result.ok).toBe(true)
-    expect(factionOf(game, 'liubei').grain).toBe(grainBefore)
-    expect(favorBetween(game, 'liubei', 'caocao')).toBe(favorBefore - DEMAND_REFUSE_PENALTY)
-  })
-
-  it('固定随机源下结果可复现', () => {
-    const run = (): string => {
-      const game = state()
-      const result = demand(game, 'caocao')
-      return result.ok ? result.record.outcome : result.reason
-    }
-
-    expect(run()).toBe(run())
+  it('宣战、进攻与求和无法在同一季内走完', () => {
+    expect(
+      ACTION_COSTS.declareWar + ACTION_COSTS.attack + ACTION_COSTS.makePeace,
+    ).toBeGreaterThan(ACTION_POINTS_PER_TURN)
   })
 })

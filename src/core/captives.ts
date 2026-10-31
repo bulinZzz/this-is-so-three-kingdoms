@@ -340,19 +340,3 @@ export function releaseCaptives(state: GameState, factionId: FactionId): string[
 
   return notes
 }
-
-/** 其他势力关着的人：到「愿降」档即入仕；本版 AI 不主动劝降，未到者一直关着。 */
-export function recruitWillingCaptives(state: GameState, factionId: FactionId): void {
-  for (const record of [...(state.captives[factionId] ?? [])]) {
-    if (record.will < WILLING_THRESHOLD) {
-      continue
-    }
-
-    const character = state.characters.find((item) => item.id === record.characterId)
-    if (character === undefined || character.isMonarch) {
-      continue
-    }
-
-    joinCaptive(state, character, factionId)
-  }
-}

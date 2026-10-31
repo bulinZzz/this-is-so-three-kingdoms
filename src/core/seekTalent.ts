@@ -122,6 +122,11 @@ export function clearContacts(state: GameState, characterId: CharacterId): void 
   }
 }
 
+/** 招聘判定的选项：延迟付款时只判定、不扣钱入仕，由界面在玩家确认后再招募。 */
+export interface HireOptions {
+  deferHire?: boolean
+}
+
 /** 某人入仕某势力，直接归入名册，兵力从零起，忠诚按其对该势力的偏好定初值。 */
 function join(state: GameState, character: Character, factionId: FactionId): void {
   character.status = 'serving'
@@ -134,9 +139,65 @@ function join(state: GameState, character: Character, factionId: FactionId): voi
 }
 
 /**
+ * 为一名已接触的在野者支付聘金并招募；供玩家在寻访或拜访的确认之后调用。
+ * 判定与接触由寻访、拜访完成，本步只负责付款与入仕。
+ */
+export function hireCharacter(
+  state: GameState,
+  characterId: CharacterId,
+  factionId: FactionId = state.playerFaction,
+): ActionResult {
+  const character = state.characters.find((item) => item.id === characterId) ?? null
+
+  return runAction(state, {
+    kind: 'hire',
+    factionId,
+    precondition: (current) => {
+      if (character === null) {
+        return '武将不存在'
+      }
+      if (!isRecruitable(character)) {
+        return '此人已不在野'
+      }
+      const contacted = (current.contactedCandidates[factionId] ?? []).some(
+        (candidate) => candidate.characterId === characterId,
+      )
+      if (!contacted) {
+        return '尚未与此人接触'
+      }
+      if (
+        factionId === current.playerFaction &&
+        countServing(current.characters, factionId) >= CHARACTER_LIMIT
+      ) {
+        return '麾下已满'
+      }
+      const faction = current.factions.find((item) => item.id === factionId)
+      const cost = hireCost(character)
+      if (faction === undefined || faction.money < cost) {
+        return `聘金不足，须 ${cost} 金`
+      }
+      return null
+    },
+    execute: (current) => {
+      const faction = current.factions.find((item) => item.id === factionId)
+      if (character === null || faction === undefined) {
+        return { outcome: '招募未生效' }
+      }
+
+      const cost = hireCost(character)
+      join(current, character, factionId)
+      faction.money -= cost
+
+      return { targetId: character.id, outcome: `招募 ${character.name}（聘金 −${cost}）` }
+    },
+  })
+}
+
+/**
  * 人才寻访：在指定势力自有的战略点就地发起，候选取自该战略点所在的州中层级已放出的在野者，
  * 已经认得路的（接触过、会面之处仍在手）不再入池，那些人走「拜访」。
- * 抽到一人后判定招聘——性格基准 × 偏好系数：成则付聘金入仕，败则记下会面之处，可日后再次拜访。
+ * 抽到一人后判定招聘——性格基准 × 偏好系数：成则记入接触名单，钱够且未满员时带回待办，
+ * 由玩家确认后再付款入仕；败则同样记入接触名单，可日后再次拜访。
  * 抽取与判定只消耗传入的抽卡随机源，与模拟随机源互不干扰。缺省为玩家势力发起。
  */
 export function seekTalent(
@@ -144,6 +205,7 @@ export function seekTalent(
   random: Random,
   siteId: SiteId,
   factionId: FactionId = state.playerFaction,
+  options: HireOptions = {},
 ): ActionResult {
   const site = state.geography.sites.find((item) => item.id === siteId) ?? null
   const candidates = site === null ? [] : candidatesAt(state, site, factionId)
@@ -151,18 +213,12 @@ export function seekTalent(
   return runAction(state, {
     kind: 'seekTalent',
     factionId,
-    precondition: (current) => {
+    precondition: () => {
       if (site === null) {
         return '战略点不存在'
       }
       if (site.owner !== factionId) {
         return '此处不是自有战略点'
-      }
-      if (
-        factionId === current.playerFaction &&
-        countServing(current.characters, factionId) >= CHARACTER_LIMIT
-      ) {
-        return '麾下已满'
       }
       if (candidates.length === 0) {
         return '此处已无可寻之人'
@@ -176,18 +232,34 @@ export function seekTalent(
 
       const picked = candidates[Math.floor(random.next() * candidates.length)]
 
+      if (
+        factionId === current.playerFaction &&
+        countServing(current.characters, factionId) >= CHARACTER_LIMIT
+      ) {
+        markContacted(current, factionId, picked.id, site.id)
+        return { targetId: site.id, outcome: `寻访到 ${picked.name}，但麾下已满` }
+      }
+
       if (random.next() >= recruitChance(picked, factionId)) {
         markContacted(current, factionId, picked.id, site.id)
         return { targetId: site.id, outcome: `寻访到 ${picked.name}，但他不愿出仕` }
       }
 
+      markContacted(current, factionId, picked.id, site.id)
       const cost = hireCost(picked)
       const faction = current.factions.find((item) => item.id === factionId)
       if (faction === undefined || faction.money < cost) {
-        markContacted(current, factionId, picked.id, site.id)
         return {
           targetId: site.id,
           outcome: `寻访到 ${picked.name}，愿仕，但聘金不足（需 ${cost} 金）`,
+        }
+      }
+
+      if (options.deferHire === true) {
+        return {
+          targetId: site.id,
+          outcome: `寻访到 ${picked.name}，愿仕（聘金 ${cost} 金）`,
+          pendingHire: { characterId: picked.id, cost },
         }
       }
 
@@ -200,13 +272,15 @@ export function seekTalent(
 
 /**
  * 拜访一位已接触的在野者：花行动力，使其对己方的偏好随机上升，然后重新判定招聘；
- * 招到时同样付聘金。未招到之前他仍在野，其他势力也可能把他招走。
+ * 判定成功后同样带回待办，由玩家确认后再付款入仕。未招到之前他仍在野，
+ * 其他势力也可能把他招走。
  */
 export function visit(
   state: GameState,
   random: Random,
   characterId: CharacterId,
   factionId: FactionId = state.playerFaction,
+  options: HireOptions = {},
 ): ActionResult {
   const character = state.characters.find((item) => item.id === characterId) ?? null
   const contact =
@@ -256,6 +330,14 @@ export function visit(
         return {
           targetId: character.id,
           outcome: `${character.name} 愿仕，但聘金不足（需 ${cost} 金）`,
+        }
+      }
+
+      if (options.deferHire === true) {
+        return {
+          targetId: character.id,
+          outcome: `${character.name} 愿仕（聘金 ${cost} 金）`,
+          pendingHire: { characterId: character.id, cost },
         }
       }
 

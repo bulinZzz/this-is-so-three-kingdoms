@@ -3,10 +3,10 @@ import type { GameDate, GameState } from './model'
 /**
  * 存档版本。改动会打破旧存档与世界一致性的内容时递增。
  *
- * 存档内含整份地理归属与人物处境；武将调度与战斗重做后，人物的兵种、驻守含义与战斗记录都已不同，
- * 旧存档随这一版失效。
+ * 存档内含整份地理归属与人物处境；外交裁剪后，关系只剩敌对与中立，
+ * 旧存档里的同盟状态已无对应含义，随这一版失效。
  */
-export const SCHEMA_VERSION = 101
+export const SCHEMA_VERSION = 102
 
 /** 手动存档槽位数量，槽位编号从 1 开始。 */
 export const SLOT_COUNT = 10

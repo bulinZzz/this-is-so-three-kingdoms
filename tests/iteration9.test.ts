@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
 import { build } from '../src/core/construction'
 import { developmentLevel } from '../src/core/development'
-import { declareWar, demand, gift } from '../src/core/diplomacy'
+import { declareWar } from '../src/core/diplomacy'
 import { moneyYield, settleMoney } from '../src/core/economy'
 import { granaryGrowth } from '../src/core/granary'
 import type { Character, GameState } from '../src/core/model'
 import { disband, dismiss, reward } from '../src/core/personnel'
-import { favorBetween, relationBetween } from '../src/core/relations'
+import { relationBetween } from '../src/core/relations'
 import { SANGUO_208 } from '../src/core/scenarios'
 import { endTurn } from '../src/core/turn'
 
@@ -51,10 +51,8 @@ function runChain(): GameState {
   // 金钱结算。
   settleMoney(state)
 
-  // 外交：向曹操赠礼抬好感，向同盟的孙权宣战，再向曹操索取。
-  gift(state, 'caocao')
+  // 外交：向孙权宣战。
   declareWar(state, 'sunquan')
-  demand(state, 'caocao')
 
   // 人事：赏赐一人、遣散一人，再解任另一人。
   reward(state, first.id)
@@ -98,10 +96,8 @@ describe('迭代 9 全链（无画面）', () => {
     expect(moneyYield(state, 'liubei')).toBeGreaterThan(0)
     expect(factionOf(state, 'liubei').money).toBe(moneyAfterBuilds + moneyYield(state, 'liubei'))
 
-    gift(state, 'caocao')
     declareWar(state, 'sunquan')
     expect(relationBetween(state, 'liubei', 'sunquan')).toBe('hostile')
-    expect(favorBetween(state, 'liubei', 'caocao')).toBeGreaterThan(25)
 
     reward(state, first.id)
     expect(first.loyalty).toBeGreaterThan(loyaltyBefore)
@@ -117,7 +113,6 @@ describe('迭代 9 全链（无画面）', () => {
     const kinds = state.history.map((record) => record.kind)
     expect(kinds).toContain('build')
     expect(kinds).toContain('declareWar')
-    expect(kinds).toContain('gift')
     expect(kinds).toContain('reward')
     expect(kinds).toContain('disband')
     expect(kinds).toContain('dismiss')

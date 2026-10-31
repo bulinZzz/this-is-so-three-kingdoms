@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { GameSession } from '../src/app/gameSession'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import { autoDeployment } from '../src/core/battle'
+import { CHARACTER_LIMIT } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { RECRUIT_TROOPS_PER_COMMAND, recruitGrainCost } from '../src/core/military'
@@ -161,7 +162,7 @@ describe('GameSession', () => {
     expect(session.isAutoSaveFailed()).toBe(true)
   })
 
-  it('寻访成功后扣行动力并招募武将，但不在行动时写自动存档', () => {
+  it('寻访判定成功后先待确认，确认支付聘金才招募，且不在行动时写自动存档', () => {
     const store = new LocalSaveStore(new MemoryStorage())
     const session = new GameSession(store, { drawSeed: 1 })
     const before = servingCount(session)
@@ -169,7 +170,16 @@ describe('GameSession', () => {
     const result = session.seekTalent('gongan')
 
     expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
     expect(playerActionPoints(session)).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
+    expect(result.pendingHire).toBeDefined()
+    expect(servingCount(session)).toBe(before)
+
+    if (result.pendingHire !== undefined) {
+      expect(session.hire(result.pendingHire.characterId).ok).toBe(true)
+    }
     expect(servingCount(session)).toBe(before + 1)
     expect(store.load(AUTO_SAVE_KEY)).toBeNull()
   })
@@ -192,6 +202,42 @@ describe('GameSession', () => {
 
     expect(result).toEqual({ ok: false, reason: '行动力不足' })
     expect(session.getState().history).toEqual([])
+  })
+
+  it('麾下满员时仍可寻访：不弹招募确认，寻到者进入待招募', () => {
+    const { session } = createSession()
+    const state = session.getState()
+    const player = state.playerFaction
+    const template = state.characters.find(
+      (character) => character.status === 'serving' && character.factionId === player,
+    )
+    if (template === undefined) {
+      throw new Error('开局没有在仕武将')
+    }
+
+    let index = 0
+    while (servingCount(session) < CHARACTER_LIMIT) {
+      state.characters.push({
+        ...template,
+        id: `filler-${index}`,
+        name: `补员${index}`,
+        isMonarch: false,
+        stationedSiteId: null,
+      })
+      index += 1
+    }
+
+    const result = session.seekTalent('gongan')
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    // 判定失败：没有待确认的招聘，寻到的人留在接触名单里。
+    expect(result.record.outcome).toContain('麾下已满')
+    expect(result.pendingHire).toBeUndefined()
+    expect(state.contactedCandidates[player]?.length).toBeGreaterThan(0)
+    expect(playerActionPoints(session)).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
   })
 
   it('同一回合内读档不能重掷：再次寻访与刷新前结果一致', () => {

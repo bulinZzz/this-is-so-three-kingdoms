@@ -5,7 +5,12 @@ import { CHARACTER_LIMIT, countServing } from '../src/core/characters'
 import { createInitialState } from '../src/core/createInitialState'
 import type { Character, GameState, Personality, Scenario } from '../src/core/model'
 import { createRandom, type Random } from '../src/core/random'
-import { recruitChance, seekTalent, visit } from '../src/core/seekTalent'
+import {
+  hireCharacter,
+  recruitChance,
+  seekTalent,
+  visit,
+} from '../src/core/seekTalent'
 
 /** 取一个 [0,1) 序列固定的随机源，供判定可控的用例。 */
 function fixedRandom(values: number[]): Random {
@@ -70,6 +75,10 @@ function characterOf(state: GameState, id: string): Character {
     throw new Error(`武将不存在：${id}`)
   }
   return character
+}
+
+function moneyOf(state: GameState): number {
+  return state.factions.find((faction) => faction.id === state.playerFaction)?.money ?? 0
 }
 
 describe('招聘成功率', () => {
@@ -154,7 +163,7 @@ describe('seekTalent', () => {
     expect(state.history).toEqual([])
   })
 
-  it('麾下满员时拒绝，不扣行动力也不写记录', () => {
+  it('麾下满员时仍可寻访，但不会招募，人记入接触名单且行动力照扣', () => {
     const state = createInitialState({ scenario: seekScenario(candidate('open', 100)) })
     let index = 0
     while (countServing(state.characters, state.playerFaction) < CHARACTER_LIMIT) {
@@ -169,9 +178,15 @@ describe('seekTalent', () => {
 
     const result = seekTalent(state, createRandom(1), 'a')
 
-    expect(result).toEqual({ ok: false, reason: '麾下已满' })
-    expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN)
-    expect(state.history).toEqual([])
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.record.outcome).toContain('麾下已满')
+      expect(result.pendingHire).toBeUndefined()
+    }
+    expect(characterOf(state, 'candidate').status).toBe('wild')
+    expect(state.contactedCandidates.liubei).toEqual([{ characterId: 'candidate', siteId: 'a' }])
+    expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN - ACTION_COSTS.seekTalent)
+    expect(state.history).toHaveLength(1)
   })
 
   it('相同的抽卡源得到相同结果', () => {
@@ -252,6 +267,49 @@ describe('visit', () => {
 
     expect(result).toEqual({ ok: false, reason: '尚未与此人接触' })
     expect(state.actionPoints.liubei).toBe(ACTION_POINTS_PER_TURN)
+  })
+})
+
+describe('招聘确认', () => {
+  it('延迟付款只判定并带回待办，确认后才扣钱入仕', () => {
+    const state = createInitialState({ scenario: seekScenario(candidate('open', 100)) })
+
+    const result = seekTalent(state, createRandom(1), 'a', 'liubei', { deferHire: true })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.pendingHire).toEqual({ characterId: 'candidate', cost: 200 })
+    expect(characterOf(state, 'candidate').status).toBe('wild')
+    expect(moneyOf(state)).toBe(100000)
+    expect(state.contactedCandidates.liubei).toEqual([{ characterId: 'candidate', siteId: 'a' }])
+
+    const hired = hireCharacter(state, 'candidate')
+
+    expect(hired.ok).toBe(true)
+    expect(characterOf(state, 'candidate').status).toBe('serving')
+    expect(moneyOf(state)).toBe(99800)
+    expect(state.contactedCandidates.liubei).toEqual([])
+  })
+
+  it('拜访的待办同样在确认后才入仕', () => {
+    const state = createInitialState({ scenario: seekScenario(candidate('proud', 0)) })
+    seekTalent(state, fixedRandom([0, 0.99]), 'a')
+
+    const result = visit(state, fixedRandom([0.5, 0]), 'candidate', 'liubei', { deferHire: true })
+
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.pendingHire).toBeDefined()
+    expect(characterOf(state, 'candidate').status).toBe('wild')
+
+    if (result.pendingHire !== undefined) {
+      expect(hireCharacter(state, result.pendingHire.characterId).ok).toBe(true)
+    }
+    expect(characterOf(state, 'candidate').status).toBe('serving')
   })
 })
 

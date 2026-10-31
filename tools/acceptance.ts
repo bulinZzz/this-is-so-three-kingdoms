@@ -23,7 +23,7 @@ import {
   developmentLevel,
   developmentLimit,
 } from '../src/core/development'
-import { declareWar, demand } from '../src/core/diplomacy'
+import { declareWar } from '../src/core/diplomacy'
 import {
   attackGrainCost,
   factionTroops,
@@ -39,7 +39,7 @@ import {
 import type { Character, DevelopmentKind, FactionId, GameState, Outcome, Scenario, Season, Site, SiteId, SiteType } from '../src/core/model'
 import { reward, REWARD_MONEY } from '../src/core/personnel'
 import { createRandom, type Random } from '../src/core/random'
-import { areAllied, areHostile, favorBetween } from '../src/core/relations'
+import { areHostile } from '../src/core/relations'
 import { SANGUO_208, SANGUO_ACCEPTANCE } from '../src/core/scenarios'
 import { recruitChance, seekTalent, visit } from '../src/core/seekTalent'
 import { endTurn } from '../src/core/turn'
@@ -53,13 +53,13 @@ import { endTurn } from '../src/core/turn'
  *   建设与征粮各占一档，粮够两万便不再征粮，把行动力留给扩军。
  *   实力足够后，向接壤势力中兵力最弱的一位宣战，一次只打一家，打完再接下一家；
  *   进攻（安全边际内挑价值最高者，自名册编成）→ 征兵（人口最多的点上补边际战力最高的人）
- *   → 拜访（寻访到头后登门争取已认得路的人）→ 经营与外交（每季至多一项：
- *   缺粮则向可开口的弱者索取、忠诚不足六十则赏赐、否则建农田 / 市集 / 民居）
+ *   → 拜访（寻访到头后登门争取已认得路的人）→ 经营（每季至多一项：
+ *   忠诚不足六十则赏赐，否则建农田 / 市集 / 民居）
  *   → 征粮（粮未满两万时，余力交给内政最高者，自存粮最多的点取用）。
  * 兵只从征兵来、粮落在战略点上：兵力完全靠征兵积累，粮要派人去取，两者都由代理逐季操持。
  * 武将统一归名册，征兵、征粮与出征都从名册选人，与身在何处无关；每人每季至多行动一次。
- * 外交只做索取与宣战：赠礼、停战与结盟无处可施。宣战不限关系——同盟亦可宣战，
- * 与玩家手中的手段一致，但次序上先把非同盟打完，接壤处再无外人时才撕盟。
+ * 外交只做宣战：宣战不限关系，一次只打一家，打不下便继续经营。
+ * 代理不主动求和，赔款与行动力的代价不在它的取舍之内。
  * 全图每处战略点都有归属，故代理不再有无主之地可打；眼下无可攻打的目标时，
  * 先继续经营，实力足够再向接壤的最弱外邦宣战，接壤处无人可宣时停手。
  * 其他势力由 factionAi 自主行动，走与实机相同的回合收尾流程。
@@ -95,8 +95,6 @@ const ROSTER_LIMIT = 30
 const RECRUITS_PER_SEASON = 3
 /** 国库粮食达到此数后不再征粮，把行动力留给征兵与建设。 */
 const HARVEST_STOP_GRAIN = 20000
-/** 粮食低于此数时，代理先向外索取（对象见 demandTargetOf）。 */
-const DEMAND_GRAIN_BELOW = 3000
 /** 忠诚不足此数（新附者多在五十上下）就先赏一回，把人拉过这条安心线。 */
 const REWARD_BELOW = 60
 /** 战略点的相对价值，用于在多个安全目标中择优。 */
@@ -217,21 +215,6 @@ function servingCount(state: GameState, factionId: FactionId): number {
   ).length
 }
 
-/** 可索取的对象：非敌对、好感尚可（≥ 40）的他方里兵力最弱的一位——强者不吃这一套。 */
-function demandTargetOf(state: GameState): FactionId | null {
-  const player = state.playerFaction
-  const candidate = state.factions
-    .filter(
-      (faction) =>
-        faction.id !== player &&
-        !areHostile(state, player, faction.id) &&
-        favorBetween(state, player, faction.id) >= 40,
-    )
-    .sort((a, b) => factionTroops(state, a.id) - factionTroops(state, b.id))[0]
-
-  return candidate?.id ?? null
-}
-
 /** 忠诚不足 REWARD_BELOW 的在仕者里，挑忠诚最低的一位；君主不计。 */
 function rewardTargetOf(state: GameState): Character | null {
   const player = state.playerFaction
@@ -305,10 +288,8 @@ interface Playthrough {
   wins: number
   apSpent: number
   apBudget: number
-  /** 赏赐次数，以及索取成功次数与索得的粮食合计。 */
+  /** 赏赐次数。 */
   rewards: number
-  demands: number
-  demandedGrain: number
   /** 各势力覆灭于第几季。 */
   destroyedAt: Map<FactionId, number>
 }
@@ -376,9 +357,8 @@ function readyForWar(state: GameState, targetId: FactionId, armyTarget: number):
 }
 
 /**
- * 就着玩家的自有领地向外看：接壤势力里最弱的一位。非同盟先于同盟——先把外人打完，
- * 接壤处再无外人可打时才轮到同盟，撕盟是最后一步；已宣战者不在列（打他已不必再宣）。
- * 无接壤者则返回 null。
+ * 就着玩家的自有领地向外看：接壤势力里最弱的一位。
+ * 已宣战者不在列（打他已不必再宣）；无接壤者则返回 null。
  */
 function warTargetOf(state: GameState): FactionId | null {
   const player = state.playerFaction
@@ -393,9 +373,8 @@ function warTargetOf(state: GameState): FactionId | null {
       ),
     )
     .sort((a, b) => factionTroops(state, a.id) - factionTroops(state, b.id))
-  const outsider = adjacent.find((faction) => !areAllied(state, player, faction.id))
 
-  return (outsider ?? adjacent[0])?.id ?? null
+  return adjacent[0]?.id ?? null
 }
 
 /** 接壤处是否仍有活着的敌对势力——有则先把这一家打完，暂不另启战端。 */
@@ -454,8 +433,6 @@ function runPlaythrough(scenario: Scenario): Playthrough {
   let apBudget = 0
   let seekExhausted = false
   let rewards = 0
-  let demands = 0
-  let demandedGrain = 0
   /** 建设在农田、市集与民居之间轮转，保证三项都被演练到。 */
   let buildCycle = 0
   const destroyedAt = new Map<FactionId, number>()
@@ -608,26 +585,13 @@ function runPlaythrough(scenario: Scenario): Playthrough {
       }
     }
 
-    // 经营与外交：余力所及，每季至多办一件——缺粮先索取，忠诚不足先赏赐，否则投进建设。
+    // 经营：余力所及，每季至多办一件——忠诚不足先赏赐，否则投进建设。
     if (state.actionPoints[player] >= ACTION_COSTS.build) {
       const playerFaction = state.factions.find((item) => item.id === player)
       const money = playerFaction?.money ?? 0
-      const grainLeft = playerFaction?.grain ?? 0
       const rewardTarget = rewardTargetOf(state)
-      const demandTarget = grainLeft < DEMAND_GRAIN_BELOW ? demandTargetOf(state) : null
 
-      if (demandTarget !== null) {
-        const grainBefore = playerFaction?.grain ?? 0
-        const result = demand(state, demandTarget)
-        if (result.ok) {
-          const gained = (playerFaction?.grain ?? 0) - grainBefore
-          if (gained > 0) {
-            demands += 1
-            demandedGrain += gained
-          }
-          actions.push(result.record.outcome)
-        }
-      } else if (rewardTarget !== null && money >= REWARD_MONEY) {
+      if (rewardTarget !== null && money >= REWARD_MONEY) {
         const result = reward(state, rewardTarget.id)
         if (result.ok) {
           rewards += 1
@@ -701,7 +665,7 @@ function runPlaythrough(scenario: Scenario): Playthrough {
 
   lines.push(`　　终局版图　${territoryLine(state)}`)
 
-  return { state, lines, battles, wins, apSpent, apBudget, rewards, demands, demandedGrain, destroyedAt }
+  return { state, lines, battles, wins, apSpent, apBudget, rewards, destroyedAt }
 }
 
 function summarize(run: Playthrough): string {
@@ -726,7 +690,7 @@ function summarize(run: Playthrough): string {
     `终局兵力 ${factionTroops(state, player)}　终局粮 ${state.factions.find((item) => item.id === player)?.grain ?? 0}` +
       `　终局金 ${state.factions.find((item) => item.id === player)?.money ?? 0}`,
     `建设 农田 ${developmentTotal(state, 'farm')} 级　市集 ${developmentTotal(state, 'market')} 级　民居 ${developmentTotal(state, 'housing')} 级` +
-      `　赏赐 ${run.rewards} 次　索取 ${run.demands} 次（得粮 ${run.demandedGrain}）`,
+      `　赏赐 ${run.rewards} 次`,
     `终局版图　${territoryLine(state)}`,
   ].join('\n')
 }

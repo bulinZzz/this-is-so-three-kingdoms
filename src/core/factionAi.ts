@@ -11,11 +11,9 @@ import {
   SITE_DEFENSE_BONUS,
   type BattleState,
 } from './battle'
-import { recruitWillingCaptives } from './captives'
 import { isServing, scopeSitesFor } from './characters'
 import { BUILD_COST, build } from './construction'
 import { developmentLevel, developmentLimit } from './development'
-import { ALLIANCE_FAVOR, alliance } from './diplomacy'
 import { granaryOf } from './granary'
 import { estimateOf } from './intelligence'
 import {
@@ -39,18 +37,16 @@ import type {
   SiteType,
 } from './model'
 import { createRandom } from './random'
-import { favorBetween, relationBetween } from './relations'
 import { seekTalent } from './seekTalent'
 
 /**
- * 其他势力的自主行动。每季按最小行为集出手，顺序为寻访 → 外交 → 征粮 → 进攻 → 驻守 → 征兵：
- * 先补一名新人，再看要不要结盟，粮仓见底则派人征粮，
- * 然后用有余力的武将进攻，给空置的据点补一名驻将，最后把剩下的行动力用于征兵；
- * 营中「愿降」的俘虏在出手之初先行归附。
+ * 其他势力的自主行动。每季按最小行为集出手，顺序为寻访 → 征粮 → 进攻 → 驻守 → 征兵：
+ * 先补一名新人，粮仓见底则派人征粮，
+ * 然后用有余力的武将进攻，给空置的据点补一名驻将，最后把剩下的行动力用于征兵。
  * 进攻只打已宣战的势力——全图没有无主战略点，也没有中立可攻的目标。
  * 行为只走规则层既有动作，随机取自随存档落盘的模拟流，固定种子下可复现。
- * 他方守成：不自行向中立势力宣战，点火改由玩家的宣战；对别人只知大概——
- * 进攻所据的对方实力都是估计值（见 intelligence），判断因此不是定数。
+ * 他方守成：不自行向中立势力宣战，也不主动求和；点火与罢兵都握在玩家手里。
+ * 对别人只知大概——进攻所据的对方实力都是估计值（见 intelligence），判断因此不是定数。
  */
 
 /** 进攻前要求我方投入兵力高于守方估计的倍数；取 1 即「有优势就动手」。 */
@@ -218,24 +214,6 @@ function* attackOnce(
 }
 
 /**
- * 外交一步：只与中立势力往来——同盟与敌对不改动。
- * 好感高且行动力够则提议结盟，否则静默；他方不自行宣战，点火改由玩家的宣战。
- */
-function diplomacyOnce(state: GameState, factionId: FactionId): void {
-  for (const other of state.factions) {
-    if (other.id === factionId || relationBetween(state, factionId, other.id) !== 'neutral') {
-      continue
-    }
-    if (
-      favorBetween(state, factionId, other.id) >= ALLIANCE_FAVOR &&
-      alliance(state, other.id, factionId).ok
-    ) {
-      return
-    }
-  }
-}
-
-/**
  * 给空置的据点补一名驻将：每季至多补一处，先补人口最多的一处。
  * 优先派无兵可战的人——他们本就不出征，正好去守城理民；
  * 只有在余将充足时才动一名最弱的战士，并留下至少三人可编成一队。
@@ -392,9 +370,6 @@ function* runFactionTurn(
   state: GameState,
   factionId: FactionId,
 ): Generator<FactionTurnSignal, void, BattleState | null> {
-  // 营中已到「愿降」档的俘虏先行归附，本季即可出力。
-  recruitWillingCaptives(state, factionId)
-
   const grain = state.factions.find((item) => item.id === factionId)?.grain ?? 0
   if (grain < AI_GRAIN_RESERVE) {
     // 缺粮时先经营与征粮，把粮仓垫起来；寻访这类花钱的事往后放。
@@ -405,7 +380,6 @@ function* runFactionTurn(
     developOnce(state, factionId, false)
   }
 
-  diplomacyOnce(state, factionId)
   yield* attackOnce(state, factionId)
   garrisonOnce(state, factionId)
   recruitUntilExhausted(state, factionId)

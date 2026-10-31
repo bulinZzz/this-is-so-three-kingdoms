@@ -31,8 +31,8 @@ export const SANGUO_208: Scenario = {
     { id: 'gongsunkang', name: '公孙康', color: '#2f8a82', grain: 5000, money: 3000 },
     { id: 'nanman', name: '南蛮', color: '#7d5630', grain: 10000, money: 6000 },
   ],
-  // 开局无战事：只保留孙刘同盟，其余势力对一律中立，战火由玩家的宣战点燃。
-  relations: [{ factions: ['liubei', 'sunquan'], kind: 'ally', favor: 70 }],
+  // 开局无战事：孙刘交好但未结盟，其余势力对一律中立，战火由玩家的宣战点燃。
+  relations: [{ factions: ['liubei', 'sunquan'], kind: 'neutral', favor: 70 }],
   geography: GEOGRAPHY_SANGUO,
   characters: CHARACTERS_SANGUO,
 }
@@ -104,7 +104,7 @@ export const SANGUO_ACCEPTANCE: Scenario = {
     { id: 'sunquan', name: '孙权', color: '#b0413e', grain: 8000, money: 5000 },
   ],
   relations: [
-    { factions: ['liubei', 'sunquan'], kind: 'ally', favor: 70 },
+    { factions: ['liubei', 'sunquan'], kind: 'neutral', favor: 70 },
     { factions: ['liubei', 'caocao'], kind: 'hostile', favor: 25 },
     { factions: ['caocao', 'sunquan'], kind: 'hostile', favor: 25 },
   ],

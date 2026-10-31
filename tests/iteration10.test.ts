@@ -3,8 +3,17 @@ import { GameSession } from '../src/app/gameSession'
 import { autoDeployment } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
 import { granaryOf } from '../src/core/granary'
-import { ABILITY_MAX, BOOST_GAIN, EXP_PER_BOOST, LOSS_EXP, WIN_EXP, boostCredits, strengthen } from '../src/core/growth'
-import { factionTroops, troopGrowth } from '../src/core/military'
+import {
+  ABILITY_MAX,
+  BOOST_GAIN,
+  EXP_PER_BOOST,
+  LOSS_EXP,
+  TROOP_BOOST_GAIN,
+  WIN_EXP,
+  boostCredits,
+  strengthen,
+} from '../src/core/growth'
+import { factionTroops, troopGrowth, troopLimit } from '../src/core/military'
 import type { Character, GameState, Scenario } from '../src/core/model'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { AUTO_SAVE_KEY } from '../src/core/saveStore'
@@ -183,6 +192,20 @@ describe('武将成长', () => {
     const mightBefore = guanyu.might
     expect(strengthen(state, 'guanyu', 'might').ok).toBe(true)
     expect(guanyu.might).toBe(mightBefore + BOOST_GAIN)
+    expect(boostCredits(guanyu)).toBe(0)
+  })
+
+  it('额度可换带兵上限，兵力随之等量增加', () => {
+    const state = createInitialState({ seed: 208 })
+    const guanyu = characterOf(state, 'guanyu')
+    guanyu.exp = EXP_PER_BOOST
+    const limitBefore = troopLimit(guanyu)
+    const troopsBefore = guanyu.troops
+
+    expect(strengthen(state, 'guanyu', 'troops').ok).toBe(true)
+
+    expect(troopLimit(guanyu)).toBe(limitBefore + TROOP_BOOST_GAIN)
+    expect(guanyu.troops).toBe(troopsBefore + TROOP_BOOST_GAIN)
     expect(boostCredits(guanyu)).toBe(0)
   })
 

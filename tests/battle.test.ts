@@ -1050,10 +1050,10 @@ describe('战后结算', () => {
     expect(siteOf(state, 'b').owner).toBe('caocao')
   })
 
-  it('守方参战者按七成半撤回、一成战死、一成半被俘定去向', () => {
+  it('守方参战者按八成撤回、半成战死、一成半被俘定去向', () => {
     const statuses = new Set<string>()
 
-    for (let seed = 1; seed <= 60; seed += 1) {
+    for (let seed = 1; seed <= 200; seed += 1) {
       const state = scene({ attackerTroops: 40000, defenderTroops: 1000, seed })
       const battle = opened(state, 'b', ['attacker'])
       finishBattle(state, battle)
@@ -1063,6 +1063,21 @@ describe('战后结算', () => {
     expect(statuses.has('serving')).toBe(true)
     expect(statuses.has('retired')).toBe(true)
     expect(statuses.has('captured')).toBe(true)
+  })
+
+  it('他方攻下据点不留俘虏：本应被俘的守将改作撤回', () => {
+    for (let seed = 1; seed <= 100; seed += 1) {
+      const state = scene({ attackerTroops: 40000, defenderTroops: 1000, seed })
+      const battle = opened(state, 'b', ['attacker'])
+
+      // 攻守双方都不是玩家，模拟他方之间的战斗。
+      state.playerFaction = 'sunquan'
+      finishBattle(state, battle)
+
+      expect(characterOf(state, 'defender').status).not.toBe('captured')
+      expect(state.captives.liubei ?? []).toHaveLength(0)
+      expect(state.captives.caocao ?? []).toHaveLength(0)
+    }
   })
 
   it('驻将失守而撤出者忠诚减十；未上阵的驻将同样撤出、忠诚减十', () => {

@@ -4,7 +4,6 @@ import { createInitialState } from '../src/core/createInitialState'
 import { declareWar } from '../src/core/diplomacy'
 import {
   adjustFavor,
-  areAllied,
   areHostile,
   favorBetween,
   NEUTRAL,
@@ -15,21 +14,22 @@ import {
 import { SANGUO_208 } from '../src/core/scenarios'
 
 describe('势力关系', () => {
-  it('开局关系取自剧本：孙刘同盟，其余一律中立', () => {
+  it('开局关系取自剧本：孙刘中立交好，其余一律中立', () => {
     const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
 
-    expect(areAllied(state, 'liubei', 'sunquan')).toBe(true)
+    expect(areHostile(state, 'liubei', 'sunquan')).toBe(false)
     expect(areHostile(state, 'liubei', 'caocao')).toBe(false)
     expect(areHostile(state, 'caocao', 'sunquan')).toBe(false)
     expect(relationBetween(state, 'liubei', 'caocao')).toBe(NEUTRAL)
     // 关系对称：反过来查也是同一结果。
-    expect(relationBetween(state, 'sunquan', 'liubei')).toBe('ally')
+    expect(relationBetween(state, 'sunquan', 'liubei')).toBe(NEUTRAL)
+    expect(favorBetween(state, 'liubei', 'sunquan')).toBe(70)
   })
 
-  it('同盟也能宣战，宣战只拒已经敌对者', () => {
+  it('中立也能宣战，宣战只拒已经敌对者', () => {
     const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
 
-    // 孙刘开局同盟，关系不是敌对，故宣战照办。
+    // 孙刘开局中立，关系不是敌对，故宣战照办。
     const result = declareWar(state, 'sunquan')
 
     expect(result.ok).toBe(true)
@@ -52,7 +52,7 @@ describe('势力关系', () => {
     expect(areHostile(state, 'liubei', 'caocao')).toBe(false)
   })
 
-  it('同盟之间不能进攻', () => {
+  it('未宣战不能进攻', () => {
     const state = createInitialState({ scenario: SANGUO_208, seed: 208 })
 
     expect(isAttackable(state, 'chaisang')).toBe(false)
@@ -90,7 +90,7 @@ describe('好感与状态', () => {
     expect(favorBetween(state, 'liubei', 'caocao')).toBe(NEUTRAL_FAVOR)
 
     setRelation(state, 'caocao', 'sunquan', 'hostile')
-    expect(relationBetween(state, 'liubei', 'sunquan')).toBe('ally')
-    expect(areAllied(state, 'liubei', 'sunquan')).toBe(true)
+    expect(relationBetween(state, 'liubei', 'sunquan')).toBe(NEUTRAL)
+    expect(relationBetween(state, 'sunquan', 'caocao')).toBe('hostile')
   })
 })

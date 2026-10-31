@@ -96,29 +96,16 @@
   border-radius: 3px;
 }
 
-/* 势力名按文字排布；他方势力可点开外交，只是多一层手型与悬停提示。 */
+/* 势力名按文字排布；外交统一走底部菜单，名字本身不再可点。 */
 .shell__faction-name {
   min-width: 0;
   overflow: hidden;
-  padding: 0;
-  border: none;
-  background: none;
   font-family: inherit;
   font-size: inherit;
   color: inherit;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-button.shell__faction-name {
-  cursor: pointer;
-}
-
-button.shell__faction-name:hover {
-  color: #f0e2bd;
-  text-decoration: underline;
-  text-underline-offset: 3px;
 }
 
 .shell__badge {
@@ -136,12 +123,7 @@ button.shell__faction-name:hover {
   color: #c07068;
 }
 
-/* 与玩家的关系：同盟取青绿，敌对取朱红，中立取暗色。 */
-.shell__badge--ally {
-  border-color: #47694f;
-  color: #7fb894;
-}
-
+/* 与玩家的关系：敌对取朱红，中立取暗色。 */
 .shell__badge--hostile {
   border-color: #7a4038;
   color: #d08573;
@@ -1093,13 +1075,6 @@ button.shell__faction-name:hover {
   display: none;
 }
 
-.diplomacy__target {
-  margin: 0;
-  padding: 10px 16px 0;
-  font-size: 13px;
-  color: #d8c7a0;
-}
-
 /* 未交涉时不显示结果行。 */
 .diplomacy__status:empty {
   display: none;
@@ -1162,17 +1137,18 @@ button.shell__faction-name:hover {
 }
 
 .diplomacy__info {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 
 .diplomacy__name {
-  display: block;
   font-size: 14px;
   color: #e8d9b5;
 }
 
 .diplomacy__meta {
-  display: block;
   font-size: 12px;
   color: #9a8b70;
 }
@@ -1701,17 +1677,17 @@ button.shell__faction-name:hover {
   margin-top: 4px;
 }
 
-/* 详情里的解任按钮收小一档，不随栏宽拉长。 */
-.officer-detail__actions .officer-action {
-  padding: 2px 8px;
-  font-size: 11px;
-}
-
-/* 强化：四项能力横排，随栏宽换行。 */
+/* 强化：五项去向横排，随栏宽换行。 */
 .officer-detail__boosts {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+/* 解任单独占一行，比强化动作大一号。 */
+.officer-detail__dismiss {
+  padding: 6px 18px;
+  font-size: 13px;
 }
 
 .disband__target {
@@ -1776,14 +1752,16 @@ button.shell__faction-name:hover {
   overflow-y: auto;
 }
 
-.confirm__text {
+.confirm__text,
+.hire__text {
   margin: 0;
   padding: 12px 16px 0;
   font-size: 13px;
   color: #d8c7a0;
 }
 
-.confirm__actions {
+.confirm__actions,
+.hire__actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
@@ -1883,6 +1861,7 @@ button.shell__faction-name:hover {
 .diplomacy,
 .disband,
 .confirm,
+.hire,
 .site-info,
 .new-game,
 .ending {
@@ -2013,6 +1992,7 @@ button.shell__faction-name:hover {
 .diplomacy[open],
 .disband[open],
 .confirm[open],
+.hire[open],
 .site-info[open],
 .new-game[open],
 .ending[open] {
@@ -2032,6 +2012,7 @@ button.shell__faction-name:hover {
 .diplomacy::backdrop,
 .disband::backdrop,
 .confirm::backdrop,
+.hire::backdrop,
 .site-info::backdrop,
 .new-game::backdrop,
 .ending::backdrop {

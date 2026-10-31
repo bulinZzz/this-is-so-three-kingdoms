@@ -1,25 +1,24 @@
-import type { ActionKind, ActionRecord, BattleReport, FactionId, GameState } from './model'
+import type { ActionKind, ActionRecord, BattleReport, CharacterId, FactionId, GameState } from './model'
 
 /** 每季的行动力预算。 */
 export const ACTION_POINTS_PER_TURN = 10
 
 /**
  * 各项行动的行动力消耗，集中定义。
- * 进攻最贵，一季的预算至多支撑两战；征兵次之；征粮与外交、经营再次。
+ * 进攻与求和最贵：一季的预算无法在同一季内走完「宣战—进攻—求和」。
+ * 征兵次之；征粮与经营再次。
  */
 export const ACTION_COSTS: Record<ActionKind, number> = {
   seekTalent: 3,
   visit: 2,
+  hire: 0,
   recruit: 3,
   harvestGrain: 2,
   relief: 1,
   build: 2,
   attack: 4,
   declareWar: 2,
-  makePeace: 3,
-  alliance: 4,
-  gift: 2,
-  demand: 2,
+  makePeace: 6,
   dismiss: 1,
   station: 1,
   reward: 2,
@@ -65,17 +64,25 @@ export interface ActionRequest {
   execute: (state: GameState) => ActionOutcome
 }
 
+/** 招聘判定成功、等待玩家确认付款时带回的信息。 */
+export interface PendingHire {
+  characterId: CharacterId
+  cost: number
+}
+
 /** 行动的产出，用于写入本季记录。 */
 export interface ActionOutcome {
   targetId?: string | null
   outcome: string
   /** 进攻的战报，写入记录供界面展示。 */
   battle?: BattleReport
+  /** 招聘判定已过但尚未付款；界面据此询问玩家，确认后再走 `hire`。 */
+  pendingHire?: PendingHire
 }
 
 /** 行动的结局：成功时带回写入本季记录的条目，失败时带回原因。 */
 export type ActionResult =
-  | { ok: true; record: ActionRecord }
+  | { ok: true; record: ActionRecord; pendingHire?: PendingHire }
   | { ok: false; reason: string }
 
 /**
@@ -93,7 +100,7 @@ export function runAction(state: GameState, request: ActionRequest): ActionResul
     return { ok: false, reason: '行动力不足' }
   }
 
-  const { targetId = null, outcome, battle } = request.execute(state)
+  const { targetId = null, outcome, battle, pendingHire } = request.execute(state)
   const record: ActionRecord = {
     kind: request.kind,
     factionId,
@@ -106,5 +113,9 @@ export function runAction(state: GameState, request: ActionRequest): ActionResul
   }
   state.history.push(record)
 
-  return { ok: true, record }
+  if (pendingHire === undefined) {
+    return { ok: true, record }
+  }
+
+  return { ok: true, record, pendingHire }
 }

@@ -99,9 +99,9 @@ const DAMAGE_VARIANCE = 0.1
 const PACE_VARIANCE = 0.1
 /** 战损折算：按战损比例扣减七成。 */
 const CASUALTY_CONVERSION = 0.7
-/** 守方败退后的去向：撤回、战死、被俘。 */
-const DEFENDER_FLEE_CHANCE = 0.75
-const DEFENDER_DIE_CHANCE = 0.1
+/** 守方败退后的去向：撤回、战死、被俘（仅玩家攻下时俘获）。 */
+const DEFENDER_FLEE_CHANCE = 0.8
+const DEFENDER_DIE_CHANCE = 0.05
 /** 守方自选武将的上阵人数；驻将另计。 */
 export const DEFENDER_SELECTION = 5
 /** 攻方上阵人数。 */
@@ -1519,17 +1519,21 @@ export function finishBattle(
         continue
       }
       const roll = random.next()
-      if (roll < DEFENDER_FLEE_CHANCE) {
+      // 他方不设俘虏营：本应被俘的守将改作撤回，只有玩家攻下时才会俘获。
+      const captured =
+        roll >= DEFENDER_FLEE_CHANCE + DEFENDER_DIE_CHANCE &&
+        attackerFaction === state.playerFaction
+      if (!captured) {
+        if (roll >= DEFENDER_FLEE_CHANCE && roll < DEFENDER_FLEE_CHANCE + DEFENDER_DIE_CHANCE) {
+          retire(character)
+          fates.push(`${character.name} 战死`)
+          continue
+        }
         character.stationedSiteId = null
         if (unit.stationed) {
           loseLoyalty(character, LOYALTY_LOSS.siteLost)
           fates.push(maybeDefect(state, character, '失守') ?? `${character.name} 撤出`)
         }
-        continue
-      }
-      if (roll < DEFENDER_FLEE_CHANCE + DEFENDER_DIE_CHANCE) {
-        retire(character)
-        fates.push(`${character.name} 战死`)
         continue
       }
       const record = takeCaptive(state, character, attackerFaction)

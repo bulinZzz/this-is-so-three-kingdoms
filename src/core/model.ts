@@ -27,14 +27,14 @@ export interface Faction {
   money: number
 }
 
-/** 势力之间的关系：同盟、敌对或中立；未声明的势力对为中立。 */
-export type RelationKind = 'ally' | 'hostile' | 'neutral'
+/** 势力之间的关系：敌对或中立；未声明的势力对为中立。 */
+export type RelationKind = 'hostile' | 'neutral'
 
 /** 一对势力之间的关系，顺序不计。 */
 export interface FactionRelation {
   factions: [FactionId, FactionId]
   kind: RelationKind
-  /** 好感，0–100，50 为中性；由外交动作增减，结盟与停战以它为门槛。 */
+  /** 好感，0–100，50 为中性；由事件与宣战增减。 */
   favor: number
 }
 
@@ -257,6 +257,7 @@ export interface EventDefinition {
 export type ActionKind =
   | 'seekTalent'
   | 'visit'
+  | 'hire'
   | 'recruit'
   | 'harvestGrain'
   | 'relief'
@@ -264,9 +265,6 @@ export type ActionKind =
   | 'attack'
   | 'declareWar'
   | 'makePeace'
-  | 'alliance'
-  | 'gift'
-  | 'demand'
   | 'dismiss'
   | 'station'
   | 'reward'

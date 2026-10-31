@@ -21,21 +21,22 @@ import { executeCaptive as runExecuteCaptive, persuade as runPersuade, releaseCa
 import { createInitialState } from '../core/createInitialState'
 import { build as runBuild } from '../core/construction'
 import {
-  alliance as runAlliance,
   declareWar as runDeclareWar,
-  demand as runDemand,
-  gift as runGift,
   makePeace as runMakePeace,
 } from '../core/diplomacy'
 import { LocalSaveStore } from '../core/localSaveStore'
 import { relief as runRelief } from '../core/economy'
-import { strengthen as runStrengthen } from '../core/growth'
+import { strengthen as runStrengthen, type StrengthenKind } from '../core/growth'
 import { assignStation as runAssignStation, harvestGrain as runHarvestGrain, recruit as runRecruit } from '../core/military'
-import type { AbilityKind, CharacterId, DevelopmentKind, FactionId, GameState, Scenario, SiteId } from '../core/model'
+import type { CharacterId, DevelopmentKind, FactionId, GameState, Scenario, SiteId } from '../core/model'
 import { disband as runDisband, dismiss as runDismiss, reward as runReward } from '../core/personnel'
 import { createRandom, type Random } from '../core/random'
 import { AUTO_SAVE_KEY, slotKey, type SaveStore, type SaveSummary } from '../core/saveStore'
-import { seekTalent as runSeekTalent, visit as runVisit } from '../core/seekTalent'
+import {
+  hireCharacter as runHireCharacter,
+  seekTalent as runSeekTalent,
+  visit as runVisit,
+} from '../core/seekTalent'
 import {
   beginTurn,
   endTurn as resolveEndTurn,
@@ -160,14 +161,27 @@ export class GameSession {
     return signal
   }
 
-  /** 在指定自有战略点就地寻访；成功后通知界面，失败时返回原因且不改变对局。自动存档只在回合开始时写入。 */
+  /** 在指定自有战略点就地寻访；判定成功后带回待确认的招聘，不直接付款。 */
   seekTalent(siteId: SiteId): ActionResult {
-    return this.apply(runSeekTalent(this.state, this.drawRandom, siteId))
+    return this.apply(
+      runSeekTalent(this.state, this.drawRandom, siteId, this.state.playerFaction, {
+        deferHire: true,
+      }),
+    )
   }
 
-  /** 再次拜访一位已接触的在野者：提升其对己方的意愿并重新判定招聘；成功后通知界面。 */
+  /** 再次拜访一位已接触的在野者：提升其对己方的意愿并重新判定招聘；判定成功后带回待确认的招聘。 */
   visit(characterId: CharacterId): ActionResult {
-    return this.apply(runVisit(this.state, this.drawRandom, characterId))
+    return this.apply(
+      runVisit(this.state, this.drawRandom, characterId, this.state.playerFaction, {
+        deferHire: true,
+      }),
+    )
+  }
+
+  /** 玩家确认支付聘金，招募一名已接触的在野者；成功后通知界面。 */
+  hire(characterId: CharacterId): ActionResult {
+    return this.apply(runHireCharacter(this.state, characterId))
   }
 
   /** 在本方某处战略点征兵，由名册中选一名武将执行；成功后通知界面。 */
@@ -200,8 +214,8 @@ export class GameSession {
     return this.apply(runDismiss(this.state, characterId))
   }
 
-  /** 用出战累积的额度强化麾下武将的某项能力；成功后通知界面。 */
-  strengthen(characterId: CharacterId, kind: AbilityKind): ActionResult {
+  /** 用出战累积的额度强化麾下武将的某项能力或带兵上限；成功后通知界面。 */
+  strengthen(characterId: CharacterId, kind: StrengthenKind): ActionResult {
     return this.apply(runStrengthen(this.state, characterId, kind))
   }
 
@@ -313,24 +327,9 @@ export class GameSession {
     return this.apply(runDeclareWar(this.state, factionId))
   }
 
-  /** 与敌对方停战；成功后通知界面。 */
+  /** 与敌对方求和；须支付赔款，成功后通知界面。 */
   makePeace(factionId: FactionId): ActionResult {
     return this.apply(runMakePeace(this.state, factionId))
-  }
-
-  /** 与中立方结盟；成功后通知界面。 */
-  alliance(factionId: FactionId): ActionResult {
-    return this.apply(runAlliance(this.state, factionId))
-  }
-
-  /** 向对方赠礼以提升好感；成功后通知界面。 */
-  gift(factionId: FactionId): ActionResult {
-    return this.apply(runGift(this.state, factionId))
-  }
-
-  /** 向对方索取粮食；成功后通知界面。 */
-  demand(factionId: FactionId): ActionResult {
-    return this.apply(runDemand(this.state, factionId))
   }
 
   /** 读取自动存档；没有可用存档时返回 false，当前对局保持不变。 */
