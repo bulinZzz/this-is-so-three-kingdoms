@@ -1869,7 +1869,7 @@
 .confirm,
 .hire,
 .site-info,
-.new-game,
+.system,
 .ending {
   width: min(420px, 100% - 32px);
   max-height: 80vh;
@@ -2000,7 +2000,7 @@
 .confirm[open],
 .hire[open],
 .site-info[open],
-.new-game[open],
+.system[open],
 .ending[open] {
   display: flex;
   flex-direction: column;
@@ -2020,7 +2020,7 @@
 .confirm::backdrop,
 .hire::backdrop,
 .site-info::backdrop,
-.new-game::backdrop,
+.system::backdrop,
 .ending::backdrop {
   background: rgb(0 0 0 / 60%);
 }
@@ -2058,6 +2058,12 @@
   padding: 4px 16px 12px;
   overflow-y: auto;
   list-style: none;
+}
+
+.saves__empty {
+  padding: 10px 0;
+  font-size: 12px;
+  color: #9a8b70;
 }
 
 .slot {
@@ -2121,7 +2127,7 @@
   background: #241d16;
 }
 
-.new-game__body {
+.system__body {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -2129,19 +2135,31 @@
   overflow-y: auto;
 }
 
-.new-game__hint {
+.system__hint {
   margin: 0;
   font-size: 12px;
   color: #9a8b70;
 }
 
-.new-game__list {
+.system__list {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* 返回封面独立成行，与上面的开局列表隔开，避免误触。 */
+.system__actions {
+  display: flex;
+  flex: none;
+  padding: 12px 16px 16px;
+  border-top: 1px solid #2a241c;
+}
+
+.system__actions .confirm__button {
+  flex: 1;
 }
 
 .scenario {
@@ -2328,4 +2346,178 @@
   border-color: #6b5c42;
   background: #2a2219;
   color: #e8d9b5;
+}
+
+/* 标题页与序章：进入游戏前覆盖整个视口，棋盘留在幕后。 */
+.start-screen,
+.intro-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 50% 34%, rgb(176 57 34 / 26%), transparent 40%),
+    radial-gradient(circle at 50% 0%, #2b2218, #14110d 72%);
+}
+
+.start-screen[hidden],
+.intro-screen[hidden] {
+  display: none;
+}
+
+.start-screen__card {
+  width: min(480px, 100%);
+  text-align: center;
+}
+
+.start-screen__eyebrow {
+  margin: 0 0 18px;
+  font-size: 12px;
+  letter-spacing: 0.32em;
+  color: #a08b66;
+}
+
+.start-screen__title {
+  margin: 0;
+  font-size: clamp(48px, 12vw, 88px);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: #f0e2bd;
+  text-indent: 0.18em;
+  text-shadow: 0 0 28px rgb(190 60 32 / 38%);
+}
+
+.start-screen__subtitle {
+  margin: 14px 0 0;
+  font-size: 14px;
+  letter-spacing: 0.28em;
+  color: #b9a986;
+}
+
+.start-screen__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(260px, 100%);
+  margin: 40px auto 0;
+}
+
+.start-screen__button {
+  padding: 12px 20px;
+  border: 1px solid #5c4b34;
+  border-radius: 4px;
+  background: #241d16;
+  color: #c8b48c;
+  font-family: inherit;
+  font-size: 15px;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  cursor: pointer;
+}
+
+.start-screen__button:hover {
+  background: #322819;
+  color: #f0e2bd;
+}
+
+.start-screen__button--primary {
+  border-color: #8a6a3f;
+  background: linear-gradient(180deg, #3a2b1a, #241d16);
+  color: #f5e6c0;
+}
+
+.start-screen__note {
+  margin: 18px 0 0;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #7f735d;
+}
+
+.intro-screen__card {
+  width: min(640px, 100%);
+  max-height: 80vh;
+  padding: 32px 36px;
+  overflow-y: auto;
+  border: 1px solid #4a3b28;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgb(36 29 22 / 97%), rgb(24 20 15 / 97%));
+  box-shadow: 0 24px 80px rgb(0 0 0 / 55%);
+}
+
+.intro-screen__eyebrow {
+  margin: 0;
+  font-size: 12px;
+  letter-spacing: 0.4em;
+  color: #a08b66;
+}
+
+.intro-screen__title {
+  margin: 6px 0 22px;
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: #f0e2bd;
+}
+
+.intro-screen__text p {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.9;
+  color: #d8c7a0;
+  text-indent: 2em;
+}
+
+.intro-screen__text p:last-child {
+  margin-bottom: 0;
+  color: #e8d9b5;
+}
+
+.intro-screen__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.intro-screen__button {
+  padding: 10px 26px;
+  border: 1px solid #8a6a3f;
+  border-radius: 4px;
+  background: linear-gradient(180deg, #3a2b1a, #241d16);
+  color: #f5e6c0;
+  font-family: inherit;
+  font-size: 14px;
+  letter-spacing: 0.2em;
+  text-indent: 0.2em;
+  cursor: pointer;
+}
+
+.intro-screen__button:hover {
+  background: #44331f;
+}
+
+.intro-screen__button--secondary {
+  border-color: #5c4b34;
+  background: #241d16;
+  color: #c8b48c;
+}
+
+.intro-screen__button--secondary:hover {
+  background: #322819;
+  color: #f0e2bd;
+}
+
+@media (max-width: 640px) {
+  .intro-screen__card {
+    padding: 24px 22px;
+  }
+
+  .intro-screen__title {
+    font-size: 26px;
+  }
 }

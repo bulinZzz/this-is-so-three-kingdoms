@@ -17,6 +17,7 @@ import type {
   Personality,
   RelationKind,
   Season,
+  Scenario,
   Site,
   SiteId,
   SiteType,
@@ -93,7 +94,7 @@ import {
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
-import { SCENARIOS } from '../core/scenarios'
+import { SANGUO_208, SCENARIOS } from '../core/scenarios'
 import { hireCost } from '../core/seekTalent'
 import {
   amountRange,
@@ -116,9 +117,37 @@ import './shell.css'
 
 const SHELL_HTML = `
   <div class="shell">
+    <section class="start-screen">
+      <div class="start-screen__card">
+        <p class="start-screen__eyebrow">建安十三年 · 赤壁之战后</p>
+        <h1 class="start-screen__title">这很三国</h1>
+        <p class="start-screen__subtitle">赤壁火尽，天下未定</p>
+        <div class="start-screen__actions">
+          <button type="button" class="start-screen__button start-screen__button--primary" data-action="start-game">开始游戏</button>
+          <button type="button" class="start-screen__button" data-action="continue-game">读取进度</button>
+        </div>
+        <p class="start-screen__note">开始游戏会覆盖当前自动存档；已有进度请选择读取进度。</p>
+      </div>
+    </section>
+    <section class="intro-screen" hidden>
+      <div class="intro-screen__card">
+        <p class="intro-screen__eyebrow">序</p>
+        <h2 class="intro-screen__title">赤壁之后</h2>
+        <div class="intro-screen__text">
+          <p>建安十三年，赤壁一战，曹操大败。大军折于长江，北方一统之势自此裂开一道口子。</p>
+          <p>曹操退守荆北，仍据襄阳、樊城与江陵；孙权稳坐江东，周瑜一战成名；刘备借机取得公安，与刘琦共守江夏，终于有了一块立足之地。</p>
+          <p>荆南四郡尚在观望，益州刘璋、汉中张鲁、凉州马腾各怀心思。天下没有人知道，下一个倒下的会是谁。</p>
+          <p>你是刘备。兵不过数千，将不过关张赵云。赤壁的火已经熄了，接下来的路，要靠你自己走。</p>
+        </div>
+        <div class="intro-screen__actions">
+          <button type="button" class="intro-screen__button" data-action="enter-game">进入乱世</button>
+          <button type="button" class="intro-screen__button intro-screen__button--secondary" data-action="back-to-cover">返回</button>
+        </div>
+      </div>
+    </section>
     <header class="shell__header">
       <div class="shell__menu">
-        <button type="button" class="shell__link" data-action="open-new-game">新游戏</button>
+        <button type="button" class="shell__link" data-action="open-system">系统</button>
         <button type="button" class="shell__link" data-action="open-saves">存档</button>
         <button type="button" class="shell__link" data-action="open-settings">设置</button>
       </div>
@@ -363,7 +392,7 @@ const SHELL_HTML = `
       </div>
       <p class="disband__status" role="status"></p>
     </dialog>
-    <dialog class="confirm">
+    <dialog class="confirm dismiss-confirm">
       <div class="saves__head">
         <h2 class="saves__title">解任</h2>
         <button type="button" class="saves__close" data-action="close-confirm">关闭</button>
@@ -435,14 +464,28 @@ const SHELL_HTML = `
       </div>
       <ul class="saves__list"></ul>
     </dialog>
-    <dialog class="new-game">
+    <dialog class="system">
       <div class="saves__head">
-        <h2 class="saves__title">新游戏</h2>
-        <button type="button" class="saves__close" data-action="close-new-game">关闭</button>
+        <h2 class="saves__title">系统</h2>
+        <button type="button" class="saves__close" data-action="close-system">关闭</button>
       </div>
-      <div class="new-game__body">
-        <p class="new-game__hint">开始新游戏会覆盖当前自动存档；手动存档不受影响。</p>
-        <ul class="new-game__list"></ul>
+      <div class="system__body">
+        <p class="system__hint">开始新游戏会覆盖当前自动存档；手动存档不受影响。</p>
+        <ul class="system__list"></ul>
+      </div>
+      <div class="system__actions">
+        <button type="button" class="confirm__button" data-action="ask-cover">返回封面</button>
+      </div>
+    </dialog>
+    <dialog class="confirm cover-confirm">
+      <div class="saves__head">
+        <h2 class="saves__title">返回封面</h2>
+        <button type="button" class="saves__close" data-action="cover-cancel">关闭</button>
+      </div>
+      <p class="confirm__text">返回封面不会保存本局进度，本回合尚未写入自动存档的操作会丢失。确定返回？</p>
+      <div class="confirm__actions">
+        <button type="button" class="confirm__button confirm__button--primary" data-action="cover-confirm">确定</button>
+        <button type="button" class="confirm__button" data-action="cover-cancel">取消</button>
       </div>
     </dialog>
     <dialog class="ending">
@@ -2918,19 +2961,40 @@ function createSlotButton(label: string, action: string, slot?: number): HTMLBut
   return button
 }
 
-function renderSlots(list: Element, session: GameSession): void {
-  const autoItem = createSlotItem('自动存档', session.readAutoSave())
-  autoItem.append(createSlotButton('读取', 'load-auto'))
+/** 存档列表：默认每个槽位带保存与读取；只读模式只列已有存档并只给读取。 */
+function renderSlots(list: Element, session: GameSession, readOnly = false): void {
+  const autoSummary = session.readAutoSave()
+  const items: HTMLLIElement[] = []
 
-  const slotItems = Array.from({ length: SLOT_COUNT }, (_, index) => {
+  if (!readOnly || autoSummary !== null) {
+    const autoItem = createSlotItem('自动存档', autoSummary)
+    autoItem.append(createSlotButton('读取', 'load-auto'))
+    items.push(autoItem)
+  }
+
+  for (let index = 0; index < SLOT_COUNT; index += 1) {
     const slot = index + 1
-    const item = createSlotItem(`存档 ${slot}`, session.readSlot(slot))
-    item.append(createSlotButton('保存', 'save-slot', slot), createSlotButton('读取', 'load-slot', slot))
+    const summary = session.readSlot(slot)
+    if (readOnly && summary === null) {
+      continue
+    }
 
-    return item
-  })
+    const item = createSlotItem(`存档 ${slot}`, summary)
+    if (!readOnly) {
+      item.append(createSlotButton('保存', 'save-slot', slot))
+    }
+    item.append(createSlotButton('读取', 'load-slot', slot))
+    items.push(item)
+  }
 
-  list.replaceChildren(autoItem, ...slotItems)
+  if (items.length === 0) {
+    const empty = document.createElement('li')
+    empty.className = 'saves__empty'
+    empty.textContent = '暂无存档'
+    items.push(empty)
+  }
+
+  list.replaceChildren(...items)
 }
 
 /** 剧本列表：名称与规模，点「开始」即按该剧本重开一局。 */
@@ -2984,6 +3048,12 @@ export function mountGameShell(
   const factionList = requireElement<HTMLElement>(root, '.shell__factions')
   const slotList = requireElement<HTMLElement>(root, '.saves__list')
   const statusLabel = requireElement<HTMLElement>(root, '.shell__status')
+  const startScreen = requireElement<HTMLElement>(root, '.start-screen')
+  const introScreen = requireElement<HTMLElement>(root, '.intro-screen')
+  const startGameButton = requireElement<HTMLButtonElement>(root, '[data-action="start-game"]')
+  const continueGameButton = requireElement<HTMLButtonElement>(root, '[data-action="continue-game"]')
+  const introBackButton = requireElement<HTMLButtonElement>(introScreen, '[data-action="back-to-cover"]')
+  const enterGameButton = requireElement<HTMLButtonElement>(root, '[data-action="enter-game"]')
   const endTurnButton = requireElement<HTMLButtonElement>(root, '[data-action="end-turn"]')
   const sitePanel = requireElement<HTMLElement>(root, '.site-panel')
   const contactPanel = requireElement<HTMLElement>(root, '.recruit-panel')
@@ -3023,10 +3093,15 @@ export function mountGameShell(
     '[data-setting="battleShortcuts"]',
   )
   const savesDialog = requireElement<HTMLDialogElement>(root, '.saves')
-  const openNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="open-new-game"]')
-  const closeNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="close-new-game"]')
-  const newGameDialog = requireElement<HTMLDialogElement>(root, '.new-game')
-  const newGameList = requireElement<HTMLElement>(root, '.new-game__list')
+  const savesTitle = requireElement<HTMLElement>(savesDialog, '.saves__title')
+  const openSystemButton = requireElement<HTMLButtonElement>(root, '[data-action="open-system"]')
+  const closeSystemButton = requireElement<HTMLButtonElement>(root, '[data-action="close-system"]')
+  const systemDialog = requireElement<HTMLDialogElement>(root, '.system')
+  const systemList = requireElement<HTMLElement>(root, '.system__list')
+  const askCoverButton = requireElement<HTMLButtonElement>(root, '[data-action="ask-cover"]')
+  const coverConfirmDialog = requireElement<HTMLDialogElement>(root, '.cover-confirm')
+  const coverConfirmButton = requireElement<HTMLButtonElement>(root, '[data-action="cover-confirm"]')
+  const coverCancelButtons = root.querySelectorAll<HTMLButtonElement>('[data-action="cover-cancel"]')
   const endingDialog = requireElement<HTMLDialogElement>(root, '.ending')
   const endingSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="ending-saves"]')
   const endingNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="ending-new-game"]')
@@ -3054,7 +3129,7 @@ export function mountGameShell(
   const closeSiteInfoButton = requireElement<HTMLButtonElement>(root, '[data-action="close-site-info"]')
   const siteInfoDialog = requireElement<HTMLDialogElement>(root, '.site-info')
   const siteInfoList = requireElement<HTMLElement>(root, '.site-info__list')
-  const dismissDialog = requireElement<HTMLDialogElement>(root, '.confirm')
+  const dismissDialog = requireElement<HTMLDialogElement>(root, '.dismiss-confirm')
   const dismissCancelButton = requireElement<HTMLButtonElement>(root, '[data-action="dismiss-cancel"]')
   const dismissConfirmButton = requireElement<HTMLButtonElement>(root, '[data-action="dismiss-confirm"]')
   const hireDialog = requireElement<HTMLDialogElement>(root, '.hire')
@@ -3140,6 +3215,8 @@ export function mountGameShell(
   /** 待确认的招聘：目标武将与反馈写回的面板。 */
   let hireCharacterId: CharacterId | null = null
   let hireSource: 'seek' | 'visit' = 'seek'
+  /** 存档弹窗是否只读：标题页读取进度时只列已有存档，不给保存。 */
+  let savesReadOnly = false
 
   const paint = (state: GameState): void => {
     const showCosts = settings.get().showActionCosts
@@ -3184,7 +3261,7 @@ export function mountGameShell(
     renderSiteInfoDialog(siteInfoDialog, state, buildSiteId, buildMessage, showCosts)
     renderDismissConfirm(dismissDialog, state, dismissTargetId)
     renderHireConfirm(hireDialog, state, hireCharacterId)
-    renderSlots(slotList, session)
+    renderSlots(slotList, session, savesReadOnly)
 
     const showAllCharacters = settings.get().showAllCharacters
     officersTitle.hidden = !showAllCharacters
@@ -3205,6 +3282,23 @@ export function mountGameShell(
         endingDialog.showModal()
       }
     }
+  }
+
+  /**
+   * 打开存档列表。标题页读取进度用只读模式：只列已有存档，只给读取；
+   * 游戏内与结局弹窗用完整模式，每个槽位都可保存与读取。
+   */
+  function openSaves(readOnly: boolean): void {
+    savesReadOnly = readOnly
+    savesTitle.textContent = readOnly ? '读取进度' : '存档与读档'
+    renderSlots(slotList, session, readOnly)
+    savesDialog.showModal()
+  }
+
+  /** 回到封面：收起序章与棋盘，只留标题页，交由玩家重新选择开新局或读档。 */
+  function showStartScreen(): void {
+    introScreen.hidden = true
+    startScreen.hidden = false
   }
 
   endTurnButton.addEventListener('click', () => {
@@ -3355,6 +3449,29 @@ export function mountGameShell(
     orderRequest = null
     orderDialog.close()
     endingDialog.close()
+  }
+
+  /** 以指定剧本重开一局，并把界面上的临时状态清干净。 */
+  const startFreshGame = (scenario: Scenario): void => {
+    session.newGame(scenario)
+    orderRequest = null
+    siteMessage = ''
+    recruitMessage = ''
+    contactMessage = ''
+    detailCharacterId = null
+    prisonMessage = ''
+    buildSiteId = null
+    buildMessage = ''
+    diplomacyMessage = ''
+    disbandCharacterId = null
+    disbandMessage = ''
+    domesticMessage = ''
+    dismissTargetId = null
+    hireCharacterId = null
+    hireSource = 'seek'
+    selection.select(null)
+    resetTransientUi()
+    statusLabel.textContent = `已开始新游戏：${scenario.name}`
   }
 
   /** 进入战斗演出：先确认阵型，再逐次交锋，战后摆出战果。 */
@@ -4340,11 +4457,16 @@ export function mountGameShell(
   })
 
   openSavesButton.addEventListener('click', () => {
-    savesDialog.showModal()
+    openSaves(false)
   })
 
   closeSavesButton.addEventListener('click', () => {
     savesDialog.close()
+  })
+
+  // 关闭后回到完整列表，免得标题页留下的只读状态影响之后的界面重绘。
+  savesDialog.addEventListener('close', () => {
+    savesReadOnly = false
   })
 
   slotList.addEventListener('click', (event) => {
@@ -4361,6 +4483,8 @@ export function mountGameShell(
       if (session.loadAutoSave()) {
         statusLabel.textContent = `已读取自动存档：${formatDate(session.getState())}`
         savesDialog.close()
+        startScreen.hidden = true
+        selection.select(null)
         resetTransientUi()
         return
       }
@@ -4381,6 +4505,8 @@ export function mountGameShell(
     if (session.loadSlot(slot)) {
       statusLabel.textContent = `已读取存档 ${slot}：${formatDate(session.getState())}`
       savesDialog.close()
+      startScreen.hidden = true
+      selection.select(null)
       resetTransientUi()
       return
     }
@@ -4388,13 +4514,13 @@ export function mountGameShell(
     statusLabel.textContent = `存档 ${slot} 还没有内容`
   })
 
-  openNewGameButton.addEventListener('click', () => {
-    renderScenarioList(newGameList)
-    newGameDialog.showModal()
+  openSystemButton.addEventListener('click', () => {
+    renderScenarioList(systemList)
+    systemDialog.showModal()
   })
 
-  closeNewGameButton.addEventListener('click', () => {
-    newGameDialog.close()
+  closeSystemButton.addEventListener('click', () => {
+    systemDialog.close()
   })
 
   // 结局弹窗只给两条出路：读档或重开；Esc 也关不掉，免得落回已冻结的棋盘。
@@ -4403,15 +4529,15 @@ export function mountGameShell(
   })
 
   endingSavesButton.addEventListener('click', () => {
-    savesDialog.showModal()
+    openSaves(false)
   })
 
   endingNewGameButton.addEventListener('click', () => {
-    renderScenarioList(newGameList)
-    newGameDialog.showModal()
+    renderScenarioList(systemList)
+    systemDialog.showModal()
   })
 
-  newGameList.addEventListener('click', (event) => {
+  systemList.addEventListener('click', (event) => {
     const scenarioId = actionButtonOf(event)?.dataset.scenario
     if (scenarioId === undefined) {
       return
@@ -4422,27 +4548,45 @@ export function mountGameShell(
       return
     }
 
-    session.newGame(scenario)
-    orderRequest = null
-    siteMessage = ''
-    recruitMessage = ''
-    contactMessage = ''
-    detailCharacterId = null
-    prisonMessage = ''
-    buildSiteId = null
-    buildMessage = ''
-    diplomacyMessage = ''
-    disbandCharacterId = null
-    disbandMessage = ''
-    domesticMessage = ''
-    dismissTargetId = null
-    hireCharacterId = null
-    hireSource = 'seek'
-    selection.select(null)
-    resetTransientUi()
-    newGameDialog.close()
-    statusLabel.textContent = `已开始新游戏：${scenario.name}`
+    startFreshGame(scenario)
+    systemDialog.close()
   })
+
+  // 返回封面会丢下当前对局，先让玩家确认；确认后连同系统弹窗一起收起再回封面。
+  askCoverButton.addEventListener('click', () => {
+    coverConfirmDialog.showModal()
+  })
+
+  coverConfirmButton.addEventListener('click', () => {
+    coverConfirmDialog.close()
+    systemDialog.close()
+    showStartScreen()
+  })
+
+  for (const button of coverCancelButtons) {
+    button.addEventListener('click', () => {
+      coverConfirmDialog.close()
+    })
+  }
+
+  /** 标题页：开始游戏直接以正式剧本重开，随后进入序章。 */
+  startGameButton.addEventListener('click', () => {
+    startFreshGame(SANGUO_208)
+    startScreen.hidden = true
+    introScreen.hidden = false
+  })
+
+  /** 标题页：打开存档列表，由玩家选择自动存档或手动槽位。 */
+  continueGameButton.addEventListener('click', () => {
+    openSaves(true)
+  })
+
+  /** 序章读完，收起标题与导语，进入棋盘。 */
+  enterGameButton.addEventListener('click', () => {
+    introScreen.hidden = true
+  })
+
+  introBackButton.addEventListener('click', showStartScreen)
 
   /**
    * 弹窗关掉后清掉上一次的结果：重开时回到初始模样，不把旧反馈带回来。
