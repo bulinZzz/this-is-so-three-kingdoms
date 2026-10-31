@@ -50,10 +50,21 @@ export const SORTIE_PROGRESS = 30
 /** 士气满值与下限。 */
 export const MORALE_FULL = 100
 export const MORALE_FLOOR = 40
-/** 犒军的次数上限、每次的士气增量与士气上限。 */
-export const FEAST_LIMIT = 3
-export const FEAST_MORALE_BONUS = 5
-export const MORALE_CEILING = 120
+/** 犒军次数：一场战斗至多一次。 */
+export const FEAST_LIMIT = 1
+/** 一次犒军带来的士气增幅。 */
+export const FEAST_MORALE_BONUS = 10
+/** 士气上限：开场 100，犒军一次至 110。 */
+export const MORALE_CEILING = 110
+/** 他方犒军的金钱门槛：付后仍须高于此数，才不至于为一场战斗伤及根基。 */
+export const AI_FEAST_GOLD_RESERVE = 15000
+/** 守卫次数按统率折算：每 25 点统率得 1 次，至少 1 次。 */
+export const DEFEND_COMMAND_PER_CHARGE = 25
+
+/** 该统率下一次守卫可抵挡的受击次数。 */
+export function defendChargesFor(command: number): number {
+  return Math.max(1, Math.floor(command / DEFEND_COMMAND_PER_CHARGE))
+}
 /** 犒军的基础花费：按投入兵力折算，第 n 次按 n 倍递增。 */
 export const FEAST_GOLD_PER_TROOP = 0.01
 
@@ -70,9 +81,9 @@ export const SLOT_COUNT = FRONT_SIZE + BACK_SIZE
 const MORALE_LOSS_PER_EXIT = 5
 /** 主动攻击的自损比例；弓兵不在此列。 */
 const ATTACK_SELF_LOSS = 0.05
-/** 攻击防御中的步兵时，攻击方自损的缩放；初值取半，随实测调整。 */
+/** 攻击守卫中的步兵时，攻击方自损的缩放；初值取半，随实测调整。 */
 const DEFEND_SELF_LOSS_SCALE = 0.5
-/** 防御指令的减伤。 */
+/** 守卫指令的减伤。 */
 const DEFEND_DAMAGE_SCALE = 0.7
 /** 弓兵对伤害的倍率。 */
 const ARCHER_DAMAGE_SCALE = 0.7
@@ -116,10 +127,10 @@ export const ARM_STATS: Record<ArmType, ArmStats> = {
 /** 战略点的防守补正：守方全员整场享有。 */
 export const SITE_DEFENSE_BONUS: Record<SiteType, number> = {
   field: 0,
-  town: 0.1,
-  city: 0.2,
-  pass: 0.25,
-  metropolis: 0.3,
+  town: 0.08,
+  city: 0.15,
+  pass: 0.2,
+  metropolis: 0.25,
 }
 
 /** 开发者模式下强制一场战斗的胜负，取攻方视角。 */
@@ -128,7 +139,7 @@ export type ForcedOutcome = 'win' | 'lose'
 /** 一队在战场的哪一侧。 */
 export type BattleSide = 'attacker' | 'defender'
 
-/** 一队本次行动的指令：攻击、防御、待机或出击。 */
+/** 一队本次行动的指令：攻击、守卫、待机或出击。 */
 export type BattleOrderKind = 'attack' | 'defend' | 'wait' | 'sortie'
 
 export interface BattleOrder {
@@ -159,8 +170,10 @@ export interface BattleUnit {
   progress: number
   /** 本次行动后的速度扰动系数：每次行动重掷，令行动条不至于整齐划一。 */
   pace: number
-  /** 是否处于防御姿态：持续到自己下次行动。 */
+  /** 是否处于守卫姿态：持续到自己下次行动。 */
   defending: boolean
+  /** 守卫姿态下还能抵挡的受击次数；替同排友军挡下同样消耗。 */
+  defenseLeft: number
   exited: boolean
 }
 
@@ -209,8 +222,10 @@ export interface BattleActionEvent {
   kind: BattleOrderKind
   targetId: CharacterId | null
   targetName: string | null
-  /** 被同排防御者代伤时原本锁定的目标；无代伤为 null。 */
+  /** 被同排守卫者代伤时原本锁定的目标；无代伤为 null。 */
   intendedTargetName: string | null
+  /** 本次守卫后的剩余次数，或受击方剩余的守卫次数；与守卫无关时为 null。 */
+  defenseLeft: number | null
   /** 对目标造成的战兵损失。 */
   damage: number
   /** 主动攻击的自损。 */
@@ -441,6 +456,7 @@ function makeUnit(
     progress: 0,
     pace: 1,
     defending: false,
+    defenseLeft: 0,
     exited: false,
   }
 }
@@ -707,12 +723,22 @@ export function cancelAttack(state: GameState, battle: BattleState): boolean {
   faction.money += battle.feastPaid.attacker
   battle.feastPaid.attacker = 0
 
+  // 守方若已犒军，这一战既作废，钱也退回，免得取消进攻白耗对方的家底。
+  const defenderFaction =
+    battle.defender.factionId === null
+      ? undefined
+      : state.factions.find((item) => item.id === battle.defender.factionId)
+  if (defenderFaction !== undefined) {
+    defenderFaction.money += battle.feastPaid.defender
+  }
+  battle.feastPaid.defender = 0
+
   return true
 }
 
 /**
- * 犒军：战前投金提振本场士气，每次 +5，最多三次；第 n 次的花费按 n 倍递增。
- * 只对玩家一方、开打前有效；花多少按本场投入兵力折算。
+ * 犒军：战前投金提振本场士气，一场至多一次，士气 +10。
+ * 只对玩家一方、开打前有效；花费按本场投入兵力折算。
  */
 export function feastBattle(
   state: GameState,
@@ -727,6 +753,17 @@ export function feastBattle(
   if (side === null) {
     return { ok: false, reason: '此战没有我军' }
   }
+
+  return applyFeast(state, battle, side, state.playerFaction)
+}
+
+/** 实际支付并施加一次犒军；次数、士气与金钱都在此校验。 */
+function applyFeast(
+  state: GameState,
+  battle: BattleState,
+  side: BattleSide,
+  factionId: FactionId,
+): { ok: true; cost: number } | { ok: false; reason: string } {
   if (battle.finished || battle.actionsUsed > 0) {
     return { ok: false, reason: '战事已开，不能再犒军' }
   }
@@ -739,7 +776,7 @@ export function feastBattle(
 
   const troops = battle[side].units.reduce((total, unit) => total + unit.troops, 0)
   const cost = feastCost(troops, battle.feastCount[side])
-  const faction = state.factions.find((item) => item.id === state.playerFaction)
+  const faction = state.factions.find((item) => item.id === factionId)
   if (faction === undefined || faction.money < cost) {
     return { ok: false, reason: '金钱不足' }
   }
@@ -750,6 +787,48 @@ export function feastBattle(
   battle.feastCount[side] += 1
 
   return { ok: true, cost }
+}
+
+/**
+ * 他方在开战前犒军：金钱高于门槛、且付后仍高于门槛时才投一次。
+ * 犒军是富裕打法，不为一场战斗把家底掏空。
+ */
+export function aiFeastBeforeBattle(state: GameState, battle: BattleState): void {
+  for (const side of ['attacker', 'defender'] as const) {
+    const factionId = battle[side].factionId
+    if (factionId === null || factionId === state.playerFaction) {
+      continue
+    }
+    const faction = state.factions.find((item) => item.id === factionId)
+    if (faction === undefined || faction.money <= AI_FEAST_GOLD_RESERVE) {
+      continue
+    }
+    const troops = battle[side].units.reduce((total, unit) => total + unit.troops, 0)
+    const cost = feastCost(troops, battle.feastCount[side])
+    if (faction.money - cost < AI_FEAST_GOLD_RESERVE) {
+      continue
+    }
+    applyFeast(state, battle, side, factionId)
+  }
+}
+
+/** 撤回某方尚未开打的犒军：退回金钱，士气与次数复原。重新选将时用。 */
+export function refundFeast(state: GameState, battle: BattleState, side: BattleSide): boolean {
+  if (battle.finished || battle.actionsUsed > 0 || battle.feastPaid[side] <= 0) {
+    return false
+  }
+  const factionId = battle[side].factionId
+  const faction = state.factions.find((item) => item.id === factionId)
+  if (faction === undefined) {
+    return false
+  }
+
+  faction.money += battle.feastPaid[side]
+  battle.feastPaid[side] = 0
+  battle.feastCount[side] = 0
+  battle[side].morale = MORALE_FULL
+
+  return true
 }
 
 /**
@@ -848,7 +927,7 @@ function findUnit(battle: BattleState, characterId: CharacterId): BattleUnit | u
 
 /**
  * 一队可攻击的目标：近战只及敌方前排，弓兵可及任意；敌方前排已空时，近战也及于后排。
- * 后排的近战够不着敌军，骑兵须先出击、步兵只能防御或待机。
+ * 后排的近战够不着敌军，骑兵须先出击、步兵只能守卫或待机。
  */
 export function targetsFor(battle: BattleState, unit: BattleUnit): BattleUnit[] {
   const enemies = enemyUnits(battle, unit.side)
@@ -877,7 +956,7 @@ export function canSortie(battle: BattleState, unit: BattleUnit): boolean {
 
 /**
  * 一队此刻可选的指令：由兵种与所在排决定。
- * 骑兵前排可攻击、后排只能出击或待机；步兵前排可攻击与防御、后排只能防御或待机；
+ * 骑兵前排可攻击、后排只能出击或待机；步兵前排可攻击与守卫、后排只能守卫或待机；
  * 弓兵在哪一排都可攻击。待机人人可选。
  */
 export function ordersFor(battle: BattleState, unit: BattleUnit): BattleOrderKind[] {
@@ -896,7 +975,7 @@ export function ordersFor(battle: BattleState, unit: BattleUnit): BattleOrderKin
   return front ? ['attack', 'defend', 'wait'] : ['defend', 'wait']
 }
 
-/** 同排的防御步兵中随机取一名，替被锁定的友军承担这一击。 */
+/** 同排的守卫步兵中随机取一名，替被锁定的友军承担这一击。 */
 function guardFor(
   battle: BattleState,
   target: BattleUnit,
@@ -932,6 +1011,7 @@ function damageOf(
   defender: BattleUnit,
   defenderSide: BattleSideState,
   siteBonus: number,
+  reduced: boolean,
   random: Random,
 ): number {
   let damage =
@@ -958,7 +1038,7 @@ function damageOf(
   }
 
   let actual = damage - reduction
-  if (defender.defending) {
+  if (reduced) {
     actual *= DEFEND_DAMAGE_SCALE
   }
   if (defender.side === 'defender') {
@@ -1147,8 +1227,9 @@ export function resolveAction(
   let fromSlot: number | null = null
   let toSlot: number | null = null
 
-  // 轮到自己时，上一回留下的防御姿态到此为止。
+  // 轮到自己时，上一回留下的守卫姿态到此为止。
   actor.defending = false
+  actor.defenseLeft = 0
 
   if (order.kind === 'attack') {
     const targets = targetsFor(battle, actor)
@@ -1162,14 +1243,24 @@ export function resolveAction(
       const guard = guardFor(battle, intended, random)
       target = guard ?? intended
       intendedTargetName = guard === null ? null : intended.name
+      const defended = target.defending
+      const reduced = target.defending && target.defenseLeft > 0
       damage = damageOf(
         actor,
         ownSide,
         target,
         otherSide,
         SITE_DEFENSE_BONUS[battle.siteType],
+        reduced,
         random,
       )
+      if (reduced) {
+        target.defenseLeft -= 1
+        // 次数用尽，守卫与护友一并解除；再挨打就是寻常一击。
+        if (target.defenseLeft <= 0) {
+          target.defending = false
+        }
+      }
       if (damage > 0) {
         target.battleTroops = Math.max(0, target.battleTroops - damage)
         if (target.battleTroops <= 0) {
@@ -1177,11 +1268,11 @@ export function resolveAction(
         }
       }
 
-      // 近战出手才有折损；打在防御中的步兵身上，反伤也随之减轻。
+      // 近战出手才有折损；打在守卫中的步兵身上，反伤也随之减轻。
       const counterLoss =
         ATTACK_SELF_LOSS *
         ARM_STATS[actor.armType].counterLoss *
-        (target.defending ? DEFEND_SELF_LOSS_SCALE : 1)
+        (defended ? DEFEND_SELF_LOSS_SCALE : 1)
       selfLoss = Math.min(actor.battleTroops, Math.round(actor.battleTroops * counterLoss))
       actor.battleTroops = Math.max(0, actor.battleTroops - selfLoss)
       if (actor.battleTroops <= 0) {
@@ -1190,6 +1281,7 @@ export function resolveAction(
     }
   } else if (order.kind === 'defend') {
     actor.defending = true
+    actor.defenseLeft = defendChargesFor(actor.command)
   } else if (order.kind === 'sortie') {
     const aheadSlot = actor.slot - FRONT_SIZE
     const ahead = ownSide.units.find((unit) => unit.slot === aheadSlot)
@@ -1201,7 +1293,7 @@ export function resolveAction(
     toSlot = aheadSlot
   }
 
-  // 待机与出击不占行动次数，只把条子回落到指定进度；攻击与防御扣满值、计一次行动。
+  // 待机与出击不占行动次数，只把条子回落到指定进度；攻击与守卫扣满值、计一次行动。
   if (order.kind === 'wait') {
     actor.progress = WAIT_PROGRESS
   } else if (order.kind === 'sortie') {
@@ -1232,6 +1324,7 @@ export function resolveAction(
     targetId: target?.characterId ?? null,
     targetName: target?.name ?? null,
     intendedTargetName,
+    defenseLeft: order.kind === 'defend' ? actor.defenseLeft : (target?.defending ? target.defenseLeft : null),
     damage,
     selfLoss,
     actorTroops: actor.battleTroops,

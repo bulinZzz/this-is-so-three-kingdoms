@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { ACTION_COSTS, ACTION_POINTS_PER_TURN } from '../src/core/actions'
 import {
+  AI_FEAST_GOLD_RESERVE,
+  aiFeastBeforeBattle,
   ARM_STATS,
   ATTACKER_SELECTION,
   attackCandidates,
@@ -17,6 +19,7 @@ import {
   feastBattle,
   feastCost,
   finishBattle,
+  defendChargesFor,
   isAttackable,
   MORALE_FULL,
   openAttack,
@@ -218,7 +221,17 @@ describe('兵种与据点补正', () => {
   })
 
   it('据点补正按类型分档：野地无险可依，都会最坚', () => {
-    expect(SITE_DEFENSE_BONUS).toEqual({ field: 0, town: 0.1, city: 0.2, pass: 0.25, metropolis: 0.3 })
+    expect(SITE_DEFENSE_BONUS).toEqual({ field: 0, town: 0.08, city: 0.15, pass: 0.2, metropolis: 0.25 })
+  })
+
+  it('守卫次数按统率折算，每二十五点一次，至少一次', () => {
+    expect(defendChargesFor(10)).toBe(1)
+    expect(defendChargesFor(40)).toBe(1)
+    expect(defendChargesFor(49)).toBe(1)
+    expect(defendChargesFor(50)).toBe(2)
+    expect(defendChargesFor(74)).toBe(2)
+    expect(defendChargesFor(75)).toBe(3)
+    expect(defendChargesFor(100)).toBe(4)
   })
 })
 
@@ -497,7 +510,7 @@ describe('行动条', () => {
     deployDefenders(battle, state, autoDeployment(['defender']))
 
     const counts = new Map<string, number>()
-    // 骑兵待机、步兵防御，无人受伤；只比行动条上谁出手更频。
+    // 骑兵待机、步兵守卫，无人受伤；只比行动条上谁出手更频。
     for (let step = 0; step < 30; step += 1) {
       const actor = currentActor(battle)
       if (actor === null || battle.finished) {
@@ -614,7 +627,7 @@ describe('交锋', () => {
     expect(rangedBack?.exited).toBe(true)
   })
 
-  it('步兵防御只护自己：受击减伤，并替同排友军代伤', () => {
+  it('步兵守卫只护自己：受击减伤，并替同排友军代伤', () => {
     const plain = scene({ attackerTroops: 20000, defenderTroops: 30000 })
     const plainBattle = opened(plain, 'b', ['attacker'])
     const plainEvent = resolveAction(plainBattle, {
@@ -631,6 +644,7 @@ describe('交锋', () => {
       throw new Error('缺少守方')
     }
     guardedUnit.defending = true
+    guardedUnit.defenseLeft = defendChargesFor(guardedUnit.command)
     const guardedEvent = resolveAction(guardedBattle, {
       characterId: 'attacker',
       kind: 'attack',
@@ -639,10 +653,10 @@ describe('交锋', () => {
     const guardedLeft = guardedBattle.defender.units[0]?.battleTroops ?? 0
 
     expect(guardedLeft).toBeGreaterThan(plainLeft)
-    // 打在防御中的步兵身上，自损减半。
+    // 打在守卫中的步兵身上，自损减半。
     expect(guardedEvent?.selfLoss).toBe(Math.round((plainEvent?.selfLoss ?? 0) / 2))
 
-    // 前排另一名步兵防御时，攻击同排友军会由他承担。
+    // 前排另一名步兵守卫时，攻击同排友军会由他承担。
     const state = scene({
       attackerTroops: 20000,
       defenderTroops: 30000,
@@ -655,6 +669,7 @@ describe('交锋', () => {
       throw new Error('缺少守方')
     }
     guard.defending = true
+    guard.defenseLeft = defendChargesFor(guard.command)
     const allyBefore = ally.battleTroops
     const guardBefore = guard.battleTroops
 
@@ -666,11 +681,68 @@ describe('交锋', () => {
 
     expect(event?.targetName).toBe('守将d2')
     expect(event?.intendedTargetName).toBe('守将')
+    expect(event?.defenseLeft).toBe(defendChargesFor(guard.command) - 1)
     expect(ally.battleTroops).toBe(allyBefore)
     expect(guard.battleTroops).toBeLessThan(guardBefore)
   })
 
-  it('步兵防御只把自己置为防御姿态，不再整排减伤', () => {
+  it('守卫次数撑起减伤与护友：用尽即一并解除，重守刷新次数', () => {
+    const state = scene({
+      attackerTroops: 30000,
+      defenderTroops: 60000,
+      extraDefenders: [{ id: 'd2', troops: 60000 }],
+    })
+    const battle = opened(state, 'b', ['attacker'])
+    const guard = battle.defender.units.find((unit) => unit.characterId === 'd2')
+    const ally = battle.defender.units.find((unit) => unit.characterId === 'defender')
+    if (guard === undefined || ally === undefined) {
+      throw new Error('缺少守方')
+    }
+
+    // 守卫，次数按统率取。
+    battle.activeUnitId = guard.characterId
+    const defend = resolveAction(battle, { characterId: guard.characterId, kind: 'defend' })
+    const charges = defendChargesFor(guard.command)
+    expect(defend?.defenseLeft).toBe(charges)
+    expect(guard.defending).toBe(true)
+
+    // 每次替友军挡下一击都消耗一次。
+    for (let used = 0; used < charges; used += 1) {
+      battle.activeUnitId = 'attacker'
+      const hit = resolveAction(battle, {
+        characterId: 'attacker',
+        kind: 'attack',
+        targetId: 'defender',
+      })
+      expect(hit?.targetName).toBe(guard.name)
+      expect(hit?.intendedTargetName).toBe(ally.name)
+    }
+    expect(guard.defending).toBe(false)
+    expect(guard.defenseLeft).toBe(0)
+
+    // 次数用尽后不再代伤，友军直接挨打。
+    battle.activeUnitId = 'attacker'
+    const direct = resolveAction(battle, {
+      characterId: 'attacker',
+      kind: 'attack',
+      targetId: 'defender',
+    })
+    expect(direct?.targetName).toBe(ally.name)
+    expect(direct?.intendedTargetName).toBeNull()
+
+    // 重新守卫刷新次数；主动出手则守卫与护友一并解除。
+    battle.activeUnitId = guard.characterId
+    resolveAction(battle, { characterId: guard.characterId, kind: 'defend' })
+    expect(guard.defenseLeft).toBe(charges)
+
+    battle.activeUnitId = guard.characterId
+    const strike = resolveAction(battle, { characterId: guard.characterId, kind: 'attack' })
+    expect(strike).not.toBeNull()
+    expect(guard.defending).toBe(false)
+    expect(guard.defenseLeft).toBe(0)
+  })
+
+  it('步兵守卫只把自己置为守卫姿态，不再整排减伤', () => {
     const state = scene({
       extraDefenders: [
         { id: 'd2', troops: 3000 },
@@ -1042,7 +1114,7 @@ describe('战后结算', () => {
     }
   })
 
-  it('犒军三次、士气逐次 +5，花费逐次递增，取消进攻时全数退回', () => {
+  it('犒军一次、士气 +10，取消进攻时全数退回', () => {
     const state = scene({ attackerTroops: 10000, defenderTroops: 3000 })
     const faction = state.factions.find((item) => item.id === 'liubei')
     if (faction === undefined) {
@@ -1061,11 +1133,45 @@ describe('战后结算', () => {
       reason: `犒军至多 ${FEAST_LIMIT} 次`,
     })
 
-    const spent = base * (1 + 2 + 3)
+    const spent = base * FEAST_LIMIT * (FEAST_LIMIT + 1) / 2
     expect(faction.money).toBe(10000 - spent)
 
     expect(cancelAttack(state, battle)).toBe(true)
     expect(faction.money).toBe(10000)
+  })
+
+  it('他方犒军量力而行：越过门槛且付后仍有富余才投一次', () => {
+    const state = scene({ attackerTroops: 10000, defenderTroops: 10000 })
+    const caocao = state.factions.find((item) => item.id === 'caocao')
+    if (caocao === undefined) {
+      throw new Error('势力不存在：caocao')
+    }
+    const battle = opened(state, 'b', ['attacker'])
+    const cost = feastCost(10000, 0)
+
+    caocao.money = AI_FEAST_GOLD_RESERVE
+    aiFeastBeforeBattle(state, battle)
+    expect(battle.defender.morale).toBe(MORALE_FULL)
+
+    caocao.money = AI_FEAST_GOLD_RESERVE + cost - 1
+    aiFeastBeforeBattle(state, battle)
+    expect(battle.defender.morale).toBe(MORALE_FULL)
+
+    caocao.money = AI_FEAST_GOLD_RESERVE + cost
+    aiFeastBeforeBattle(state, battle)
+    expect(battle.defender.morale).toBe(MORALE_FULL + FEAST_MORALE_BONUS)
+    expect(battle.feastCount.defender).toBe(1)
+    expect(caocao.money).toBe(AI_FEAST_GOLD_RESERVE)
+
+    // 一场只犒一次。
+    aiFeastBeforeBattle(state, battle)
+    expect(battle.defender.morale).toBe(MORALE_FULL + FEAST_MORALE_BONUS)
+
+    // 进攻取消，守方已投的犒军钱也退回。
+    caocao.money = AI_FEAST_GOLD_RESERVE
+    battle.feastPaid.defender = cost
+    expect(cancelAttack(state, battle)).toBe(true)
+    expect(caocao.money).toBe(AI_FEAST_GOLD_RESERVE + cost)
   })
 
   it('玩家麾下的守将败退后不被俘、不战死', () => {

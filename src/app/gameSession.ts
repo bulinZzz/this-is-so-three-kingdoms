@@ -1,16 +1,19 @@
 import type { ActionResult } from '../core/actions'
 import {
+  aiFeastBeforeBattle,
   autoAction,
   cancelAttack as runCancelAttack,
   deployDefenders,
   feastBattle as runFeastBattle,
   finishBattle,
   openAttack,
+  refundFeast as runRefundFeast,
   resolveAction,
   type BattleActionEvent,
   type BattleDeployment,
   type BattleOpenResult,
   type BattleOrder,
+  type BattleSide,
   type BattleState,
   type ForcedOutcome,
 } from '../core/battle'
@@ -219,13 +222,15 @@ export class GameSession {
   attack(targetSiteId: SiteId, deployments: readonly BattleDeployment[]): BattleOpenResult {
     const result = openAttack(this.state, targetSiteId, deployments)
     if (result.ok) {
+      // 富裕的守方会在开战前犒军，界面的敌情随之反映更高的士气。
+      aiFeastBeforeBattle(this.state, result.battle)
       this.notify()
     }
 
     return result
   }
 
-  /** 开战前犒军：花金提振本场士气，可连投至上限；成功后通知界面。 */
+  /** 开战前犒军：花金提振本场士气，一场至多一次；成功后通知界面。 */
   feast(battle: BattleState): { ok: true; cost: number } | { ok: false; reason: string } {
     const result = runFeastBattle(this.state, battle)
     if (result.ok) {
@@ -263,6 +268,16 @@ export class GameSession {
   /** 取消尚未开打的进攻：退回行动力与粮草，通知界面。 */
   cancelAttack(battle: BattleState): boolean {
     const refunded = runCancelAttack(this.state, battle)
+    if (refunded) {
+      this.notify()
+    }
+
+    return refunded
+  }
+
+  /** 重新选将前撤回本场已投的犒军；退回金钱并复原士气。 */
+  refundFeast(battle: BattleState, side: BattleSide): boolean {
+    const refunded = runRefundFeast(this.state, battle, side)
     if (refunded) {
       this.notify()
     }

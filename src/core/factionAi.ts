@@ -1,5 +1,6 @@
 import { ACTION_COSTS } from './actions'
 import {
+  aiFeastBeforeBattle,
   autoBattle,
   autoFormation,
   canAttackTarget,
@@ -191,6 +192,9 @@ function* attackOnce(
   if (!opened.ok) {
     return
   }
+
+  // 富裕的他方会在开战前犒军，玩家守土时也能在敌情里看到更高的士气。
+  aiFeastBeforeBattle(state, opened.battle)
 
   let battle = opened.battle
   // 玩家守土时一律交回界面：即使无人可守、开战即已不战而下，也让界面把失守呈现出来。

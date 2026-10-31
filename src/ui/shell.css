@@ -436,6 +436,7 @@ button.shell__faction-name:hover {
 
 /* 没有播报时不占位。 */
 .order__status:empty,
+.battle-plan__notice:empty,
 .site-panel__status:empty {
   display: none;
 }
@@ -572,9 +573,12 @@ button.shell__faction-name:hover {
 
 .battle-plan__body {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
   padding: 14px 18px 18px;
+  overflow-y: auto;
 }
 
 .battle-plan__line {
@@ -719,12 +723,25 @@ button.shell__faction-name:hover {
 
 .battle-field__side {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 8px;
   margin: 0;
   font-size: 12px;
   letter-spacing: 1px;
   color: #9a8b70;
+}
+
+/* 势力与敌我靠左，士气靠右。 */
+.battle-field__side > span:first-child {
+  margin-right: auto;
+}
+
+/* 据点补正独占一行，与士气分属两事。 */
+.battle-field__fort {
+  flex-basis: 100%;
+  color: #d8a86a;
+  text-align: right;
 }
 
 .battle-field__morale {
@@ -889,7 +906,7 @@ button.shell__faction-name:hover {
   color: #c8b081;
 }
 
-/* 按钮就落在目标或自己身上：攻击在敌军，防御、出击与待机在自己。 */
+/* 按钮就落在目标或自己身上：攻击在敌军，守卫、出击与待机在自己。 */
 .battle-slot__actions {
   display: flex;
   flex-wrap: wrap;
@@ -1096,6 +1113,7 @@ button.shell__faction-name:hover {
 .roster,
 .domestic,
 .order,
+.battle-plan,
 .prison,
 .diplomacy,
 .disband,
@@ -1106,6 +1124,7 @@ button.shell__faction-name:hover {
 .roster__status,
 .domestic__status,
 .order__status,
+.battle-plan__notice,
 .prison__status,
 .diplomacy__status,
 .disband__status,
@@ -1902,27 +1921,74 @@ button.shell__faction-name:hover {
   color: #9a8b70;
 }
 
+/* 战况栏贴住左侧战场的整条高度，不参与窗高计算：窗口仍随战场与按钮收紧。 */
 .battle-plan__fight {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
-  gap: 16px;
-  align-items: start;
+  position: relative;
+  min-height: 0;
 }
 
 .battle-plan__main {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  margin-right: 236px;
   min-width: 0;
+}
+
+.battle-plan__log-box {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+  min-height: 0;
+  padding-left: 14px;
+  padding-right: 6px;
+  border-left: 1px solid #2a241c;
+}
+
+/* 「战况」二字不进滚动区；条目多时只滚下方。 */
+.battle-plan__log-title {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+  color: #9a8b70;
 }
 
 .battle-plan__log {
   display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 6px;
-  padding-left: 14px;
-  border-left: 1px solid #2a241c;
-  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.battle-plan__log > .battle-plan__line {
+  flex: none;
+}
+
+.battle-plan__log::-webkit-scrollbar {
+  width: 12px;
+}
+
+.battle-plan__log::-webkit-scrollbar-track {
+  border-radius: 6px;
+  background: #201a13;
+}
+
+.battle-plan__log::-webkit-scrollbar-thumb {
+  border: 3px solid #201a13;
+  border-radius: 6px;
+  background: #9a8b70;
+}
+
+.battle-plan__log::-webkit-scrollbar-thumb:hover {
+  background: #b3a17e;
 }
 
 /* 行动记录的行常带兵力与伤亡数字，给到更宽的一档。 */

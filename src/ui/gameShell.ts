@@ -30,16 +30,17 @@ import {
   ATTACKER_SELECTION,
   autoFormation,
   currentActor,
+  defendChargesFor,
   DEFENDER_SELECTION,
   defenderCandidates,
   FEAST_LIMIT,
   FEAST_MORALE_BONUS,
   feastCost,
   isAttackable,
-  MORALE_CEILING,
   ordersFor,
   rowOfSlot,
   setUnitSlot,
+  SITE_DEFENSE_BONUS,
   stationedAt,
   targetsFor,
   type BattleActionEvent,
@@ -294,10 +295,10 @@ const SHELL_HTML = `
         </label>
         <ul class="order__officers"></ul>
         <div class="order__actions">
+          <button type="button" class="order__submit" data-action="order-go"></button>
           <button type="button" class="order__abandon" data-action="order-abandon" hidden>
             放弃战斗
           </button>
-          <button type="button" class="order__submit" data-action="order-go"></button>
         </div>
         <p class="order__status" role="status"></p>
       </div>
@@ -308,6 +309,7 @@ const SHELL_HTML = `
         <span class="battle-plan__meta"></span>
       </div>
       <div class="battle-plan__body"></div>
+      <p class="battle-plan__notice" role="status"></p>
     </dialog>
     <dialog class="captives">
       <div class="saves__head">
@@ -846,9 +848,11 @@ function renderSiteInfoDialog(
 
   const station = stationedAt(state, site.id)
   const yieldFactor = siteYieldFactor(state, site)
+  const defenseBonus = Math.round(SITE_DEFENSE_BONUS[site.type] * 100)
   const facts: readonly [string, string][] = [
     ['归属', ownerName],
     ['规模', SITE_TYPE_LABELS[site.type]],
+    ['防守补正', defenseBonus === 0 ? '无险可依' : `守军受击 −${defenseBonus}%`],
     ['驻将', station === null ? '无' : `${station.name}（兵 ${station.troops}）`],
     ['人口', String(site.population)],
     ['存粮', String(granaryOf(site))],
@@ -1442,6 +1446,8 @@ interface BattleStage {
   paceReady: boolean
   /** 是否自动打完；自动时我方也由规则层下令，条子与间隔减半。 */
   auto: boolean
+  /** 防守时的来犯请求；重新选将回到编成窗口要用。进攻为 null。 */
+  defenseRequest: DefenseRequest | null
 }
 
 /** 演出里的一行文字；`variant` 用于加语义样式（如台词、判语）。 */
@@ -1517,7 +1523,7 @@ function isQuietAction(kind: BattleActionEvent['kind']): boolean {
 
 /**
  * 一个阵位：武将、兵种与战兵条；空位也留一格，便于换阵。
- * 攻击按钮落在可打的目标身上，防御、出击与待机落在当前行动者自己身上。
+ * 攻击按钮落在可打的目标身上，守卫、出击与待机落在当前行动者自己身上。
  */
 function createBattleSlot(
   battle: BattleState,
@@ -1623,7 +1629,7 @@ function createBattleSlot(
 
   const states: string[] = [rowOfSlot(unit.slot) === 0 ? '前' : '后']
   if (!unit.exited && unit.defending) {
-    states.push('守')
+    states.push(`守 ${unit.defenseLeft}`)
   }
   const state = document.createElement('span')
   state.className = 'battle-slot__state'
@@ -1649,17 +1655,18 @@ function createBattleSlot(
     const actions = document.createElement('div')
     actions.className = 'battle-slot__actions'
 
-    const addAction = (action: string, label: string): void => {
+    const addAction = (action: string, label: string, title = ''): void => {
       const button = document.createElement('button')
       button.type = 'button'
       button.className = `battle-slot__action battle-slot__action--${action}`
       button.dataset.action = `stage-${action}`
       button.textContent = label
+      button.title = title
       actions.append(button)
     }
 
     if (orders.includes('defend')) {
-      addAction('defend', '防御')
+      addAction('defend', '守卫', `转入守卫，可挡 ${defendChargesFor(unit.command)} 次；同排友军受击时由你承担`)
     }
     if (orders.includes('sortie')) {
       addAction('sortie', '出击')
@@ -1705,6 +1712,16 @@ function createBattleField(
     morale.className = 'battle-field__morale'
     morale.textContent = `士气 ${battle[side].morale}`
     item.append(name, morale)
+
+    // 据点的防守补正对守方全员整场生效；另起一行，免得与士气连读成一回事。
+    const bonus = side === 'defender' ? SITE_DEFENSE_BONUS[battle.siteType] : 0
+    if (bonus > 0) {
+      const fortification = document.createElement('span')
+      fortification.className = 'battle-field__fort'
+      fortification.textContent = `守军受击 −${Math.round(bonus * 100)}%`
+      item.append(fortification)
+    }
+
     return item
   }
 
@@ -1749,36 +1766,43 @@ function createBattleField(
   return field
 }
 
-/** 战况记录：右侧栏保留最近八条，交手时连同自损与代伤一起记。 */
+/** 战况记录：开场一句，其后逐步累积；交手时连同自损与代伤次数一起记。 */
 function battleLogLines(stage: BattleStage): HTMLElement[] {
-  return stage.log.slice(-8).map((event) => {
-    if (event.kind === 'wait') {
-      return stageLine(`${event.actorName} 待机`, 'note')
-    }
-    if (event.kind === 'sortie') {
-      return stageLine(`${event.actorName} 出击，移入前排`, 'note')
-    }
-    if (event.kind === 'defend') {
-      return stageLine(`${event.actorName} 防御`, 'note')
-    }
-    if (event.targetName === null) {
-      return stageLine(`${event.actorName} 扑空`, 'note')
-    }
+  const opening = stageLine('两军列阵，鼓声初起。', 'note')
 
-    const guard =
-      event.intendedTargetName === null
-        ? ''
-        : `，${event.targetName} 代 ${event.intendedTargetName} 受击`
-    const selfLoss = event.selfLoss > 0 ? `，自损 ${event.selfLoss}` : ''
-    if (event.damage === 0) {
-      return stageLine(`${event.actorName} 攻 ${event.targetName}${guard}，未能破防${selfLoss}`, 'note')
-    }
+  return [
+    opening,
+    ...stage.log.map((event) => {
+      if (event.kind === 'wait') {
+        return stageLine(`${event.actorName} 待机`, 'note')
+      }
+      if (event.kind === 'sortie') {
+        return stageLine(`${event.actorName} 出击，移入前排`, 'note')
+      }
+      if (event.kind === 'defend') {
+        return stageLine(`${event.actorName} 守卫（${event.defenseLeft ?? 0} 次）`, 'note')
+      }
+      if (event.targetName === null) {
+        return stageLine(`${event.actorName} 扑空`, 'note')
+      }
 
-    return stageLine(
-      `${event.actorName} 攻 ${event.targetName}${guard}，歼敌 ${event.damage}${selfLoss}`,
-      'note',
-    )
-  })
+      // 代伤时先说原本打的是谁，再说谁把这一击挡了下来。
+      const victim = event.intendedTargetName ?? event.targetName
+      const guard = event.intendedTargetName === null ? '' : `，${event.targetName} 挡下`
+      const selfLoss = event.selfLoss > 0 ? `，自损 ${event.selfLoss}` : ''
+      if (event.damage === 0) {
+        return stageLine(
+          `${event.actorName} 攻 ${victim}${guard}，未能破防${selfLoss}`,
+          'note',
+        )
+      }
+
+      return stageLine(
+        `${event.actorName} 攻 ${victim}${guard}，伤敌 ${event.damage}${selfLoss}`,
+        'note',
+      )
+    }),
+  ]
 }
 
 /** 战斗过程的简短叙述，由战报数据生成；从玩家这一侧叙述。 */
@@ -1835,28 +1859,24 @@ function stageContent(state: GameState, stage: BattleStage, showBattleShortcuts:
       const count = battle.feastCount[ours]
       const cost = feastCost(troops, count)
       const gold = state.factions.find((item) => item.id === state.playerFaction)?.money ?? 0
-      const canFeast = count < FEAST_LIMIT && battle[ours].morale < MORALE_CEILING
-      const feast = stageButton(
-        canFeast ? `犒军 ${cost} 金` : count >= FEAST_LIMIT ? '犒军已尽' : '士气已盛',
-        'stage-feast',
-      )
-      feast.disabled = !canFeast || gold < cost
-      feast.title = canFeast
-        ? `第 ${count + 1}/${FEAST_LIMIT} 次，士气 +${FEAST_MORALE_BONUS}（至 ${MORALE_CEILING}）`
-        : count >= FEAST_LIMIT
-          ? `本场已犒军 ${FEAST_LIMIT} 次`
-          : `士气已至上限 ${MORALE_CEILING}`
+      const feasted = count >= FEAST_LIMIT
+      const feast = stageButton(feasted ? '已犒军' : `犒军（${cost} 金）`, 'stage-feast')
+      feast.disabled = feasted || gold < cost
+      feast.title = feasted
+        ? '本场已犒军一次'
+        : gold < cost
+          ? `金钱不足，需 ${cost} 金`
+          : `花 ${cost} 金，本场士气 +${FEAST_MORALE_BONUS}`
 
       return [
         stageLine(`两军对阵于 ${battle.siteName}，请先排列阵型。`, 'prompt'),
         stageLine('拖动或依次点选两个阵位即可互换；近战宜列前排，弓手可居后排。', 'note'),
         ...(stage.formationMessage === '' ? [] : [stageLine(stage.formationMessage, 'prompt')]),
-        ...(stage.feastNote === '' ? [] : [stageLine(stage.feastNote, 'note')]),
         createBattleField(state, stage, null, []),
         stageActions(
-          feast,
           stageButton('开战', 'stage-begin'),
-          stageButton('放弃战斗', 'stage-abandon'),
+          feast,
+          stageButton('重新选将', 'stage-reselect'),
         ),
       ]
     }
@@ -1885,13 +1905,22 @@ function stageContent(state: GameState, stage: BattleStage, showBattleShortcuts:
         ),
       )
 
-      const log = document.createElement('aside')
+      // 「战况」二字固定在外，其下的条目单独滚动。
+      const log = document.createElement('div')
       log.className = 'battle-plan__log'
-      log.append(stageLine('战况', 'note'), ...battleLogLines(stage))
+      log.append(...battleLogLines(stage))
+
+      const logTitle = document.createElement('p')
+      logTitle.className = 'battle-plan__log-title'
+      logTitle.textContent = '战况'
+
+      const logBox = document.createElement('aside')
+      logBox.className = 'battle-plan__log-box'
+      logBox.append(logTitle, log)
 
       const wrap = document.createElement('div')
       wrap.className = 'battle-plan__fight'
-      wrap.append(main, log)
+      wrap.append(main, logBox)
       return [wrap]
     }
 
@@ -1938,8 +1967,10 @@ function renderBattleStage(
   showBattleShortcuts: boolean,
 ): void {
   const meta = requireElement<HTMLElement>(root, '.battle-plan__meta')
+  const notice = requireElement<HTMLElement>(root, '.battle-plan__notice')
   if (stage === null) {
     meta.textContent = ''
+    notice.textContent = ''
     return
   }
 
@@ -1949,9 +1980,30 @@ function renderBattleStage(
     stage.step === 'result'
       ? ''
       : `剩余回合数 ${stage.battle.actionLimit - stage.battle.actionsUsed} / ${stage.battle.actionLimit}`
+  // 犒军回执贴在窗口下沿外侧，不占窗内版面，开战按钮的位置不随它出现而变。
+  notice.textContent = stage.step === 'deploy' ? stage.feastNote : ''
+  const previousLog = root.querySelector<HTMLElement>('.battle-plan__log')
+  const previousTop = previousLog?.scrollTop ?? 0
+  const followLatest =
+    previousLog === null ||
+    previousLog.scrollHeight - previousLog.clientHeight - previousLog.scrollTop <= 24
   requireElement<HTMLElement>(root, '.battle-plan__body').replaceChildren(
     ...stageContent(state, stage, showBattleShortcuts),
   )
+  // 原本就在底部时才跟随最新一条；正在向上翻看旧战况时留在原处。
+  // 再补一帧，等换行与字体落定后仍贴住底部。
+  const log = root.querySelector<HTMLElement>('.battle-plan__log')
+  if (log !== null) {
+    if (followLatest) {
+      const toLatest = (): void => {
+        log.scrollTop = log.scrollHeight
+      }
+      toLatest()
+      window.requestAnimationFrame(toLatest)
+    } else {
+      log.scrollTop = previousTop
+    }
+  }
 }
 
 /** 选将框的两种形态：多选（进攻、防守）与单选（征兵、征粮、驻将）。 */
@@ -3186,6 +3238,20 @@ export function mountGameShell(
       }
       battleStage.paceReady = true
       paint(session.getState())
+
+      // 只剩待机可选时替玩家落子，免得反复点同一个按钮。
+      const actor = currentActor(battleStage.battle)
+      if (
+        battleStage.step === 'fight' &&
+        !battleStage.auto &&
+        actor !== null &&
+        actor.side === ourSideOf(battleStage)
+      ) {
+        const orders = ordersFor(battleStage.battle, actor)
+        if (orders.length === 1 && orders[0] === 'wait') {
+          submitBattleOrder({ characterId: actor.characterId, kind: 'wait' })
+        }
+      }
     }, paceDurationFor(battleStage.battle, battleStage.auto))
   }
 
@@ -3247,7 +3313,11 @@ export function mountGameShell(
   }
 
   /** 进入战斗演出：先确认阵型，再逐次交锋，战后摆出战果。 */
-  const startBattleStage = (mode: 'attack' | 'defense', battle: BattleState): void => {
+  const startBattleStage = (
+    mode: 'attack' | 'defense',
+    battle: BattleState,
+    defenseRequest: DefenseRequest | null = null,
+  ): void => {
     clearBattleTimer()
     draggingCharacterId = null
     battleStage = {
@@ -3263,6 +3333,7 @@ export function mountGameShell(
       feastNote: '',
       paceReady: false,
       auto: false,
+      defenseRequest,
     }
     orderRequest = null
     orderDialog.close()
@@ -3345,7 +3416,7 @@ export function mountGameShell(
     const request = signal.request
     if (defenderCandidates(session.getState(), request.targetSiteId).length === 0) {
       session.deployDefense(request.battle, [])
-      startBattleStage('defense', request.battle)
+      startBattleStage('defense', request.battle, request)
       return
     }
 
@@ -3373,12 +3444,12 @@ export function mountGameShell(
     scheduleBattleStep()
   }
 
-  /** 记下这一步行动，供战况记录与受击高亮。 */
+  /** 记下这一步行动，供战况记录与受击高亮；整场逐条保留，栏内可回看。 */
   const recordBattleAction = (event: BattleActionEvent): void => {
     if (battleStage === null) {
       return
     }
-    battleStage.log = [...battleStage.log, event].slice(-8)
+    battleStage.log = [...battleStage.log, event]
     battleStage.lastAction = event
     battleStage.paceReady = false
     paint(session.getState())
@@ -3484,7 +3555,7 @@ export function mountGameShell(
   /** 守方放弃迎战：不战而下，直接结算失守。 */
   const forfeitDefense = (request: DefenseRequest): void => {
     session.deployDefense(request.battle, [])
-    startBattleStage('defense', request.battle)
+    startBattleStage('defense', request.battle, request)
   }
 
   /** 关掉命令弹窗；迎战编成放弃即失守，征兵、征粮、赈济、建设与驻将任免则回到战略点窗口。 */
@@ -3645,7 +3716,7 @@ export function mountGameShell(
       }
 
       orderStatus.textContent = ''
-      startBattleStage('defense', request.battle)
+      startBattleStage('defense', request.battle, request)
     }
   })
 
@@ -3657,7 +3728,7 @@ export function mountGameShell(
     runTurnFlow(session.continueTurn())
   }
 
-  /** 演出里的一次操作：开战、攻击、防御、自动战斗、放弃或继续本回合。 */
+  /** 演出里的一次操作：开战、攻击、守卫、自动战斗、放弃或继续本回合。 */
   battleStageBody.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) {
       return
@@ -3698,22 +3769,36 @@ export function mountGameShell(
       beginBattle()
       return
     }
-    if (action === 'stage-abandon') {
-      if (battleStage.step !== 'deploy') {
+    if (action === 'stage-reselect') {
+      if (battleStage === null || battleStage.step !== 'deploy') {
         return
       }
-      if (battleStage.mode === 'attack') {
-        // 主动进攻放弃：退回行动力与粮草，等同没打过。
-        session.cancelAttack(battleStage.battle)
-        battleStage = null
-        battlePlanDialog.close()
-        statusLabel.textContent = '已放弃进攻'
-        paint(session.getState())
+      const stage = battleStage
+      if (stage.mode === 'defense' && stage.defenseRequest === null) {
         return
       }
-      // 防守方放弃：不战而下，直接结算失守。
-      session.deployDefense(battleStage.battle, [])
-      settleBattle(null)
+      if (stage.mode === 'attack' && !session.cancelAttack(stage.battle)) {
+        return
+      }
+      if (stage.mode === 'defense') {
+        // 已投的犒军随重新选将一并撤回，回到编成时可按新阵容重来。
+        session.refundFeast(stage.battle, 'defender')
+      }
+      clearBattleTimer()
+      battleStage = null
+      battlePlanDialog.close()
+      if (stage.mode === 'attack') {
+        orderRequest = { kind: 'attack', siteId: stage.battle.siteId }
+      } else if (stage.defenseRequest !== null) {
+        orderRequest = {
+          kind: 'defense',
+          siteId: stage.defenseRequest.targetSiteId,
+          defense: stage.defenseRequest,
+        }
+      }
+      orderStatus.textContent = ''
+      paint(session.getState())
+      orderDialog.showModal()
       return
     }
     if (action === 'stage-attack') {
