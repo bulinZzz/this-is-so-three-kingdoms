@@ -1153,6 +1153,12 @@
   color: #9a8b70;
 }
 
+.diplomacy__empty {
+  padding: 10px 0;
+  font-size: 12px;
+  color: #9a8b70;
+}
+
 .picker {
   padding: 8px 10px;
   border: 1px solid #3a3128;

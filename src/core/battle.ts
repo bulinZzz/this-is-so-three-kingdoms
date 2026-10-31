@@ -66,7 +66,7 @@ export function defendChargesFor(command: number): number {
   return Math.max(1, Math.floor(command / DEFEND_COMMAND_PER_CHARGE))
 }
 /** 犒军的基础花费：按投入兵力折算，第 n 次按 n 倍递增。 */
-export const FEAST_GOLD_PER_TROOP = 0.01
+export const FEAST_GOLD_PER_TROOP = 0.02
 
 /** 一次犒军的花费：第 count+1 次投入 count+1 倍的基础钱。 */
 export function feastCost(troops: number, count: number): number {
@@ -97,8 +97,8 @@ const COMMAND_DEFENSE_SCALE = 0.003
 const DAMAGE_VARIANCE = 0.1
 /** 每次行动后重掷的速度扰动幅度：行动条上多一分错落，又不至于抹平兵种差异。 */
 const PACE_VARIANCE = 0.1
-/** 战损折算：按战损比例扣减七成。 */
-const CASUALTY_CONVERSION = 0.7
+/** 战损折算：按战损比例扣减六成。 */
+const CASUALTY_CONVERSION = 0.6
 /** 守方败退后的去向：撤回、战死、被俘（仅玩家攻下时俘获）。 */
 const DEFENDER_FLEE_CHANCE = 0.8
 const DEFENDER_DIE_CHANCE = 0.05

@@ -1014,7 +1014,7 @@ describe('交锋', () => {
 })
 
 describe('战后结算', () => {
-  it('得胜即占领，战损按比例七折折算，攻方一律已行动', () => {
+  it('得胜即占领，战损按比例六折折算，攻方一律已行动', () => {
     const state = scene({ attackerTroops: 20000, defenderTroops: 1000 })
     const battle = opened(state, 'b', ['attacker'])
     const result = finishBattle(state, battle)
@@ -1036,7 +1036,7 @@ describe('战后结算', () => {
     }
   })
 
-  it('全军覆没者实减七成、保留三成', () => {
+  it('全军覆没者实减六成、保留四成', () => {
     const state = scene({ attackerTroops: 10000, defenderTroops: 200000 })
     const battle = opened(state, 'b', ['attacker'])
     const result = finishBattle(state, battle)
@@ -1044,9 +1044,9 @@ describe('战后结算', () => {
     expect(result.ok).toBe(true)
     if (result.ok && result.record.battle !== undefined) {
       expect(result.record.battle.attackerWins).toBe(false)
-      expect(result.record.battle.attacker.casualties).toBe(7000)
+      expect(result.record.battle.attacker.casualties).toBe(6000)
     }
-    expect(characterOf(state, 'attacker').troops).toBe(3000)
+    expect(characterOf(state, 'attacker').troops).toBe(4000)
     expect(siteOf(state, 'b').owner).toBe('caocao')
   })
 

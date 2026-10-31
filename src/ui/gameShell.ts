@@ -785,6 +785,13 @@ function bordersOwnTerritory(state: GameState, siteId: SiteId): boolean {
   )
 }
 
+/** 该势力的领土是否与己方任一战略点接壤。 */
+function bordersFaction(state: GameState, factionId: FactionId): boolean {
+  return state.geography.sites.some(
+    (site) => site.owner === factionId && bordersOwnTerritory(state, site.id),
+  )
+}
+
 /** 侧栏战略点面板：名称、类型、归属与驻将；按接壤情况提供进攻、任命与寻访。 */
 function renderSitePanel(
   panel: HTMLElement,
@@ -2717,10 +2724,13 @@ function developmentEffectText(kind: DevelopmentKind, level: number): string {
   return `人口上限 +${level * POPULATION_PER_HOUSING}　每季增长 +${(level * HOUSING_GROWTH_BONUS * 100).toFixed(1)}%`
 }
 
-/** 他方势力：非玩家、未覆灭者。 */
+/** 与己方接壤、非玩家且未覆灭的势力。 */
 function otherFactions(state: GameState): Faction[] {
   return state.factions.filter(
-    (faction) => faction.id !== state.playerFaction && !isFactionDestroyed(state, faction.id),
+    (faction) =>
+      faction.id !== state.playerFaction &&
+      !isFactionDestroyed(state, faction.id) &&
+      bordersFaction(state, faction.id),
   )
 }
 
@@ -2789,8 +2799,17 @@ function renderDiplomacyDialog(
   const list = requireElement<HTMLElement>(dialog, '.diplomacy__list')
 
   statusLine.textContent = message
+  const factions = otherFactions(state)
+  if (factions.length === 0) {
+    const empty = document.createElement('li')
+    empty.className = 'diplomacy__empty'
+    empty.textContent = '暂无接壤势力'
+    list.replaceChildren(empty)
+    return
+  }
+
   list.replaceChildren(
-    ...otherFactions(state).map((faction) =>
+    ...factions.map((faction) =>
       createDiplomacyRow(
         faction,
         relationBetween(state, state.playerFaction, faction.id),
