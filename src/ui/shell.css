@@ -2358,9 +2358,13 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  overflow-y: auto;
+  overflow: hidden auto;
+  background: #120f0b;
+}
+
+.intro-screen {
   background:
-    radial-gradient(circle at 50% 34%, rgb(176 57 34 / 26%), transparent 40%),
+    radial-gradient(circle at 50% 34%, rgb(176 57 34 / 22%), transparent 42%),
     radial-gradient(circle at 50% 0%, #2b2218, #14110d 72%);
 }
 
@@ -2369,72 +2373,194 @@
   display: none;
 }
 
+/* 远山与赤日：整幅山水只作背景，不参与布局，也不挡住点击。 */
+.start-screen__art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.start-screen__sun {
+  animation: cover-sun-breathe 11s ease-in-out infinite alternate;
+}
+
 .start-screen__card {
-  width: min(480px, 100%);
+  position: relative;
+  z-index: 1;
+  width: min(520px, 100%);
   text-align: center;
+  animation: cover-rise 0.7s ease both;
+}
+
+/* 文字下方垫一层极淡的暗晕，山影压上来时仍能读清。 */
+.start-screen__card::before {
+  content: '';
+  position: absolute;
+  inset: -56px -40px;
+  z-index: -1;
+  background: radial-gradient(ellipse at center, rgb(10 8 6 / 40%), transparent 70%);
+  pointer-events: none;
 }
 
 .start-screen__eyebrow {
-  margin: 0 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 0 0 26px;
   font-size: 12px;
-  letter-spacing: 0.32em;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
   color: #a08b66;
+}
+
+.start-screen__stroke {
+  width: clamp(26px, 8vw, 60px);
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #6b5738);
+}
+
+.start-screen__stroke:last-child {
+  transform: scaleX(-1);
 }
 
 .start-screen__title {
   margin: 0;
-  font-size: clamp(48px, 12vw, 88px);
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  color: #f0e2bd;
-  text-indent: 0.18em;
-  text-shadow: 0 0 28px rgb(190 60 32 / 38%);
+  font-size: clamp(44px, 11vw, 92px);
+  font-weight: 400;
+  line-height: 1.14;
+  letter-spacing: 0.16em;
+  text-indent: 0.16em;
+  color: #f2e4c1;
+  text-shadow: 0 0 42px rgb(196 73 43 / 30%), 0 2px 8px rgb(0 0 0 / 55%);
 }
 
 .start-screen__subtitle {
-  margin: 14px 0 0;
+  margin: 18px 0 0;
   font-size: 14px;
-  letter-spacing: 0.28em;
-  color: #b9a986;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: #bfae88;
+}
+
+.start-screen__divider {
+  position: relative;
+  width: min(220px, 55%);
+  height: 1px;
+  margin: 30px auto 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    #6f5734 30%,
+    rgb(168 132 81 / 60%) 50%,
+    #6f5734 70%,
+    transparent
+  );
+}
+
+.start-screen__divider span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  transform: rotate(45deg);
+  background: #b08a52;
+  box-shadow: 0 0 12px rgb(196 73 43 / 55%);
 }
 
 .start-screen__actions {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: min(260px, 100%);
-  margin: 40px auto 0;
+  gap: 14px;
+  width: min(280px, 100%);
+  margin: 42px auto 0;
 }
 
 .start-screen__button {
-  padding: 12px 20px;
-  border: 1px solid #5c4b34;
-  border-radius: 4px;
-  background: #241d16;
-  color: #c8b48c;
+  padding: 13px 20px;
+  border: 1px solid #4c3f2c;
+  border-radius: 3px;
+  background: rgb(30 24 18 / 72%);
+  color: #c9b68e;
   font-family: inherit;
   font-size: 15px;
-  letter-spacing: 0.2em;
-  text-indent: 0.2em;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
   cursor: pointer;
+  transition:
+    color 0.2s,
+    border-color 0.2s,
+    background 0.2s,
+    box-shadow 0.2s,
+    transform 0.2s;
 }
 
 .start-screen__button:hover {
-  background: #322819;
-  color: #f0e2bd;
+  border-color: #7d6240;
+  background: rgb(44 34 24 / 85%);
+  color: #f2e4c1;
+}
+
+.start-screen__button:focus-visible {
+  outline: 1px solid #a88451;
+  outline-offset: 3px;
 }
 
 .start-screen__button--primary {
-  border-color: #8a6a3f;
-  background: linear-gradient(180deg, #3a2b1a, #241d16);
-  color: #f5e6c0;
+  border-color: #9a7340;
+  background: linear-gradient(180deg, rgb(94 63 32 / 78%), rgb(52 36 22 / 85%));
+  color: #f7e8c4;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 40%), inset 0 1px 0 rgb(255 224 160 / 14%);
+}
+
+.start-screen__button--primary:hover {
+  border-color: #d3a75f;
+  background: linear-gradient(180deg, rgb(120 82 43 / 85%), rgb(62 43 25 / 90%));
+  box-shadow:
+    0 12px 30px rgb(0 0 0 / 45%),
+    0 0 24px rgb(196 73 43 / 22%),
+    inset 0 1px 0 rgb(255 224 160 / 20%);
+  transform: translateY(-1px);
 }
 
 .start-screen__note {
-  margin: 18px 0 0;
+  margin: 24px 0 0;
   font-size: 12px;
-  line-height: 1.7;
-  color: #7f735d;
+  line-height: 1.8;
+  color: #8a7c63;
+  text-shadow: 0 1px 6px rgb(0 0 0 / 70%);
+}
+
+@keyframes cover-sun-breathe {
+  from {
+    opacity: 0.32;
+  }
+
+  to {
+    opacity: 0.5;
+  }
+}
+
+@keyframes cover-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .start-screen__card,
+  .start-screen__sun {
+    animation: none;
+  }
+
+  .start-screen__button {
+    transition: none;
+  }
 }
 
 .intro-screen__card {
@@ -2513,6 +2639,21 @@
 }
 
 @media (max-width: 640px) {
+  .start-screen__eyebrow {
+    margin-bottom: 20px;
+    font-size: 11px;
+  }
+
+  .start-screen__subtitle {
+    letter-spacing: 0.22em;
+    text-indent: 0.22em;
+  }
+
+  .start-screen__actions {
+    width: min(240px, 100%);
+    margin-top: 32px;
+  }
+
   .intro-screen__card {
     padding: 24px 22px;
   }

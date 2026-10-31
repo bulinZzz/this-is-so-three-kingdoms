@@ -118,10 +118,47 @@ import './shell.css'
 const SHELL_HTML = `
   <div class="shell">
     <section class="start-screen">
+      <svg class="start-screen__art" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="cover-sky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#1b1611" />
+            <stop offset="0.52" stop-color="#2c2016" />
+            <stop offset="1" stop-color="#0f0c09" />
+          </linearGradient>
+          <radialGradient id="cover-glow" cx="0.5" cy="0.36" r="0.52">
+            <stop offset="0" stop-color="#c4492b" stop-opacity="0.42" />
+            <stop offset="0.42" stop-color="#9c3320" stop-opacity="0.16" />
+            <stop offset="1" stop-color="#9c3320" stop-opacity="0" />
+          </radialGradient>
+          <linearGradient id="cover-haze" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#e8c79a" stop-opacity="0" />
+            <stop offset="0.55" stop-color="#e8c79a" stop-opacity="0.05" />
+            <stop offset="1" stop-color="#e8c79a" stop-opacity="0" />
+          </linearGradient>
+          <linearGradient id="cover-foot" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#0f0c09" stop-opacity="0" />
+            <stop offset="1" stop-color="#0f0c09" stop-opacity="0.9" />
+          </linearGradient>
+        </defs>
+        <rect width="1440" height="900" fill="url(#cover-sky)" />
+        <rect width="1440" height="900" fill="url(#cover-glow)" />
+        <circle class="start-screen__sun" cx="720" cy="322" r="88" fill="#b8432a" opacity="0.42" />
+        <circle cx="720" cy="322" r="88" fill="none" stroke="#d4694a" stroke-opacity="0.22" />
+        <path fill="#3a281b" opacity="0.6" d="M0 700 L90 634 Q132 604 176 640 L240 596 Q286 566 330 604 L400 648 L462 612 Q512 580 558 616 L630 660 L694 622 Q742 588 788 624 L858 664 L920 626 Q966 594 1012 630 L1084 668 L1148 632 Q1196 600 1242 636 L1314 676 L1380 642 L1440 670 L1440 900 L0 900 Z" />
+        <rect y="600" width="1440" height="230" fill="url(#cover-haze)" />
+        <path fill="#221910" d="M0 792 L82 736 Q128 706 172 742 L240 704 Q286 676 330 710 L404 758 L474 722 Q522 692 568 726 L642 770 L708 734 Q756 704 802 738 L874 780 L938 742 Q984 712 1030 746 L1102 784 L1166 748 Q1214 718 1260 752 L1332 792 L1396 760 L1440 786 L1440 900 L0 900 Z" />
+        <path fill="#15100c" d="M0 856 L110 832 Q160 818 210 838 L300 862 L392 838 Q442 824 492 844 L600 866 L706 842 Q756 828 806 848 L906 862 L1006 842 Q1056 828 1106 848 L1206 864 L1306 844 Q1356 830 1406 850 L1440 842 L1440 900 L0 900 Z" />
+        <rect y="640" width="1440" height="260" fill="url(#cover-foot)" />
+      </svg>
       <div class="start-screen__card">
-        <p class="start-screen__eyebrow">建安十三年 · 赤壁之战后</p>
+        <p class="start-screen__eyebrow">
+          <span class="start-screen__stroke" aria-hidden="true"></span>
+          建安十三年 · 赤壁之战后
+          <span class="start-screen__stroke" aria-hidden="true"></span>
+        </p>
         <h1 class="start-screen__title">这很三国</h1>
         <p class="start-screen__subtitle">赤壁火尽，天下未定</p>
+        <div class="start-screen__divider" aria-hidden="true"><span></span></div>
         <div class="start-screen__actions">
           <button type="button" class="start-screen__button start-screen__button--primary" data-action="start-game">开始游戏</button>
           <button type="button" class="start-screen__button" data-action="continue-game">读取进度</button>
