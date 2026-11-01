@@ -2,6 +2,7 @@ import type { GameDate, GameState, Outcome, Season } from './model'
 import {
   SCHEMA_VERSION,
   type SaveData,
+  type SaveLoadResult,
   type SaveStore,
   type SaveSummary,
 } from './saveStore'
@@ -10,6 +11,23 @@ import {
 export interface KeyValueStorage {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
+  removeItem(key: string): void
+}
+
+/**
+ * 取得浏览器的 localStorage。
+ * 隐私模式、受限 iframe 或禁用站点数据时，访问 `window.localStorage` 本身就可能抛错；
+ * 这里把它收成 null，让对局在没有持久化能力时也能照常开局。
+ */
+export function resolveBrowserStorage(): KeyValueStorage | null {
+  try {
+    if (typeof window === 'undefined') {
+      return null
+    }
+    return window.localStorage
+  } catch {
+    return null
+  }
 }
 
 const SEASONS: readonly Season[] = ['spring', 'summer', 'autumn', 'winter']
@@ -76,9 +94,17 @@ function isSaveData(value: unknown): value is SaveData {
 }
 
 export class LocalSaveStore implements SaveStore {
-  constructor(private readonly storage: KeyValueStorage = window.localStorage) {}
+  private readonly storage: KeyValueStorage | null
+
+  constructor(storage: KeyValueStorage | null = resolveBrowserStorage()) {
+    this.storage = storage
+  }
 
   save(key: string, state: GameState): boolean {
+    if (this.storage === null) {
+      return false
+    }
+
     const data: SaveData = {
       schemaVersion: SCHEMA_VERSION,
       gameState: state,
@@ -94,36 +120,62 @@ export class LocalSaveStore implements SaveStore {
     return true
   }
 
-  load(key: string): GameState | null {
-    return this.read(key)?.gameState ?? null
-  }
-
-  loadSummary(key: string): SaveSummary | null {
-    const state = this.read(key)?.gameState
-    if (state === undefined) {
-      return null
+  loadResult(key: string): SaveLoadResult {
+    const storage = this.storage
+    if (storage === null) {
+      return { status: 'unavailable', state: null }
     }
 
-    return { date: { ...state.currentDate }, turn: state.currentTurn }
-  }
+    let raw: string | null
+    try {
+      raw = storage.getItem(key)
+    } catch {
+      // 存储对象存在但不可读（隐私模式、站点数据被禁用等），按不可用处理。
+      return { status: 'unavailable', state: null }
+    }
 
-  private read(key: string): SaveData | null {
-    const raw = this.storage.getItem(key)
     if (raw === null) {
-      return null
+      return { status: 'empty', state: null }
     }
 
     let data: unknown
     try {
       data = JSON.parse(raw)
     } catch {
-      return null
+      return { status: 'invalid', state: null }
     }
 
     if (!isSaveData(data) || data.schemaVersion !== SCHEMA_VERSION) {
+      return { status: 'invalid', state: null }
+    }
+
+    return { status: 'loaded', state: data.gameState }
+  }
+
+  load(key: string): GameState | null {
+    return this.loadResult(key).state
+  }
+
+  loadSummary(key: string): SaveSummary | null {
+    const state = this.loadResult(key).state
+    if (state === null) {
       return null
     }
 
-    return data
+    return { date: { ...state.currentDate }, turn: state.currentTurn }
+  }
+
+  remove(key: string): boolean {
+    if (this.storage === null) {
+      return false
+    }
+
+    try {
+      this.storage.removeItem(key)
+    } catch {
+      return false
+    }
+
+    return true
   }
 }

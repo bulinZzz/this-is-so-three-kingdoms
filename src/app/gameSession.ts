@@ -31,7 +31,7 @@ import { assignStation as runAssignStation, harvestGrain as runHarvestGrain, rec
 import type { CharacterId, DevelopmentKind, FactionId, GameState, Scenario, SiteId } from '../core/model'
 import { disband as runDisband, dismiss as runDismiss, reward as runReward } from '../core/personnel'
 import { createRandom, type Random } from '../core/random'
-import { AUTO_SAVE_KEY, slotKey, type SaveStore, type SaveSummary } from '../core/saveStore'
+import { AUTO_SAVE_KEY, slotKey, type SaveLoadStatus, type SaveStore, type SaveSummary } from '../core/saveStore'
 import {
   hireCharacter as runHireCharacter,
   seekTalent as runSeekTalent,
@@ -68,6 +68,18 @@ function drawSeedFor(state: GameState): number {
   return (hash >>> 0) || 1
 }
 
+/** 启动读档失败时给玩家的说明；无存档或读档成功时为空。 */
+function startupNoticeOf(status: SaveLoadStatus): string {
+  switch (status) {
+    case 'unavailable':
+      return '浏览器存储不可用，本局将无法保存进度'
+    case 'invalid':
+      return '自动存档已损坏或版本不兼容，无法继续此前的进度，已开始新游戏'
+    default:
+      return ''
+  }
+}
+
 /** 持有当前对局的唯一 GameState，负责回合推进、行动、回合开始的自动存档与手动槽位。 */
 export class GameSession {
   private state: GameState
@@ -80,12 +92,20 @@ export class GameSession {
   private turnRun: TurnRun | null = null
   /** 上一次自动存档是否写入失败，供界面在回合结束时如实提示。 */
   private autoSaveFailed = false
+  /** 启动时读档失败的说明；为空表示正常开始。 */
+  private readonly startupNotice: string
+  /** 上一次手动读档失败的原因；成功或空槽位时清空。 */
+  private lastLoadProblem = ''
 
   constructor(
     private readonly saveStore: SaveStore = new LocalSaveStore(),
     options: GameSessionOptions = {},
   ) {
-    this.state = this.saveStore.load(AUTO_SAVE_KEY) ?? createInitialState()
+    const loaded = this.saveStore.loadResult(AUTO_SAVE_KEY)
+    this.state = loaded.state ?? createInitialState()
+    this.startupNotice = startupNoticeOf(loaded.status)
+    // 存储不可用时，这一局从一开始就无法落盘，不必等到第一次自动存档才提示。
+    this.autoSaveFailed = loaded.status === 'unavailable'
     this.drawSeedOverride = options.drawSeed ?? null
     this.drawRandom = this.createDrawRandom()
   }
@@ -94,9 +114,19 @@ export class GameSession {
     return this.state
   }
 
+  /** 启动时读档失败的说明；界面据此提示玩家没有接着上一份进度。 */
+  getStartupNotice(): string {
+    return this.startupNotice
+  }
+
   /** 上一次自动存档是否失败；界面据此把「已自动保存」换成失败提示。 */
   isAutoSaveFailed(): boolean {
     return this.autoSaveFailed
+  }
+
+  /** 上一次手动读档失败的原因；空槽位或读档成功时为空。 */
+  getLastLoadProblem(): string {
+    return this.lastLoadProblem
   }
 
   /** 用指定剧本重开一局：重置对局并写入自动存档，覆盖当前进度；手动槽位不受影响。种子仅供测试复现。 */
@@ -375,12 +405,19 @@ export class GameSession {
   }
 
   private applySave(key: string): boolean {
-    const saved = this.saveStore.load(key)
-    if (saved === null) {
+    const result = this.saveStore.loadResult(key)
+    if (result.state === null) {
+      this.lastLoadProblem =
+        result.status === 'invalid'
+          ? '存档已损坏或版本不兼容，无法读取'
+          : result.status === 'unavailable'
+            ? '浏览器存储不可用，无法读取存档'
+            : ''
       return false
     }
 
-    this.state = saved
+    this.state = result.state
+    this.lastLoadProblem = ''
     this.drawRandom = this.createDrawRandom()
     this.notify()
 

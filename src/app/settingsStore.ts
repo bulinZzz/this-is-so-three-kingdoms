@@ -1,4 +1,4 @@
-import type { KeyValueStorage } from '../core/localSaveStore'
+import { resolveBrowserStorage, type KeyValueStorage } from '../core/localSaveStore'
 
 /** 设置与存档分属不同的键位空间，互不覆盖。 */
 export const SETTINGS_KEY = 'this-is-so-three-kingdoms/settings'
@@ -60,8 +60,10 @@ function toSettings(value: unknown): Settings {
 export class SettingsStore implements SettingsSource {
   private settings: Settings
   private readonly listeners = new Set<SettingsListener>()
+  private readonly storage: KeyValueStorage | null
 
-  constructor(private readonly storage: KeyValueStorage = window.localStorage) {
+  constructor(storage: KeyValueStorage | null = resolveBrowserStorage()) {
+    this.storage = storage
     this.settings = this.read()
   }
 
@@ -71,7 +73,11 @@ export class SettingsStore implements SettingsSource {
 
   update(patch: Partial<Settings>): void {
     this.settings = { ...this.settings, ...patch }
-    this.storage.setItem(SETTINGS_KEY, JSON.stringify(this.settings))
+    try {
+      this.storage?.setItem(SETTINGS_KEY, JSON.stringify(this.settings))
+    } catch {
+      // 存储不可用或配额用尽：本次设置照常生效，只是没能持久化。
+    }
     this.notify()
   }
 
@@ -80,7 +86,13 @@ export class SettingsStore implements SettingsSource {
   }
 
   private read(): Settings {
-    const raw = this.storage.getItem(SETTINGS_KEY)
+    let raw: string | null
+    try {
+      raw = this.storage?.getItem(SETTINGS_KEY) ?? null
+    } catch {
+      return { ...DEFAULT_SETTINGS }
+    }
+
     if (raw === null) {
       return { ...DEFAULT_SETTINGS }
     }

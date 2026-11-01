@@ -1,15 +1,31 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { SCHEMA_VERSION } from '../src/core/saveStore'
 import { advanceTurn } from '../src/core/turn'
-import { FailingStorage, MemoryStorage } from './memoryStorage'
+import {
+  FailingStorage,
+  MemoryStorage,
+  UndeletableStorage,
+  UnreadableStorage,
+} from './memoryStorage'
 
 const KEY = 'test/save'
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('LocalSaveStore', () => {
   it('没有存档时读取为空', () => {
     expect(new LocalSaveStore(new MemoryStorage()).load(KEY)).toBeNull()
+  })
+
+  it('没有存档与读不出来分开上报', () => {
+    expect(new LocalSaveStore(new MemoryStorage()).loadResult(KEY)).toEqual({
+      status: 'empty',
+      state: null,
+    })
   })
 
   it('保存后能读回同一份状态', () => {
@@ -75,6 +91,7 @@ describe('LocalSaveStore', () => {
     const store = new LocalSaveStore(storage)
 
     expect(store.load(KEY)).toBeNull()
+    expect(store.loadResult(KEY).status).toBe('invalid')
     expect(store.loadSummary(KEY)).toBeNull()
   })
 
@@ -82,14 +99,20 @@ describe('LocalSaveStore', () => {
     const storage = new MemoryStorage()
     storage.setItem(KEY, '{ 不是合法 JSON')
 
-    expect(new LocalSaveStore(storage).load(KEY)).toBeNull()
+    const store = new LocalSaveStore(storage)
+
+    expect(store.load(KEY)).toBeNull()
+    expect(store.loadResult(KEY).status).toBe('invalid')
   })
 
   it('存档不是预期结构时读取为空', () => {
     const storage = new MemoryStorage()
     storage.setItem(KEY, 'null')
 
-    expect(new LocalSaveStore(storage).load(KEY)).toBeNull()
+    const store = new LocalSaveStore(storage)
+
+    expect(store.load(KEY)).toBeNull()
+    expect(store.loadResult(KEY).status).toBe('invalid')
   })
 
   it('存档日期结构不符时读取为空', () => {
@@ -120,6 +143,7 @@ describe('LocalSaveStore', () => {
       const store = new LocalSaveStore(storage)
 
       expect(store.load(KEY)).toBeNull()
+      expect(store.loadResult(KEY).status).toBe('invalid')
       expect(store.loadSummary(KEY)).toBeNull()
     }
   })
@@ -129,5 +153,50 @@ describe('LocalSaveStore', () => {
 
     expect(store.save(KEY, createInitialState({ seed: 208 }))).toBe(false)
     expect(store.load(KEY)).toBeNull()
+  })
+
+  it('读取异常时按存储不可用处理，不抛出', () => {
+    const store = new LocalSaveStore(new UnreadableStorage())
+
+    expect(() => store.load(KEY)).not.toThrow()
+    expect(store.load(KEY)).toBeNull()
+    expect(store.loadResult(KEY)).toEqual({ status: 'unavailable', state: null })
+    expect(store.loadSummary(KEY)).toBeNull()
+  })
+
+  it('删除异常时返回失败，原存档仍在', () => {
+    const storage = new UndeletableStorage()
+    const store = new LocalSaveStore(storage)
+    const state = createInitialState({ seed: 208 })
+    store.save(KEY, state)
+
+    expect(store.remove(KEY)).toBe(false)
+    expect(store.load(KEY)).toEqual(state)
+  })
+
+  it('删除成功后该键位回到空存档', () => {
+    const store = new LocalSaveStore(new MemoryStorage())
+    store.save(KEY, createInitialState({ seed: 208 }))
+
+    expect(store.remove(KEY)).toBe(true)
+    expect(store.load(KEY)).toBeNull()
+    expect(store.loadResult(KEY).status).toBe('empty')
+  })
+
+  it('浏览器拒绝访问 localStorage 时仍可构造，读写删一律降级', () => {
+    const denied = Object.defineProperty({}, 'localStorage', {
+      configurable: true,
+      get() {
+        throw new Error('拒绝访问')
+      },
+    })
+    vi.stubGlobal('window', denied)
+
+    const store = new LocalSaveStore()
+
+    expect(store.loadResult(KEY)).toEqual({ status: 'unavailable', state: null })
+    expect(store.load(KEY)).toBeNull()
+    expect(store.save(KEY, createInitialState({ seed: 208 }))).toBe(false)
+    expect(store.remove(KEY)).toBe(false)
   })
 })

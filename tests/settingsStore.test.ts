@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS, SETTINGS_KEY, SettingsStore } from '../src/app/settingsStore'
-import { MemoryStorage } from './memoryStorage'
+import { MemoryStorage, UnreadableStorage } from './memoryStorage'
 
 describe('SettingsStore', () => {
   it('没有存储内容时使用默认设置', () => {
@@ -59,6 +59,14 @@ describe('SettingsStore', () => {
     storage.setItem(SETTINGS_KEY, '{ 不是合法 JSON')
 
     expect(new SettingsStore(storage).get()).toEqual(DEFAULT_SETTINGS)
+  })
+
+  it('存储不可读时回落到默认设置，更新仍即时生效', () => {
+    const store = new SettingsStore(new UnreadableStorage())
+
+    expect(store.get()).toEqual(DEFAULT_SETTINGS)
+    expect(() => store.update({ showActionCosts: false })).not.toThrow()
+    expect(store.get().showActionCosts).toBe(false)
   })
 
   it('存储内容缺字段时回落到默认设置', () => {

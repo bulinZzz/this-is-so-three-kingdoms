@@ -3475,7 +3475,9 @@ export function mountGameShell(
       return
     }
 
-    statusLabel.textContent = session.isAutoSaveFailed() ? '自动保存失败' : '已自动保存'
+    statusLabel.textContent = session.isAutoSaveFailed()
+      ? '自动保存失败：本局进度无法写入浏览器存储'
+      : '已自动保存'
   }
 
   /** 结局或读档之后收掉残留在场的演出与弹窗，回到可玩状态。 */
@@ -3509,6 +3511,9 @@ export function mountGameShell(
     selection.select(null)
     resetTransientUi()
     statusLabel.textContent = `已开始新游戏：${scenario.name}`
+    if (session.isAutoSaveFailed()) {
+      statusLabel.textContent += '（当前无法保存进度）'
+    }
   }
 
   /** 进入战斗演出：先确认阵型，再逐次交锋，战后摆出战果。 */
@@ -4541,7 +4546,7 @@ export function mountGameShell(
         return
       }
 
-      statusLabel.textContent = '没有找到自动存档'
+      statusLabel.textContent = session.getLastLoadProblem() || '没有找到自动存档'
       return
     }
 
@@ -4563,7 +4568,7 @@ export function mountGameShell(
       return
     }
 
-    statusLabel.textContent = `存档 ${slot} 还没有内容`
+    statusLabel.textContent = session.getLastLoadProblem() || `存档 ${slot} 还没有内容`
   })
 
   openSystemButton.addEventListener('click', () => {
@@ -4698,4 +4703,9 @@ export function mountGameShell(
 
   session.subscribe(paint)
   paint(session.getState())
+
+  const startupNotice = session.getStartupNotice()
+  if (startupNotice !== '') {
+    statusLabel.textContent = startupNotice
+  }
 }

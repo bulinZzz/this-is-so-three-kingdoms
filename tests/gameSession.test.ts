@@ -7,8 +7,8 @@ import { createInitialState } from '../src/core/createInitialState'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { RECRUIT_TROOPS_PER_COMMAND, recruitGrainCost } from '../src/core/military'
 import { SANGUO_ACCEPTANCE } from '../src/core/scenarios'
-import { AUTO_SAVE_KEY } from '../src/core/saveStore'
-import { MemoryStorage, FailingStorage } from './memoryStorage'
+import { AUTO_SAVE_KEY, slotKey } from '../src/core/saveStore'
+import { MemoryStorage, FailingStorage, UnreadableStorage } from './memoryStorage'
 
 function servingCount(session: GameSession): number {
   const state = session.getState()
@@ -37,6 +37,26 @@ describe('GameSession', () => {
 
     expect(session.getState().currentTurn).toBe(1)
     expect(session.getState().currentDate).toEqual({ era: '建安', year: 13, season: 'autumn' })
+    expect(session.getStartupNotice()).toBe('')
+  })
+
+  it('存储不可用时仍能开局，并明确提示无法保存进度', () => {
+    const session = new GameSession(new LocalSaveStore(new UnreadableStorage()))
+
+    expect(session.getState().currentTurn).toBe(1)
+    expect(session.getStartupNotice()).toContain('浏览器存储不可用')
+    expect(session.isAutoSaveFailed()).toBe(true)
+    expect(session.saveToSlot(1)).toBe(false)
+    expect(session.loadAutoSave()).toBe(false)
+  })
+
+  it('自动存档损坏时不静默当作无事发生，而是提示后开始新游戏', () => {
+    const storage = new MemoryStorage()
+    storage.setItem(AUTO_SAVE_KEY, '{ 已损坏')
+    const session = new GameSession(new LocalSaveStore(storage))
+
+    expect(session.getState().currentTurn).toBe(1)
+    expect(session.getStartupNotice()).toContain('自动存档已损坏')
   })
 
   it('启动时从自动存档继续', () => {
@@ -149,7 +169,17 @@ describe('GameSession', () => {
     session.endTurn()
 
     expect(session.loadSlot(5)).toBe(false)
+    expect(session.getLastLoadProblem()).toBe('')
     expect(session.getState().currentTurn).toBe(2)
+  })
+
+  it('读取损坏槽位失败，并说明无法读取的原因', () => {
+    const storage = new MemoryStorage()
+    storage.setItem(slotKey(2), '{ 已损坏')
+    const session = new GameSession(new LocalSaveStore(storage))
+
+    expect(session.loadSlot(2)).toBe(false)
+    expect(session.getLastLoadProblem()).toContain('损坏')
   })
 
   it('存储不可用时存槽位返回失败，结算回合时如实记为自动存档失败', () => {
