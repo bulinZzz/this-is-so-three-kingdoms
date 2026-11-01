@@ -382,6 +382,8 @@ export class MapScene extends Phaser.Scene {
   private readonly dragFrom = { x: 0, y: 0 }
   private readonly downAt = { x: 0, y: 0 }
   private state: GameState | null = null
+  /** 上一次渲染所用的世界状态；新开一局或读档会换成新对象。 */
+  private lastState: GameState | null = null
   private hoveredId: string | null = null
   private highlight: Phaser.GameObjects.Graphics | null = null
   /** 名称与它的战略点；落位与显隐在缩放变化时重排。 */
@@ -609,6 +611,14 @@ export class MapScene extends Phaser.Scene {
   }
 
   private render(state: GameState): void {
+    // 新开一局或读档会换上新的 GameState：把镜头拉回开局视野。
+    // 同一局内的行动只就地改动状态，对象不变，不会打断玩家已经拖动的视野。
+    if (this.lastState !== null && this.lastState !== state) {
+      this.userAdjusted = false
+      this.focusInitialView()
+    }
+    this.lastState = state
+
     for (const object of this.drawn.splice(0)) {
       object.destroy()
     }

@@ -511,15 +511,15 @@ const SHELL_HTML = `
         <ul class="system__list"></ul>
       </div>
       <div class="system__actions">
-        <button type="button" class="confirm__button" data-action="ask-cover">返回封面</button>
+        <button type="button" class="confirm__button" data-action="ask-cover">回到标题</button>
       </div>
     </dialog>
     <dialog class="confirm cover-confirm">
       <div class="saves__head">
-        <h2 class="saves__title">返回封面</h2>
+        <h2 class="saves__title">回到标题</h2>
         <button type="button" class="saves__close" data-action="cover-cancel">关闭</button>
       </div>
-      <p class="confirm__text">返回封面不会保存本局进度，本回合尚未写入自动存档的操作会丢失。确定返回？</p>
+      <p class="confirm__text">回到标题不会保存本局进度，本回合尚未写入自动存档的操作会丢失。确定返回？</p>
       <div class="confirm__actions">
         <button type="button" class="confirm__button confirm__button--primary" data-action="cover-confirm">确定</button>
         <button type="button" class="confirm__button" data-action="cover-cancel">取消</button>
@@ -3332,7 +3332,7 @@ export function mountGameShell(
     savesDialog.showModal()
   }
 
-  /** 回到封面：收起序章与棋盘，只留标题页，交由玩家重新选择开新局或读档。 */
+  /** 回到标题：收起序章与棋盘，只留标题页，交由玩家重新选择开新局或读档。 */
   function showStartScreen(): void {
     introScreen.hidden = true
     startScreen.hidden = false
@@ -4609,7 +4609,7 @@ export function mountGameShell(
     systemDialog.close()
   })
 
-  // 返回封面会丢下当前对局，先让玩家确认；确认后连同系统弹窗一起收起再回封面。
+  // 回到标题会丢下当前对局，先让玩家确认；确认后连同系统弹窗一起收起再回标题页。
   askCoverButton.addEventListener('click', () => {
     coverConfirmDialog.showModal()
   })

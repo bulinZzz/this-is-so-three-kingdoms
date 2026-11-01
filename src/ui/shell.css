@@ -2150,7 +2150,7 @@
   list-style: none;
 }
 
-/* 返回封面独立成行，与上面的开局列表隔开，避免误触。 */
+/* 回到标题独立成行，与上面的开局列表隔开，避免误触。 */
 .system__actions {
   display: flex;
   flex: none;

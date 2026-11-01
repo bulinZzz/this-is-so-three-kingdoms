@@ -18,9 +18,9 @@ export const SANGUO_208: Scenario = {
   playerFaction: 'liubei',
   // 按历史地位排列：中原的曹操、江东的孙权与寄居荆州的刘备居前，其后是益州刘璋、
   // 汉中张鲁、凉州马腾，再及荆南、交州士燮、辽东公孙康，南蛮处最末。
-  // 曹、孙、刘三家沿用旧色，其余各家按相邻色相重新分档，避免近色相撞。
+  // 曹、孙、刘三家以蓝、红、绿为主色，其余各家按相邻色相重新分档，避免近色相撞。
   factions: [
-    { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 20000, money: 20000 },
+    { id: 'caocao', name: '曹操', color: '#24508f', grain: 20000, money: 20000 },
     { id: 'sunquan', name: '孙权', color: '#b0413e', grain: 12000, money: 10000 },
     { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 3000, money: 3000 },
     { id: 'liuzhang', name: '刘璋', color: '#8160a3', grain: 14000, money: 9000 },
@@ -100,7 +100,7 @@ export const SANGUO_ACCEPTANCE: Scenario = {
   playerFaction: 'liubei',
   factions: [
     { id: 'liubei', name: '刘备', color: '#3f7a5a', grain: 4000, money: 2000 },
-    { id: 'caocao', name: '曹操', color: '#3d6ea8', grain: 12000, money: 8000 },
+    { id: 'caocao', name: '曹操', color: '#24508f', grain: 12000, money: 8000 },
     { id: 'sunquan', name: '孙权', color: '#b0413e', grain: 8000, money: 5000 },
   ],
   relations: [
