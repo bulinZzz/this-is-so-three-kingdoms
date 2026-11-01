@@ -4251,16 +4251,24 @@ export function mountGameShell(
   /**
    * 招聘确认：判定成功只打开确认窗，玩家点「招募」后才扣聘金入仕；
    * 取消、关闭或直接关掉窗口都算未支付，此人留在待招募名单里。
+   * 入仕者当场离开待招募名单，结果改写在战略点面板；未入仕者仍留在名单里，结果写在名单下。
    */
-  const finishHire = (message: string): void => {
+  const finishHire = (message: string, hired: boolean): void => {
     const source = hireSource
     hireCharacterId = null
     hireDialog.close()
-    if (source === 'visit') {
+
+    if (hired) {
+      siteMessage = message
+      contactMessage = ''
+    } else if (source === 'visit') {
       contactMessage = message
+      siteMessage = ''
     } else {
       siteMessage = message
+      contactMessage = ''
     }
+
     paint(session.getState())
   }
 
@@ -4271,7 +4279,10 @@ export function mountGameShell(
     }
 
     const character = session.getState().characters.find((item) => item.id === hireCharacterId)
-    finishHire(character === undefined ? '未招募' : `未招募 ${character.name}，已列入待招募`)
+    finishHire(
+      character === undefined ? '未招募' : `未招募 ${character.name}，已列入待招募`,
+      false,
+    )
   }
 
   hireConfirmButton.addEventListener('click', () => {
@@ -4280,7 +4291,7 @@ export function mountGameShell(
     }
 
     const result = session.hire(hireCharacterId)
-    finishHire(result.ok ? result.record.outcome : result.reason)
+    finishHire(result.ok ? result.record.outcome : result.reason, result.ok)
   })
 
   hireCancelButton.addEventListener('click', cancelHire)
@@ -4293,6 +4304,8 @@ export function mountGameShell(
     }
 
     const result = session.seekTalent(siteId)
+    // 寻访结果写在战略点面板；待招募名单下的旧回执随之清掉，免得与本次结果并排出现。
+    contactMessage = ''
     if (result.ok && result.pendingHire !== undefined) {
       siteMessage = ''
       hireCharacterId = result.pendingHire.characterId
@@ -4315,6 +4328,8 @@ export function mountGameShell(
     }
 
     const result = session.visit(characterId)
+    // 拜访结果写在待招募名单下；战略点面板上的旧寻访回执随之清掉。
+    siteMessage = ''
     if (result.ok && result.pendingHire !== undefined) {
       contactMessage = ''
       hireCharacterId = result.pendingHire.characterId
