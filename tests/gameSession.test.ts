@@ -192,6 +192,36 @@ describe('GameSession', () => {
     expect(session.isAutoSaveFailed()).toBe(true)
   })
 
+  it('检测到其他标签页写入后停止覆盖存档，重新读档或新开局可解除', () => {
+    const storage = new MemoryStorage()
+    const store = new LocalSaveStore(storage)
+    const session = new GameSession(store)
+
+    session.endTurn()
+    const autoBefore = storage.getItem(AUTO_SAVE_KEY)
+    session.saveToSlot(1)
+    const slotBefore = storage.getItem(slotKey(1))
+
+    session.markExternalSaveChange()
+
+    expect(session.hasExternalConflict()).toBe(true)
+    expect(session.isAutoSaveFailed()).toBe(true)
+
+    session.endTurn()
+    expect(storage.getItem(AUTO_SAVE_KEY)).toBe(autoBefore)
+
+    expect(session.saveToSlot(2)).toBe(false)
+    expect(storage.getItem(slotKey(2))).toBeNull()
+
+    expect(session.loadSlot(1)).toBe(true)
+    expect(session.hasExternalConflict()).toBe(false)
+    expect(storage.getItem(slotKey(1))).toBe(slotBefore)
+
+    session.markExternalSaveChange()
+    session.newGame(SANGUO_ACCEPTANCE, 1)
+    expect(session.hasExternalConflict()).toBe(false)
+  })
+
   it('寻访判定成功后先待确认，确认支付聘金才招募，且不在行动时写自动存档', () => {
     const store = new LocalSaveStore(new MemoryStorage())
     const session = new GameSession(store, { drawSeed: 1 })

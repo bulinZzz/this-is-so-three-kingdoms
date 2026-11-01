@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createInitialState } from '../src/core/createInitialState'
 import { LocalSaveStore } from '../src/core/localSaveStore'
 import { SCHEMA_VERSION } from '../src/core/saveStore'
-import { advanceTurn } from '../src/core/turn'
+import { advanceTurn, endTurn } from '../src/core/turn'
 import {
   FailingStorage,
   MemoryStorage,
@@ -36,6 +36,16 @@ describe('LocalSaveStore', () => {
     expect(store.save(KEY, state)).toBe(true)
 
     expect(store.load(KEY)).toEqual(state)
+  })
+
+  it('长期推进后的状态仍能通过深层校验并往返一致', () => {
+    const store = new LocalSaveStore(new MemoryStorage())
+    const state = createInitialState({ seed: 208 })
+    for (let season = 0; season < 20; season += 1) {
+      endTurn(state)
+      expect(store.save(KEY, state)).toBe(true)
+      expect(store.load(KEY)).toEqual(state)
+    }
   })
 
   it('不同键位互不影响', () => {
@@ -153,6 +163,101 @@ describe('LocalSaveStore', () => {
 
     expect(store.save(KEY, createInitialState({ seed: 208 }))).toBe(false)
     expect(store.load(KEY)).toBeNull()
+  })
+
+  it('顶层结构合法但内部元素、枚举或跨对象引用损坏时一律拒绝', () => {
+    const breakers: { name: string; break: (state: any) => void }[] = [
+      {
+        name: '战略点相邻列表含非字符串',
+        break: (state) => (state.geography.sites[0].neighbors = [123]),
+      },
+      {
+        name: '武将缺少活动范围',
+        break: (state) => delete state.characters[0].scope,
+      },
+      {
+        name: '势力粮食为 NaN',
+        break: (state) => (state.factions[0].grain = Number.NaN),
+      },
+      {
+        name: '在仕武将引用不存在的势力',
+        break: (state) => {
+          const serving = state.characters.find((item: any) => item.status === 'serving')
+          serving.factionId = 'ghost'
+        },
+      },
+      {
+        name: '战略点引用不存在的势力',
+        break: (state) => {
+          const owned = state.geography.sites.find((item: any) => item.owner !== null)
+          owned.owner = 'ghost'
+        },
+      },
+      {
+        name: '战略点类型枚举非法',
+        break: (state) => (state.geography.sites[0].type = 'castle'),
+      },
+      {
+        name: '势力关系指向不存在的势力',
+        break: (state) =>
+          state.relations.push({
+            factions: ['liubei', 'ghost'],
+            kind: 'neutral',
+            favor: 50,
+          }),
+      },
+      {
+        name: '俘虏记录引用不存在的武将',
+        break: (state) =>
+          (state.captives.liubei = [
+            { characterId: 'ghost', formerFactionId: null, will: 50 },
+          ]),
+      },
+      {
+        name: '行动历史日期不合法',
+        break: (state) =>
+          state.history.push({
+            kind: 'attack',
+            factionId: 'liubei',
+            date: { era: '建安', year: '十三', season: 'autumn' },
+            outcome: '测试',
+          }),
+      },
+      {
+        name: '邻接引用不存在的战略点',
+        break: (state) => (state.geography.sites[0].neighbors = ['ghost']),
+      },
+      {
+        name: '武将能力超过强化上限',
+        break: (state) => (state.characters[0].might = 121),
+      },
+      {
+        name: '已结束的对局缺少结束回合',
+        break: (state) => {
+          state.outcome = 'victory'
+          state.endedTurn = null
+        },
+      },
+      {
+        name: '行动力为负数',
+        break: (state) => (state.actionPoints.liubei = -1),
+      },
+    ]
+
+    for (const breaker of breakers) {
+      const state = createInitialState({ seed: 208 }) as any
+      breaker.break(state)
+
+      const storage = new MemoryStorage()
+      storage.setItem(
+        KEY,
+        JSON.stringify({ schemaVersion: SCHEMA_VERSION, gameState: state }),
+      )
+      const store = new LocalSaveStore(storage)
+
+      expect(store.load(KEY), breaker.name).toBeNull()
+      expect(store.loadResult(KEY).status, breaker.name).toBe('invalid')
+    }
   })
 
   it('读取异常时按存储不可用处理，不抛出', () => {

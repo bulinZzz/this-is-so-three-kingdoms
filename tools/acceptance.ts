@@ -80,7 +80,7 @@ const DRAW_SEED = 5
  * 季数上限。放宽到推演代理不再有进展之后的一截：代理打不动坚城，几十季下来版图便不再变化。
  * 上限只用来发现「数值松紧让一局永远打不完」这类问题；一局打到结局的样子另由构造小局覆盖。
  */
-const SEASONS = 120
+const SEASONS = 160
 /** 发育期：开战前至少经过的季数。 */
 const WAR_MIN_SEASONS = 6
 /** 余粮超过此数时，即便已达发育目标也继续扩军——打不动下一处时靠体量慢慢压过去。 */
@@ -333,6 +333,8 @@ function territoryLine(state: GameState): string {
 interface Playthrough {
   state: GameState
   lines: string[]
+  seed: number
+  seasons: number
   battles: number
   wins: number
   apSpent: number
@@ -341,6 +343,20 @@ interface Playthrough {
   rewards: number
   /** 各势力覆灭于第几季。 */
   destroyedAt: Map<FactionId, number>
+  /** 每季检查到的状态异常；为空表示整局状态自洽。 */
+  problems: string[]
+  /** 最后一次版图易手的回合。 */
+  lastTerritoryChangeTurn: number
+  /** 跑满上限仍未结束，且长期没有版图变化。 */
+  stalled: boolean
+}
+
+interface PlaythroughOptions {
+  seed?: number
+  seasons?: number
+  drawSeed?: number
+  collectLines?: boolean
+  policy?: Partial<PlaythroughPolicy>
 }
 
 /**
@@ -656,11 +672,159 @@ function demobilizeExcess(state: GameState, targetTroops: number): string[] {
   return records
 }
 
+/** 版图快照：用来判断一季之内是否有战略点易手。 */
+function siteOwnersKey(state: GameState): string {
+  return state.geography.sites.map((site) => `${site.id}:${site.owner ?? '-'}`).join('|')
+}
+
+/** 每季检查一次的关键状态不变量：数值、归属、武将处境与俘虏关系。 */
+function checkStateInvariants(state: GameState): string[] {
+  const problems: string[] = []
+  const factionIds = new Set(state.factions.map((faction) => faction.id))
+  const siteIds = new Set(state.geography.sites.map((site) => site.id))
+  const provinceIds = new Set(state.geography.provinces.map((province) => province.id))
+  const characterIds = new Set(state.characters.map((character) => character.id))
+  const stationCounts = new Map<SiteId, number>()
+
+  const finiteNonNegative = (value: number, label: string): void => {
+    if (!Number.isFinite(value) || value < 0) {
+      problems.push(`${label} 非法：${value}`)
+    }
+  }
+
+  if (!Number.isInteger(state.currentTurn) || state.currentTurn < 1) {
+    problems.push(`回合数非法：${state.currentTurn}`)
+  }
+  if (!Number.isFinite(state.randomState) || !Number.isInteger(state.randomState)) {
+    problems.push(`随机状态非法：${state.randomState}`)
+  }
+  if (state.outcome === 'ongoing' && state.endedTurn !== null) {
+    problems.push('进行中的对局带有结束回合')
+  }
+  if (state.outcome !== 'ongoing' && state.endedTurn === null) {
+    problems.push('已结束的对局缺少结束回合')
+  }
+
+  for (const faction of state.factions) {
+    finiteNonNegative(faction.grain, `${faction.id} 粮食`)
+    finiteNonNegative(faction.money, `${faction.id} 金钱`)
+    finiteNonNegative(state.actionPoints[faction.id] ?? 0, `${faction.id} 行动力`)
+  }
+
+  for (const province of state.geography.provinces) {
+    if (province.owner !== null && !factionIds.has(province.owner)) {
+      problems.push(`州 ${province.id} 归属不存在：${province.owner}`)
+    }
+  }
+
+  for (const site of state.geography.sites) {
+    finiteNonNegative(site.population, `${site.id} 人口`)
+    finiteNonNegative(granaryOf(site), `${site.id} 存粮`)
+    if (!provinceIds.has(site.provinceId)) {
+      problems.push(`战略点 ${site.id} 的州不存在：${site.provinceId}`)
+    }
+    if (site.owner !== null && !factionIds.has(site.owner)) {
+      problems.push(`战略点 ${site.id} 归属不存在：${site.owner}`)
+    }
+  }
+
+  for (const character of state.characters) {
+    finiteNonNegative(character.troops, `${character.id} 兵力`)
+    if (!Number.isFinite(character.might) || character.might < 0 || character.might > 120) {
+      problems.push(`武将 ${character.id} 武力非法：${character.might}`)
+    }
+    if (!Number.isFinite(character.command) || character.command < 0 || character.command > 120) {
+      problems.push(`武将 ${character.id} 统率非法：${character.command}`)
+    }
+    if (!Number.isFinite(character.intellect) || character.intellect < 0 || character.intellect > 120) {
+      problems.push(`武将 ${character.id} 智谋非法：${character.intellect}`)
+    }
+    if (!Number.isFinite(character.politics) || character.politics < 0 || character.politics > 120) {
+      problems.push(`武将 ${character.id} 内政非法：${character.politics}`)
+    }
+    if (!Number.isFinite(character.loyalty) || character.loyalty < 0 || character.loyalty > 100) {
+      problems.push(`武将 ${character.id} 忠诚非法：${character.loyalty}`)
+    }
+
+    if (character.status === 'serving') {
+      if (character.factionId === null || !factionIds.has(character.factionId)) {
+        problems.push(`在仕武将 ${character.id} 的势力不存在`)
+      }
+      if (character.stationedSiteId !== null) {
+        if (!siteIds.has(character.stationedSiteId)) {
+          problems.push(`武将 ${character.id} 的驻地不存在：${character.stationedSiteId}`)
+        } else {
+          const site = state.geography.sites.find((item) => item.id === character.stationedSiteId)
+          if (site !== undefined && site.owner !== character.factionId) {
+            problems.push(`武将 ${character.id} 驻守非本方据点：${character.stationedSiteId}`)
+          }
+        }
+        stationCounts.set(
+          character.stationedSiteId,
+          (stationCounts.get(character.stationedSiteId) ?? 0) + 1,
+        )
+      }
+      if (character.isMonarch && character.factionId === null) {
+        problems.push(`君主 ${character.id} 没有势力`)
+      }
+      continue
+    }
+
+    if (character.factionId !== null || character.stationedSiteId !== null || character.troops !== 0) {
+      problems.push(`非在仕武将 ${character.id} 仍带有势力、驻地或兵力`)
+    }
+    if (character.status === 'wild' && character.tier === null) {
+      problems.push(`在野武将 ${character.id} 没有卡池层级`)
+    }
+    if (character.isMonarch && character.status !== 'captured') {
+      problems.push(`非在仕武将 ${character.id} 不应是君主`)
+    }
+  }
+
+  for (const [siteId, count] of stationCounts) {
+    if (count > 1) {
+      problems.push(`战略点 ${siteId} 有 ${count} 名驻将`)
+    }
+  }
+
+  const captiveIds = new Set<string>()
+  for (const [factionId, records] of Object.entries(state.captives)) {
+    if (!factionIds.has(factionId)) {
+      problems.push(`俘虏营归属不存在：${factionId}`)
+    }
+    for (const record of records) {
+      if (!characterIds.has(record.characterId)) {
+        problems.push(`俘虏不存在：${record.characterId}`)
+        continue
+      }
+      if (captiveIds.has(record.characterId)) {
+        problems.push(`俘虏重复关押：${record.characterId}`)
+      }
+      captiveIds.add(record.characterId)
+      const character = state.characters.find((item) => item.id === record.characterId)
+      if (character !== undefined && character.status !== 'captured') {
+        problems.push(`俘虏 ${record.characterId} 状态不是被俘`)
+      }
+      if (
+        record.formerFactionId !== null &&
+        !factionIds.has(record.formerFactionId)
+      ) {
+        problems.push(`俘虏 ${record.characterId} 的原属势力不存在`)
+      }
+    }
+  }
+
+  return problems
+}
+
 /** 跑一局固定种子的推演，返回逐季日志与最终状态。 */
-function runPlaythrough(scenario: Scenario): Playthrough {
-  const state = createInitialState({ scenario, seed: SEED })
-  const drawRandom = createRandom(DRAW_SEED)
-  const policy = policyFor(scenario)
+function runPlaythrough(scenario: Scenario, options: PlaythroughOptions = {}): Playthrough {
+  const seed = options.seed ?? SEED
+  const seasons = options.seasons ?? SEASONS
+  const collectLines = options.collectLines ?? true
+  const state = createInitialState({ scenario, seed })
+  const drawRandom = createRandom(options.drawSeed ?? DRAW_SEED)
+  const policy = { ...policyFor(scenario), ...options.policy }
   /** 开战前的兵力目标：不低于最低门槛，也不低于开局兵力的一又三成。 */
   const armyTarget = Math.max(
     policy.warMinTroops,
@@ -675,10 +839,23 @@ function runPlaythrough(scenario: Scenario): Playthrough {
   /** 建设在农田、市集与民居之间轮转，保证三项都被演练到。 */
   let buildCycle = 0
   const destroyedAt = new Map<FactionId, number>()
+  const problemSet = new Set<string>()
+  let lastTerritoryChangeTurn = 1
+  const pushLine = (line: string): void => {
+    if (collectLines) {
+      lines.push(line)
+    }
+  }
+  const check = (phase: string): void => {
+    for (const problem of checkStateInvariants(state)) {
+      problemSet.add(`${phase}：${problem}`)
+    }
+  }
 
-  for (let season = 0; season < SEASONS; season += 1) {
+  for (let season = 0; season < seasons; season += 1) {
     const player = state.playerFaction
     const before = state.actionPoints[player]
+    const ownersBefore = siteOwnersKey(state)
     apBudget += before
     const actions: string[] = []
 
@@ -693,23 +870,6 @@ function runPlaythrough(scenario: Scenario): Playthrough {
       actions.push(war)
     }
 
-    // 寻访：自有的每一处战略点都问一遍，招到一人即止；新附之地会带来新的在野者。
-    if (
-      state.actionPoints[player] >= ACTION_COSTS.seekTalent &&
-      servingCount(state, player) < ROSTER_LIMIT
-    ) {
-      for (const site of state.geography.sites) {
-        if (site.owner !== player) {
-          continue
-        }
-        const result = seekTalent(state, drawRandom, site.id)
-        if (result.ok) {
-          actions.push(result.record.outcome)
-          break
-        }
-      }
-    }
-
     // 实力未到先发育：打不动、粮不够或兵力未压过对手时，这一季不出兵。
     const warReady = state.factions.some(
       (faction) =>
@@ -718,6 +878,9 @@ function runPlaythrough(scenario: Scenario): Playthrough {
         areHostile(state, player, faction.id) &&
         readyForWar(state, faction.id, armyTarget, policy),
     )
+
+    // 同一季的第二波优先续攻首战未下的目标。
+    let focusTargetId: SiteId | null = null
 
     for (let round = 0; round < 3; round += 1) {
       if (!warReady || state.actionPoints[player] < ACTION_COSTS.attack) {
@@ -743,6 +906,13 @@ function runPlaythrough(scenario: Scenario): Playthrough {
             plan !== null,
         )
         .sort((a, b) => {
+          if (focusTargetId !== null) {
+            const focusGap =
+              Number(b.site.id === focusTargetId) - Number(a.site.id === focusTargetId)
+            if (focusGap !== 0) {
+              return focusGap
+            }
+          }
           const value = SITE_VALUE[b.site.type] - SITE_VALUE[a.site.type]
           return value !== 0 ? value : a.defence - b.defence
         })
@@ -758,11 +928,16 @@ function runPlaythrough(scenario: Scenario): Playthrough {
       }
       autoBattle(opened.battle)
       const result = finishBattle(state, opened.battle)
+      check('战斗结算后')
 
       battles += 1
       const captured = siteOf(state, plan.site.id).owner === player
       if (captured) {
         wins += 1
+        focusTargetId = null
+      } else {
+        // 同季第二波仍打同一处：首战已让未驻守的守将本季行动过，第二波面对的守军更少。
+        focusTargetId = plan.site.id
       }
 
       const report = result.ok ? result.record.battle : undefined
@@ -774,6 +949,23 @@ function runPlaythrough(scenario: Scenario): Playthrough {
         `${captured ? '夺取' : '受阻'} ${plan.site.name}` +
           `（我 ${Math.round(plan.power)} 对敌 ${Math.round(plan.defence)}${detail}）`,
       )
+    }
+
+    // 寻访放在攻势之后：开战时先把行动力交给两波进攻，余力再用来招人。
+    if (
+      state.actionPoints[player] >= ACTION_COSTS.seekTalent &&
+      servingCount(state, player) < ROSTER_LIMIT
+    ) {
+      for (const site of state.geography.sites) {
+        if (site.owner !== player) {
+          continue
+        }
+        const result = seekTalent(state, drawRandom, site.id)
+        if (result.ok) {
+          actions.push(result.record.outcome)
+          break
+        }
+      }
     }
 
     // 征兵：按剩余带兵空间轮流补人，一季至多三次；先为当季征粮与补驻将留出行动力。
@@ -898,18 +1090,24 @@ function runPlaythrough(scenario: Scenario): Playthrough {
     const granary = state.geography.sites
       .filter((site) => site.owner === player)
       .reduce((total, site) => total + granaryOf(site), 0)
-    lines.push(
+    pushLine(
       `第 ${state.currentTurn} 季　${dateLabel(state)}　行动力 ${before}→${state.actionPoints[player]}　` +
         `兵力 ${factionTroops(state, player)}　存 ${granary}　粮 ${faction?.grain ?? 0}　金 ${faction?.money ?? 0}　${factionLine(state)}`,
     )
-    lines.push(`　　${actions.length === 0 ? '（无行动）' : actions.join('；')}`)
+    pushLine(`　　${actions.length === 0 ? '（无行动）' : actions.join('；')}`)
 
     const defenseNotes: string[] = []
     runFactionTurnsWithDefense(state, defenseNotes)
     for (const note of defenseNotes) {
-      lines.push(`　　${note}`)
+      pushLine(`　　${note}`)
     }
+    check('他方行动后')
     advanceTurn(state)
+    check('每季结算后')
+
+    if (siteOwnersKey(state) !== ownersBefore) {
+      lastTerritoryChangeTurn = state.currentTurn - 1
+    }
 
     // 覆灭可能发生在玩家或他方手中，进入新一季后再判定，记在刚结束的那一季。
     for (const faction of state.factions) {
@@ -924,9 +1122,24 @@ function runPlaythrough(scenario: Scenario): Playthrough {
     }
   }
 
-  lines.push(`　　终局版图　${territoryLine(state)}`)
+  pushLine(`　　终局版图　${territoryLine(state)}`)
+  const finalTurn = state.currentTurn - 1
 
-  return { state, lines, battles, wins, apSpent, apBudget, rewards, destroyedAt }
+  return {
+    state,
+    lines,
+    seed,
+    seasons,
+    battles,
+    wins,
+    apSpent,
+    apBudget,
+    rewards,
+    destroyedAt,
+    problems: [...problemSet],
+    lastTerritoryChangeTurn,
+    stalled: state.outcome === 'ongoing' && finalTurn - lastTerritoryChangeTurn >= 20,
+  }
 }
 
 function summarize(run: Playthrough): string {
@@ -985,4 +1198,75 @@ test('建安十三年固定种子推演', () => {
   expect(run.state.outcome).not.toBe('defeat')
   expect(run.destroyedAt.size).toBeGreaterThanOrEqual(2)
   expect(run.wins).toBeGreaterThanOrEqual(5)
+})
+
+const STRESS_SEEDS = Array.from({ length: 20 }, (_, index) => index + 1)
+const LONG_STRESS_SEEDS = [208, 1, 7, 13, 19]
+
+function stressLine(run: Playthrough): Record<string, string | number | boolean> {
+  const player = run.state.playerFaction
+  return {
+    seed: run.seed,
+    outcome: run.state.outcome,
+    turn: run.state.currentTurn - 1,
+    destroyed: run.destroyedAt.size,
+    playerAlive: !isFactionDestroyed(run.state, player),
+    normalEnd: run.state.outcome !== 'ongoing',
+    battles: run.battles,
+    wins: run.wins,
+    stalled: run.stalled,
+    problems: run.problems.length,
+  }
+}
+
+test('正式剧本多随机种子压力测试', { timeout: 180_000 }, () => {
+  const results = STRESS_SEEDS.map((seed) =>
+    runPlaythrough(SANGUO_208, {
+      seed,
+      seasons: 60,
+      drawSeed: seed * 7919 + 13,
+      collectLines: false,
+    }),
+  )
+
+  for (const run of results) {
+    console.log(`STRESS ${JSON.stringify(stressLine(run))}`)
+  }
+
+  expect(results).toHaveLength(STRESS_SEEDS.length)
+  expect(results.every((run) => run.problems.length === 0)).toBe(true)
+  expect(results.some((run) => run.battles > 0)).toBe(true)
+
+  // 固定种子重跑必须一致：换随机种子只改变局面，不改变可复现性。
+  const first = runPlaythrough(SANGUO_208, {
+    seed: 11,
+    seasons: 60,
+    drawSeed: 11 * 7919 + 13,
+    collectLines: false,
+  })
+  const second = runPlaythrough(SANGUO_208, {
+    seed: 11,
+    seasons: 60,
+    drawSeed: 11 * 7919 + 13,
+    collectLines: false,
+  })
+  expect(second.state).toEqual(first.state)
+})
+
+test('正式剧本长局压力测试', { timeout: 300_000 }, () => {
+  const results = LONG_STRESS_SEEDS.map((seed) =>
+    runPlaythrough(SANGUO_208, {
+      seed,
+      seasons: 200,
+      drawSeed: seed * 7919 + 13,
+      collectLines: false,
+    }),
+  )
+
+  for (const run of results) {
+    console.log(`LONG ${JSON.stringify(stressLine(run))}`)
+  }
+
+  expect(results.every((run) => run.problems.length === 0)).toBe(true)
+  expect(results.every((run) => run.state.currentTurn - 1 <= 200)).toBe(true)
 })

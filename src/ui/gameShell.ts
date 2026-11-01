@@ -93,9 +93,10 @@ import {
 } from '../core/growth'
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
-import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
+import { AUTO_SAVE_KEY, SLOT_COUNT, SLOT_KEY_PREFIX, type SaveSummary } from '../core/saveStore'
 import { PLAYABLE_SCENARIOS, SANGUO_208 } from '../core/scenarios'
 import { hireCost } from '../core/seekTalent'
+import { temporaryEventById, type TemporaryEventNotice } from '../core/temporaryEvents'
 import {
   amountRange,
   factionTroops,
@@ -523,6 +524,16 @@ const SHELL_HTML = `
       <div class="confirm__actions">
         <button type="button" class="confirm__button confirm__button--primary" data-action="cover-confirm">确定</button>
         <button type="button" class="confirm__button" data-action="cover-cancel">取消</button>
+      </div>
+    </dialog>
+    <dialog class="confirm story">
+      <div class="saves__head">
+        <h2 class="saves__title story__title"></h2>
+        <button type="button" class="saves__close" data-action="close-story">关闭</button>
+      </div>
+      <p class="confirm__text story__text"></p>
+      <div class="confirm__actions">
+        <button type="button" class="confirm__button confirm__button--primary" data-action="close-story">确定</button>
       </div>
     </dialog>
     <dialog class="ending">
@@ -3142,6 +3153,10 @@ export function mountGameShell(
   const endingDialog = requireElement<HTMLDialogElement>(root, '.ending')
   const endingSavesButton = requireElement<HTMLButtonElement>(root, '[data-action="ending-saves"]')
   const endingNewGameButton = requireElement<HTMLButtonElement>(root, '[data-action="ending-new-game"]')
+  const storyDialog = requireElement<HTMLDialogElement>(root, '.story')
+  const storyTitle = requireElement<HTMLElement>(storyDialog, '.story__title')
+  const storyText = requireElement<HTMLElement>(storyDialog, '.story__text')
+  const closeStoryButtons = storyDialog.querySelectorAll<HTMLButtonElement>('[data-action="close-story"]')
   const closeOrderButton = requireElement<HTMLButtonElement>(root, '[data-action="close-order"]')
   const orderDialog = requireElement<HTMLDialogElement>(root, '.order')
   const orderStatus = requireElement<HTMLElement>(root, '.order__status')
@@ -3254,8 +3269,42 @@ export function mountGameShell(
   let hireSource: 'seek' | 'visit' = 'seek'
   /** 存档弹窗是否只读：标题页读取进度时只列已有存档，不给保存。 */
   let savesReadOnly = false
+  /** 临时事件弹窗的待展示队列；历史游标只读本页新产生的记录。 */
+  let historyCursor = session.getState().history.length
+  const pendingStories: TemporaryEventNotice[] = []
+
+  const collectStories = (state: GameState): void => {
+    while (historyCursor < state.history.length) {
+      const record = state.history[historyCursor]
+      historyCursor += 1
+      if (record === undefined || record.kind !== 'event' || record.targetId === null) {
+        continue
+      }
+      const notice = temporaryEventById(record.targetId)
+      if (notice !== undefined) {
+        pendingStories.push(notice)
+      }
+    }
+  }
+
+  const maybeShowStory = (): void => {
+    if (pendingStories.length === 0 || storyDialog.open) {
+      return
+    }
+    if (battleStage !== null || battlePlanDialog.open || captivesDialog.open || endingDialog.open) {
+      return
+    }
+    const story = pendingStories[0]
+    if (story === undefined) {
+      return
+    }
+    storyTitle.textContent = story.title
+    storyText.textContent = story.text
+    storyDialog.showModal()
+  }
 
   const paint = (state: GameState): void => {
+    collectStories(state)
     const showCosts = settings.get().showActionCosts
 
     dateLabel.textContent = formatDate(state)
@@ -3308,7 +3357,11 @@ export function mountGameShell(
     }
 
     // 结局一旦落定即弹窗收尾：弹窗为模态，其余入口随之不可点；回到进行中时收掉。
-    endTurnButton.disabled = state.outcome !== 'ongoing'
+    endTurnButton.disabled = state.outcome !== 'ongoing' || session.hasExternalConflict()
+    if (session.hasExternalConflict()) {
+      statusLabel.textContent =
+        '存档已在其他标签页更新；本页已停止保存，请刷新或重新读档后继续'
+    }
     if (state.outcome === 'ongoing') {
       if (endingDialog.open) {
         endingDialog.close()
@@ -3319,6 +3372,8 @@ export function mountGameShell(
         endingDialog.showModal()
       }
     }
+
+    maybeShowStory()
   }
 
   /**
@@ -3463,6 +3518,8 @@ export function mountGameShell(
       captivesDialog.showModal()
       pendingCaptives = []
     }
+    collectStories(session.getState())
+    maybeShowStory()
   }
 
   /** 这一季结束：关掉演出并报出新回合；此处只留自动存档一条提示，新回合的日期与粮耗看界面本身。 */
@@ -3478,6 +3535,8 @@ export function mountGameShell(
     statusLabel.textContent = session.isAutoSaveFailed()
       ? '自动保存失败：本局进度无法写入浏览器存储'
       : '已自动保存'
+    collectStories(session.getState())
+    maybeShowStory()
   }
 
   /** 结局或读档之后收掉残留在场的演出与弹窗，回到可玩状态。 */
@@ -3791,6 +3850,8 @@ export function mountGameShell(
 
   closeCaptivesButton.addEventListener('click', () => {
     captivesDialog.close()
+    collectStories(session.getState())
+    maybeShowStory()
   })
 
   openPrisonButton.addEventListener('click', () => {
@@ -4553,6 +4614,12 @@ export function mountGameShell(
     const slot = Number(button.dataset.slot)
 
     if (button.dataset.action === 'save-slot') {
+      if (session.hasExternalConflict()) {
+        statusLabel.textContent =
+          '存档已在其他标签页更新；本页已停止保存，请刷新或重新读档后继续'
+        return
+      }
+
       statusLabel.textContent = session.saveToSlot(slot)
         ? `已保存到存档 ${slot}`
         : `保存到存档 ${slot} 失败`
@@ -4625,6 +4692,19 @@ export function mountGameShell(
       coverConfirmDialog.close()
     })
   }
+
+  for (const button of closeStoryButtons) {
+    button.addEventListener('click', () => {
+      storyDialog.close()
+    })
+  }
+
+  storyDialog.addEventListener('close', () => {
+    if (pendingStories.length > 0) {
+      pendingStories.shift()
+    }
+    maybeShowStory()
+  })
 
   /** 标题页：开始游戏直接以正式剧本重开，随后进入序章。 */
   startGameButton.addEventListener('click', () => {
@@ -4703,6 +4783,17 @@ export function mountGameShell(
 
   session.subscribe(paint)
   paint(session.getState())
+
+  // 另一个标签页写入存档时，本页可能已过期；停止写入并提示玩家重新读档。
+  window.addEventListener('storage', (event) => {
+    if (
+      event.key === null ||
+      event.key === AUTO_SAVE_KEY ||
+      event.key.startsWith(SLOT_KEY_PREFIX)
+    ) {
+      session.markExternalSaveChange()
+    }
+  })
 
   const startupNotice = session.getStartupNotice()
   if (startupNotice !== '') {

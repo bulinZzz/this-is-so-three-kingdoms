@@ -13,8 +13,11 @@ export const SLOT_COUNT = 10
 
 export const AUTO_SAVE_KEY = 'this-is-so-three-kingdoms/auto'
 
+/** 手动槽位的键位前缀，供多标签页监听区分存档写入。 */
+export const SLOT_KEY_PREFIX = 'this-is-so-three-kingdoms/slot-'
+
 export function slotKey(slot: number): string {
-  return `this-is-so-three-kingdoms/slot-${slot}`
+  return `${SLOT_KEY_PREFIX}${slot}`
 }
 
 /** 落盘的完整数据结构。 */

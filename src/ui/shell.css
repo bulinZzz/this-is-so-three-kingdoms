@@ -1766,6 +1766,12 @@
   color: #d8c7a0;
 }
 
+/* 临时事件正文较长，行距放宽，读起来像一段叙事而不是提示。 */
+.story__text {
+  line-height: 1.9;
+  white-space: pre-line;
+}
+
 .confirm__actions,
 .hire__actions {
   display: flex;

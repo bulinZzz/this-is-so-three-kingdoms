@@ -925,16 +925,21 @@ function findUnit(battle: BattleState, characterId: CharacterId): BattleUnit | u
   )
 }
 
+/** 一方前排是否已无存活队伍。前排一空，后排近战便直接暴露在敌军面前。 */
+function frontLineBroken(battle: BattleState, side: BattleSide): boolean {
+  return !aliveUnits(battle[side]).some((unit) => rowOfSlot(unit.slot) === 0)
+}
+
 /**
  * 一队可攻击的目标：近战只及敌方前排，弓兵可及任意；敌方前排已空时，近战也及于后排。
- * 后排的近战够不着敌军，骑兵须先出击、步兵只能守卫或待机。
+ * 后排近战在本方前排未空时够不着敌军；前排一空，后排就是第一排，可直接攻击。
  */
 export function targetsFor(battle: BattleState, unit: BattleUnit): BattleUnit[] {
   const enemies = enemyUnits(battle, unit.side)
   if (ARM_STATS[unit.armType].ranged) {
     return enemies
   }
-  if (rowOfSlot(unit.slot) === 1) {
+  if (rowOfSlot(unit.slot) === 1 && !frontLineBroken(battle, unit.side)) {
     return []
   }
 
@@ -956,7 +961,7 @@ export function canSortie(battle: BattleState, unit: BattleUnit): boolean {
 
 /**
  * 一队此刻可选的指令：由兵种与所在排决定。
- * 骑兵前排可攻击、后排只能出击或待机；步兵前排可攻击与守卫、后排只能守卫或待机；
+ * 前排与「前排已空后的后排」都可攻击；后排骑兵在前排仍有友军时须先出击。
  * 弓兵在哪一排都可攻击。待机人人可选。
  */
 export function ordersFor(battle: BattleState, unit: BattleUnit): BattleOrderKind[] {
@@ -965,14 +970,19 @@ export function ordersFor(battle: BattleState, unit: BattleUnit): BattleOrderKin
   }
 
   const front = rowOfSlot(unit.slot) === 0
+  const exposed = !front && frontLineBroken(battle, unit.side)
   if (unit.armType === 'archer') {
     return ['attack', 'wait']
   }
   if (unit.armType === 'cavalry') {
-    return front ? ['attack', 'wait'] : canSortie(battle, unit) ? ['sortie', 'wait'] : ['wait']
+    return front || exposed
+      ? ['attack', 'wait']
+      : canSortie(battle, unit)
+        ? ['sortie', 'wait']
+        : ['wait']
   }
 
-  return front ? ['attack', 'defend', 'wait'] : ['defend', 'wait']
+  return front || exposed ? ['attack', 'defend', 'wait'] : ['defend', 'wait']
 }
 
 /** 同排的守卫步兵中随机取一名，替被锁定的友军承担这一击。 */
@@ -1373,6 +1383,7 @@ function retire(character: Character): void {
   character.factionId = null
   character.stationedSiteId = null
   character.troops = 0
+  character.isMonarch = false
 }
 
 /** 按战损比例折算实际减员，未折算的部分视为溃散归队；返回实减。 */

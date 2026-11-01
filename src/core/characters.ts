@@ -118,9 +118,9 @@ export function growAges(state: GameState): void {
   }
 }
 
-/** 武力、统率、智谋、内政、忠诚、士气的取值范围。 */
-const STAT_MIN = 0
-const STAT_MAX = 100
+/** 武力、统率、智谋、内政的可强化上限；忠诚始终止于 100。 */
+const ABILITY_MAX = 120
+const LOYALTY_MAX = 100
 
 /** 兵种的取值集合，与战斗引擎的兵种表一致。 */
 const ARM_TYPES = ['infantry', 'archer', 'cavalry'] as const
@@ -182,14 +182,14 @@ export function validateCharacters(
       }
     }
 
-    for (const [label, value] of [
-      ['武力', character.might],
-      ['统率', character.command],
-      ['智谋', character.intellect],
-      ['内政', character.politics],
-      ['忠诚', character.loyalty],
+    for (const [label, value, max] of [
+      ['武力', character.might, ABILITY_MAX],
+      ['统率', character.command, ABILITY_MAX],
+      ['智谋', character.intellect, ABILITY_MAX],
+      ['内政', character.politics, ABILITY_MAX],
+      ['忠诚', character.loyalty, LOYALTY_MAX],
     ] as const) {
-      if (!Number.isInteger(value) || value < STAT_MIN || value > STAT_MAX) {
+      if (!Number.isInteger(value) || value < 0 || value > max) {
         problems.push(`武将 ${character.id} 的${label}超出范围：${value}`)
       }
     }
@@ -234,10 +234,10 @@ export function validateCharacters(
     }
 
     if (character.isMonarch) {
-      if (!isServing(character) || character.factionId === null) {
-        problems.push(`非在仕武将 ${character.id} 不应是君主`)
-      } else {
+      if (isServing(character) && character.factionId !== null) {
         monarchCounts.set(character.factionId, (monarchCounts.get(character.factionId) ?? 0) + 1)
+      } else if (character.status !== 'captured') {
+        problems.push(`非在仕武将 ${character.id} 不应是君主`)
       }
     }
 

@@ -6,6 +6,7 @@ import { fireEvents } from './events'
 import { factionTurnStream, runFactionTurns, type FactionTurnSignal } from './factionAi'
 import { growTroops } from './military'
 import type { FactionId, GameState, Season } from './model'
+import { resolveTemporaryEvents } from './temporaryEvents'
 import { settleOutcome } from './victory'
 
 export type { DefenseRequest, FactionTurnSignal } from './factionAi'
@@ -41,6 +42,7 @@ export function advanceTurn(state: GameState): void {
 
   refreshRoamingSites(state)
   fireEvents(state)
+  resolveTemporaryEvents(state)
   settleGrain(state)
   settleMoney(state)
   growPopulation(state)

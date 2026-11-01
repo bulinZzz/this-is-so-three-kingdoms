@@ -79,14 +79,20 @@ describe('validateCharacters', () => {
   })
 
   it('能力数值超出范围会被指出', () => {
-    expect(validateCharacters([character({ might: 120 })], FACTION_IDS, GEOGRAPHY)).toContain(
-      '武将 a 的武力超出范围：120',
+    expect(validateCharacters([character({ might: 121 })], FACTION_IDS, GEOGRAPHY)).toContain(
+      '武将 a 的武力超出范围：121',
     )
     expect(validateCharacters([character({ loyalty: 0.5 })], FACTION_IDS, GEOGRAPHY)).toContain(
       '武将 a 的忠诚超出范围：0.5',
     )
-    expect(validateCharacters([character({ politics: 120 })], FACTION_IDS, GEOGRAPHY)).toContain(
-      '武将 a 的内政超出范围：120',
+    expect(validateCharacters([character({ politics: 121 })], FACTION_IDS, GEOGRAPHY)).toContain(
+      '武将 a 的内政超出范围：121',
+    )
+  })
+
+  it('强化后的能力到 120 仍属合法', () => {
+    expect(validateCharacters([character({ might: 120, politics: 120 })], FACTION_IDS, GEOGRAPHY)).toEqual(
+      [],
     )
   })
 

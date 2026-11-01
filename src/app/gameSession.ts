@@ -96,6 +96,8 @@ export class GameSession {
   private readonly startupNotice: string
   /** 上一次手动读档失败的原因；成功或空槽位时清空。 */
   private lastLoadProblem = ''
+  /** 是否检测到其他标签页写过同一份存档；检测到后本页不再写入。 */
+  private externalConflict = false
 
   constructor(
     private readonly saveStore: SaveStore = new LocalSaveStore(),
@@ -129,9 +131,28 @@ export class GameSession {
     return this.lastLoadProblem
   }
 
+  /** 是否检测到其他标签页更新了同一份存档。 */
+  hasExternalConflict(): boolean {
+    return this.externalConflict
+  }
+
+  /**
+   * 其他标签页写入了存档：本页可能已过期，从此不再覆盖对方进度。
+   * 玩家可重新读档或新开一局来解除。
+   */
+  markExternalSaveChange(): void {
+    if (this.externalConflict) {
+      return
+    }
+    this.externalConflict = true
+    this.autoSaveFailed = true
+    this.notify()
+  }
+
   /** 用指定剧本重开一局：重置对局并写入自动存档，覆盖当前进度；手动槽位不受影响。种子仅供测试复现。 */
   newGame(scenario: Scenario, seed?: number): void {
     this.state = createInitialState({ scenario, seed })
+    this.externalConflict = false
     this.drawRandom = this.createDrawRandom()
     this.saveAuto()
     this.notify()
@@ -369,6 +390,10 @@ export class GameSession {
 
   /** 存入手动槽位；存储不可用时返回 false，由界面如实提示。 */
   saveToSlot(slot: number): boolean {
+    if (this.externalConflict) {
+      return false
+    }
+
     const saved = this.saveStore.save(slotKey(slot), this.state)
     this.notify()
 
@@ -418,14 +443,21 @@ export class GameSession {
 
     this.state = result.state
     this.lastLoadProblem = ''
+    this.externalConflict = false
+    this.autoSaveFailed = false
     this.drawRandom = this.createDrawRandom()
     this.notify()
 
     return true
   }
 
-  /** 写入自动存档并记下成败；存储不可用时对局照常，只是这一份进度没能落盘。 */
+  /** 写入自动存档并记下成败；存储不可用或检出多标签页冲突时，不覆盖已有存档。 */
   private saveAuto(): void {
+    if (this.externalConflict) {
+      this.autoSaveFailed = true
+      return
+    }
+
     this.autoSaveFailed = !this.saveStore.save(AUTO_SAVE_KEY, this.state)
   }
 

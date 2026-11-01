@@ -30,7 +30,6 @@ import {
   stationedAt,
   targetsFor,
   WAIT_PROGRESS,
-  SORTIE_PROGRESS,
   type BattleState,
 } from '../src/core/battle'
 import { createInitialState } from '../src/core/createInitialState'
@@ -784,7 +783,7 @@ describe('交锋', () => {
     )
   })
 
-  it('后排骑兵须先出击；弓手在后排可直接射击且无自损', () => {
+  it('前排有友军时后排骑兵须先出击；前排被击溃后可直接攻击', () => {
     const state = scene({
       attackerTroops: 5000,
       defenderTroops: 5000,
@@ -819,22 +818,26 @@ describe('交锋', () => {
     expect(resolveAction(battle, { characterId: 'a2', kind: 'attack' })).toBeNull()
     expect(resolveAction(battle, { characterId: 'a2', kind: 'sortie' })).toBeNull()
 
-    // 前排被击溃后可以出击：移入正前方，不占行动次数，条子落到三成。
+    // 前排被击溃后，后排就是第一排：直接攻击，不再要求先出击。
     const front = battle.attacker.units.find((unit) => unit.characterId === 'attacker')
     if (front === undefined) {
       throw new Error('缺少前排')
     }
     front.battleTroops = 0
     front.exited = true
-    expect(ordersFor(battle, horse)).toEqual(['sortie', 'wait'])
+    expect(ordersFor(battle, horse)).toEqual(['attack', 'wait'])
+    expect(ordersFor(battle, horse)).not.toContain('sortie')
+    expect(targetsFor(battle, horse).map((unit) => unit.name)).toEqual(['守将'])
 
     horse.progress = 100
-    const sortie = resolveAction(battle, { characterId: 'a2', kind: 'sortie' })
-    expect(sortie?.kind).toBe('sortie')
-    expect(horse.slot).toBe(0)
-    expect(front.slot).toBe(3)
-    expect(sortie?.actorProgress).toBe(SORTIE_PROGRESS)
-    expect(battle.actionsUsed).toBe(0)
+    const attack = resolveAction(battle, {
+      characterId: 'a2',
+      kind: 'attack',
+      targetId: 'defender',
+    })
+    expect(attack?.kind).toBe('attack')
+    expect(attack?.damage).toBeGreaterThan(0)
+    expect(battle.actionsUsed).toBe(1)
 
     // 换成弓手，便可在后排直接射向前排，且不承担反伤。
     const archer = scene({
@@ -874,6 +877,48 @@ describe('交锋', () => {
     expect(shot?.selfLoss).toBe(0)
     expect(bow.battleTroops).toBe(before)
     expect(archerResult.battle.actionsUsed).toBe(1)
+  })
+
+  it('前排三队全被击溃后，后排骑兵直接攻击而不是出击', () => {
+    const state = scene({
+      extraAttackers: [
+        { id: 'f2', troops: 5000 },
+        { id: 'f3', troops: 5000 },
+        { id: 'rear-cav', troops: 5000, armType: 'cavalry' },
+      ],
+    })
+    const battle = opened(state, 'b', ['attacker', 'f2', 'f3', 'rear-cav'], {
+      autoDefender: false,
+    })
+    deployDefenders(battle, state, autoDeployment(['defender']))
+
+    for (const unit of battle.attacker.units) {
+      if (unit.slot < 3) {
+        unit.battleTroops = 0
+        unit.exited = true
+      }
+    }
+
+    const horse = battle.attacker.units.find((unit) => unit.characterId === 'rear-cav')
+    if (horse === undefined) {
+      throw new Error('缺少后排骑兵')
+    }
+    battle.activeUnitId = horse.characterId
+
+    expect(ordersFor(battle, horse)).toEqual(['attack', 'wait'])
+    expect(ordersFor(battle, horse)).not.toContain('sortie')
+    expect(targetsFor(battle, horse).map((unit) => unit.name)).toEqual(['守将'])
+
+    horse.progress = 100
+    const attack = resolveAction(battle, {
+      characterId: horse.characterId,
+      kind: 'attack',
+      targetId: 'defender',
+    })
+
+    expect(attack?.kind).toBe('attack')
+    expect(attack?.damage).toBeGreaterThan(0)
+    expect(battle.actionsUsed).toBe(1)
   })
 
   it('兵种指令随兵种与站位而定', () => {
@@ -934,7 +979,7 @@ describe('交锋', () => {
     expect(battle.actionsUsed).toBe(0)
   })
 
-  it('双方都只剩后排步兵时，谁也够不着谁，守方守住', () => {
+  it('双方前排都空了时，后排步兵直接交锋', () => {
     const state = scene({
       extraAttackers: [{ id: 'rear', troops: 5000 }],
       extraDefenders: [{ id: 'd2', troops: 5000 }],
@@ -964,12 +1009,19 @@ describe('交锋', () => {
     if (rear === undefined) {
       throw new Error('缺少后排')
     }
-    battle.activeUnitId = rear.characterId
-    resolveAction(battle, { characterId: rear.characterId, kind: 'wait' })
+    expect(targetsFor(battle, rear).map((unit) => unit.name)).toEqual(['守将d2'])
+    expect(ordersFor(battle, rear)).toEqual(['attack', 'defend', 'wait'])
 
-    expect(battle.finished).toBe(true)
-    expect(battle.attackerWins).toBe(false)
-    expect(battle.actionsUsed).toBe(0)
+    battle.activeUnitId = rear.characterId
+    const event = resolveAction(battle, {
+      characterId: rear.characterId,
+      kind: 'attack',
+      targetId: 'd2',
+    })
+
+    expect(event?.kind).toBe('attack')
+    expect(event?.damage).toBeGreaterThan(0)
+    expect(battle.actionsUsed).toBe(1)
   })
 
   it('活动范围只约束他方：玩家候选不受清单限制，他方仍受限', () => {

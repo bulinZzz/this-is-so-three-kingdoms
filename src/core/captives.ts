@@ -121,6 +121,7 @@ export function becomeWild(state: GameState, character: Character): void {
   character.stationedSiteId = null
   character.troops = 0
   character.loyalty = 0
+  character.isMonarch = false
   if (factionId !== null) {
     settleWildInProvince(
       state,
@@ -277,6 +278,7 @@ export function executeCaptive(
       character.factionId = null
       character.stationedSiteId = null
       character.troops = 0
+      character.isMonarch = false
 
       return { targetId: character.id, outcome: `斩杀俘虏 ${character.name}` }
     },
