@@ -28,7 +28,7 @@ export const SANGUO_208: Scenario = {
     { id: 'mateng', name: '马腾', color: '#c26a33', grain: 6000, money: 3000 },
     { id: 'jingnan', name: '荆南', color: '#5b7689', grain: 8000, money: 5000 },
     { id: 'shixie', name: '士燮', color: '#a55077', grain: 6000, money: 3500 },
-    { id: 'gongsunkang', name: '公孙康', color: '#2f8a82', grain: 5000, money: 3000 },
+    { id: 'gongsunkang', name: '公孙康', color: '#2f8f9e', grain: 5000, money: 3000 },
     { id: 'nanman', name: '南蛮', color: '#7d5630', grain: 10000, money: 6000 },
   ],
   // 开局无战事：孙刘交好但未结盟，其余势力对一律中立，战火由玩家的宣战点燃。

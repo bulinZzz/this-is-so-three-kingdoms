@@ -5,6 +5,7 @@ import type { GameState, Site, SiteId, SiteType } from '../../core/model'
 import { SITE_COORDINATES } from '../mapData'
 import {
   landShapes,
+  projectLonLat,
   provinceShapes,
   riverShapes,
   SEA_COLOR,
@@ -19,7 +20,6 @@ import {
   clampScroll,
   clampZoom,
   coverZoom,
-  fitZoom,
   scrollForCenter,
   zoomLimits,
   type Scroll,
@@ -32,15 +32,14 @@ export interface MapStateSource {
   subscribe(listener: (state: GameState) => void): void
 }
 
-/** 开局视野对准玩家所在的战略点，坐标直接取自战略点数据，不另存一份。 */
-const FOCUS_SITE: SiteId = 'gongan'
 /**
- * 开局缩放相对「整幅可见」的倍数。
- * 开局视野以整幅可见为基准，再夹进铺满视口的缩放范围。
- * 2.6 相当于从整幅可见连续放大六七格滚轮（1.15^6 约 2.31，1.15^7 约 2.66），
- * 让荆州一带的城池与邻接关系占满视野，而不是一上来就读整幅天下。
+ * 开局视野的南北界：北起宛城，南到桂阳。
+ * 这一段覆盖刘备所在的荆州与中原南缘；两界之外再留一成余量，
+ * 让玩家一眼看见自己的地盘，同时不至于一上来就读整幅天下。
  */
-const INITIAL_ZOOM_FACTOR = 2.6
+const INITIAL_VIEW_NORTH: SiteId = 'wancheng'
+const INITIAL_VIEW_SOUTH: SiteId = 'guiyang'
+const INITIAL_VIEW_MARGIN = 1.18
 /** 滚轮每格的缩放倍率。 */
 const WHEEL_ZOOM_STEP = 1.15
 
@@ -361,8 +360,9 @@ function drawSiteMarker(
     graphics.fillCircle(x, y, extent + 5)
   }
 
-  paintSilhouette(graphics, type, x, y, extent, color, type === 'field' ? 0.5 : 1)
-  strokeSilhouette(graphics, type, x, y, extent, MARKER_GLYPH_COLOR, type === 'field' ? 0.6 : 0.45, 1.2)
+  // 归属色不因类型而变淡：野地与城池同一底色，类型只由形制与图形区分。
+  paintSilhouette(graphics, type, x, y, extent, color, 1)
+  strokeSilhouette(graphics, type, x, y, extent, MARKER_GLYPH_COLOR, 0.45, 1.2)
 
   // 图形外先套一圈放大的暗色，等于给图形描边：金、橙一类浅势力色上也读得清。
   paintGlyph(graphics, type, x, y, extent * 1.18, MARKER_GLYPH_SHADE, 0.62)
@@ -438,7 +438,7 @@ export class MapScene extends Phaser.Scene {
     this.focusInitialView()
   }
 
-  /** 把视野对准玩家所在的战略点，缩放为整幅可见的若干倍，并夹进铺满视口的范围。 */
+  /** 把视野对准荆州一带：南北界取宛城与桂阳，按视口高度换算缩放，再夹进允许的范围。 */
   private focusInitialView(): void {
     const camera = this.cameras.main
     const limits = this.limitsFor(camera.width, camera.height)
@@ -446,11 +446,23 @@ export class MapScene extends Phaser.Scene {
       return
     }
     this.limits = limits
-    const fit = fitZoom(camera.width, camera.height, WORLD_WIDTH, WORLD_HEIGHT)
-    const zoom = clampZoom(fit * INITIAL_ZOOM_FACTOR, limits)
+
+    const [northLon, northLat] = SITE_COORDINATES[INITIAL_VIEW_NORTH]
+    const [southLon, southLat] = SITE_COORDINATES[INITIAL_VIEW_SOUTH]
+    const north = projectLonLat([northLon, northLat])
+    const south = projectLonLat([southLon, southLat])
+    const span = Math.abs(south.y - north.y) * INITIAL_VIEW_MARGIN
+    const zoom = clampZoom(camera.height / span, limits)
     camera.setZoom(zoom)
-    const [lon, lat] = SITE_COORDINATES[FOCUS_SITE]
-    this.applyScroll(scrollForCenter(lon, lat, zoom, camera.width, camera.height))
+    this.applyScroll(
+      scrollForCenter(
+        (northLon + southLon) / 2,
+        (northLat + southLat) / 2,
+        zoom,
+        camera.width,
+        camera.height,
+      ),
+    )
   }
 
   /**
