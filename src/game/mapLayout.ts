@@ -33,9 +33,6 @@ export interface ProvinceShape {
 
 export const SITE_RADIUS = 11
 
-/** 名称标注在圆下方的间距。 */
-export const SITE_LABEL_OFFSET = 4
-
 /** 无归属战略点的颜色，地图与侧栏图例共用这一处定义。 */
 export const UNOWNED_SITE_COLOR = '#95886e'
 
