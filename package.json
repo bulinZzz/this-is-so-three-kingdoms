@@ -1,7 +1,8 @@
 {
   "name": "this-is-so-three-kingdoms",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "phaser": "^4.2.1"

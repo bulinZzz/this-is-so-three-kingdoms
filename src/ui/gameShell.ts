@@ -94,7 +94,7 @@ import {
 import { defectThresholdFor, loyaltyHint } from '../core/loyalty'
 import type { DefenseRequest, FactionTurnSignal } from '../core/turn'
 import { SLOT_COUNT, type SaveSummary } from '../core/saveStore'
-import { SANGUO_208, SCENARIOS } from '../core/scenarios'
+import { PLAYABLE_SCENARIOS, SANGUO_208 } from '../core/scenarios'
 import { hireCost } from '../core/seekTalent'
 import {
   amountRange,
@@ -3037,7 +3037,7 @@ function renderSlots(list: Element, session: GameSession, readOnly = false): voi
 /** 剧本列表：名称与规模，点「开始」即按该剧本重开一局。 */
 function renderScenarioList(list: Element): void {
   list.replaceChildren(
-    ...SCENARIOS.map((scenario) => {
+    ...PLAYABLE_SCENARIOS.map((scenario) => {
       const item = document.createElement('li')
       item.className = 'scenario'
 
@@ -4580,7 +4580,7 @@ export function mountGameShell(
       return
     }
 
-    const scenario = SCENARIOS.find((item) => item.id === scenarioId)
+    const scenario = PLAYABLE_SCENARIOS.find((item) => item.id === scenarioId)
     if (scenario === undefined) {
       return
     }

@@ -131,5 +131,8 @@ export const SANGUO_ACCEPTANCE: Scenario = {
   ],
 }
 
-/** 可供开局选择的剧本。 */
+/** 可供开局选择的剧本。荆扬一隅是验收夹具，只供无画面推演与测试，不对玩家开放。 */
 export const SCENARIOS: readonly Scenario[] = [SANGUO_208, SANGUO_ACCEPTANCE]
+
+/** 玩家可在「新游戏」中选到的剧本。 */
+export const PLAYABLE_SCENARIOS: readonly Scenario[] = [SANGUO_208]
